@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -q 'docs/plans/.*/plan\\.md'; then bin/preflight \"$(git branch --show-current)\" --gate; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -775,3 +775,28 @@ describe("워크플로우 산출 형식 왕복", () => {
     expect(r.verdict).toBe("REJECTED");
   });
 });
+
+describe("훅과 스킬 배선 (Task 13)", () => {
+  test("훅이 PostToolUse 다 — 쓰기를 막지 않는다 (설계 D23)", () => {
+    const s = JSON.parse(readFileSync(".claude/settings.json", "utf8"));
+    expect(s.hooks?.PostToolUse).toBeDefined();
+    expect(s.hooks?.PreToolUse).toBeUndefined();
+    expect(JSON.stringify(s.hooks.PostToolUse)).toContain("--gate");
+  });
+
+  test("스킬이 네 모드를 순서대로 지시한다", () => {
+    const md = readFileSync(".claude/skills/preflight/SKILL.md", "utf8");
+    const order = ["--plan", "Workflow", "--record", "--apply"];
+    let cursor = -1;
+    for (const token of order) {
+      const at = md.indexOf(token, cursor + 1);
+      expect(at).toBeGreaterThan(cursor);
+      cursor = at;
+    }
+  });
+
+  test("스킬에 일괄 승인 금지가 명시돼 있다 (D13)", () => {
+    const md = readFileSync(".claude/skills/preflight/SKILL.md", "utf8");
+    expect(md).toContain("일괄");
+  });
+});
