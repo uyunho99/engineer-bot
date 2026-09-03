@@ -36,7 +36,11 @@
 
 **Interfaces:**
 - Consumes: `ParsedTask` (기존 — `controller/contract.ts` 의 `parseTasks` 가 반환. 플랜 내 태스크가 아니므로 `from` 절을 쓰지 않는다)
-- Produces: `parseFiles(body: string): TaskFiles`, `parseInterfaces(body: string): TaskInterfaces`, `interface TaskFiles { create: string[]; modify: string[]; test: string[] }`, `interface TaskInterfaces { consumes: ConsumeRef[]; produces: string[] }`, `interface ConsumeRef { symbol: string; fromTask: string | null }`
+- Produces: `parseFiles(body: string): TaskFiles`
+- Produces: `parseInterfaces(body: string): TaskInterfaces`
+- Produces: `interface TaskFiles { create: string[]; modify: string[]; test: string[] }`
+- Produces: `interface TaskInterfaces { consumes: ConsumeRef[]; produces: string[] }`
+- Produces: `interface ConsumeRef { symbol: string; fromTask: string | null }`
 
 **테스트로 증명할 것:**
 - [ ] `**Files:**` 아래 `- Create: \`a.ts\`` 를 `create: ["a.ts"]` 로 뽑는다 (백틱 제거)
@@ -139,7 +143,7 @@ describe("parseInterfaces", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/contract.test.ts`
+Run: `bun run typecheck && bun test controller/contract.test.ts`
 Expected: FAIL — `parseFiles is not a function` / `parseInterfaces is not a function`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -237,7 +241,7 @@ export function parseInterfaces(body: string): TaskInterfaces {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun test controller/contract.test.ts`
+Run: `bun run typecheck && bun test controller/contract.test.ts`
 Expected: PASS — 새 테스트 전부 통과, 기존 테스트도 전부 통과
 
 - [ ] **Step 5: Commit**
@@ -261,7 +265,10 @@ git commit -m "feat(contract): **Files:** / **Interfaces:** 파싱 (설계 D6)"
 **Interfaces:**
 - Consumes: `parseFiles(body: string): TaskFiles` from Task 1
 - Consumes: `parseInterfaces(body: string): TaskInterfaces` from Task 1
-- Produces: `checkPlan(planText: string): Violation[]` (기존 함수에 규칙 추가 — 시그니처 불변)
+- Produces: `checkPlan(planText: string): Violation[]`
+
+> `checkPlan` 은 기존 함수다. 규칙을 추가하며 **시그니처는 바뀌지 않는다.**
+> (산문을 `- Produces:` 줄에 붙이지 마라 — 파서가 심볼에 이어붙인다)
 
 **테스트로 증명할 것:**
 - [ ] `**Files:**` 섹션이 없는 태스크에 `error` 위반이 하나 생긴다
@@ -347,7 +354,7 @@ describe("checkPlan — Files/Interfaces 필수 (설계 D6)", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/contract.test.ts`
+Run: `bun run typecheck && bun test controller/contract.test.ts`
 Expected: FAIL — 새 테스트가 실패한다 (`checkPlan`이 아직 Files/Interfaces 를 안 본다). 픽스처 수정 후에는 기존 `GOOD_PLAN` 테스트도 잠시 실패할 수 있다.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -384,7 +391,7 @@ Expected: FAIL — 새 테스트가 실패한다 (`checkPlan`이 아직 Files/In
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun test`
+Run: `bun run typecheck && bun test`
 Expected: PASS — 전부 통과. 픽스처 수정으로 기존 테스트도 되살아난다.
 
 - [ ] **Step 5: Commit**
@@ -409,7 +416,12 @@ git commit -m "feat(contract): Files/Interfaces 를 계약 필수 항목으로 (
 - Consumes: `BuildResult` (기존 — `controller/contract.ts`)
 - Consumes: `ContractPaths` (기존 — `controller/paths.ts`)
 - Produces: `Violation` (기존 타입의 `file` 유니온을 넓힌다 — 아래 참조)
-- Produces: `interface BuildDefect { task_id: string; plan_text: string; conflict: string; suggested_fix?: string }`, `interface FixPatch { op: "insert_after" | "replace"; task_id: string; anchor: string; text: string }`, `interface PreflightDefect { id: string; kind: DefectKind; task_ids: [string, string, ...string[]]; relation?: string; plan_text: string; conflict: string; patch?: FixPatch; stage: 1 | 2 }`, `type DefectKind = "dangling_ref" | "order_violation" | "signature_mismatch" | "undeclared_conflict"`, `ContractPaths.preflight: string`, `ContractPaths.preflightRaw: string`
+- Produces: `interface BuildDefect { task_id: string; plan_text: string; conflict: string; suggested_fix?: string }`
+- Produces: `interface FixPatch { op: "insert_after" | "replace"; task_id: string; anchor: string; text: string }`
+- Produces: `interface PreflightDefect { id: string; kind: DefectKind; task_ids: [string, string, ...string[]]; relation?: string; plan_text: string; conflict: string; patch?: FixPatch; stage: 1 | 2 }`
+- Produces: `type DefectKind = "dangling_ref" | "order_violation" | "signature_mismatch" | "undeclared_conflict"`
+- Produces: `ContractPaths.preflight: string`
+- Produces: `ContractPaths.preflightRaw: string`
 
 **테스트로 증명할 것:**
 - [ ] `contractPaths()` 가 `preflight` 를 `<planDir>/preflight.json` 으로 만든다
@@ -450,7 +462,7 @@ test("contractPaths 가 preflight 경로 두 개를 만든다", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/contract.test.ts`
+Run: `bun run typecheck && bun test controller/contract.test.ts`
 Expected: FAIL — `p.preflight` 가 `undefined`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -571,9 +583,10 @@ git commit -m "feat(contract): BuildDefect/PreflightDefect/FixPatch 명명 + pre
 
 **Interfaces:**
 - Consumes: `parseInterfaces(body: string): TaskInterfaces` from Task 1
-- Consumes: `ConsumeRef` from Task 1
 - Consumes: `ParsedTask` (기존 — `controller/contract.ts`)
-- Produces: `buildRelationGraph(tasks: ParsedTask[]): RelationGraph`, `interface RelationGraph { nodes: Map<string, TaskInterfaces>; order: string[]; relations: Relation[] }`, `interface Relation { consumer: string; symbol: string; declaredFrom: string | null }`
+- Produces: `buildRelationGraph(tasks: ParsedTask[]): RelationGraph`
+- Produces: `interface RelationGraph { nodes: Map<string, TaskInterfaces>; order: string[]; relations: Relation[] }`
+- Produces: `interface Relation { consumer: string; symbol: string; declaredFrom: string | null }`
 
 **테스트로 증명할 것:**
 - [ ] 태스크 3개의 `Interfaces` 가 `nodes` 에 태스크 id 로 들어간다
@@ -660,7 +673,7 @@ describe("buildRelationGraph", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: FAIL — `Cannot find module './preflight'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -687,7 +700,9 @@ Expected: FAIL — `Cannot find module './preflight'`
  *                  (결함 확정)      (결함 확정)     (2단계로 넘김)
  */
 
-import type { ConsumeRef, ParsedTask, TaskInterfaces } from "./contract";
+// ConsumeRef 를 import 하지 마라 — 이 파일은 `ifaces.consumes` 의 원소 타입을
+// 추론에 맡기고 이름으로 붙들지 않는다. noUnusedLocals: true 에 걸린다 (TS6196).
+import type { ParsedTask, TaskInterfaces } from "./contract";
 import { parseInterfaces } from "./contract";
 
 /** 하나의 선언된 의존. 커버리지의 단위다 (설계 D25) */
@@ -725,7 +740,7 @@ export function buildRelationGraph(tasks: ParsedTask[]): RelationGraph {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -750,7 +765,10 @@ git commit -m "feat(preflight): 선언된 관계 그래프 (설계 §6.2 1단계
 - Consumes: `Relation` from Task 4
 - Consumes: `PreflightDefect` from Task 3
 - Consumes: `DefectKind` from Task 3
-- Produces: `danglingRefs(g: RelationGraph): PreflightDefect[]`, `orderViolations(g: RelationGraph): PreflightDefect[]`, `signatureCandidates(g: RelationGraph): PreflightDefect[]`, `stage1Defects(g: RelationGraph): PreflightDefect[]`
+- Produces: `danglingRefs(g: RelationGraph): PreflightDefect[]`
+- Produces: `orderViolations(g: RelationGraph): PreflightDefect[]`
+- Produces: `signatureCandidates(g: RelationGraph): PreflightDefect[]`
+- Produces: `stage1Defects(g: RelationGraph): PreflightDefect[]`
 
 **테스트로 증명할 것:**
 - [ ] `X from Task 1` 을 소비하는데 Task 1 의 `Produces` 에 X 가 없으면 `dangling_ref` 결함이 하나 생긴다
@@ -849,6 +867,22 @@ describe("signatureCandidates", () => {
     expect(d[0].stage).toBe(2);
   });
 
+  test("타입을 이름으로 소비하면 후보가 아니다 — 서명을 주장하지 않았다", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Produces: `interface Foo { a: string }`"]),
+      task(2, ["- Consumes: `Foo` from Task 1"]),
+    ));
+    expect(signatureCandidates(g)).toEqual([]);
+  });
+
+  test("그래도 실제 불일치는 여전히 후보가 된다 — 위 규칙이 삼키지 않는다", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Produces: `f(): string[]`"]),
+      task(2, ["- Consumes: `f(): Keyword[]` from Task 1"]),
+    ));
+    expect(signatureCandidates(g)).toHaveLength(1);
+  });
+
   test("서명이 같으면 후보가 없다", () => {
     const g = graphOf(planOf(
       task(1, ["- Produces: `f(): string[]`"]),
@@ -915,7 +949,7 @@ describe("stage1Defects", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: FAIL — `danglingRefs is not a function`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1006,6 +1040,11 @@ export function signatureCandidates(g: RelationGraph): PreflightDefect[] {
     const match = src.produces.find((p) => symbolName(p) === want);
     if (!match) return;
     if (match.trim() === r.symbol.trim()) return;
+    // 소비 쪽이 **맨 심볼 이름만** 적었으면 서명을 주장하지 않은 것이다 —
+    // `Consumes: \`Foo\`` 와 `Produces: \`interface Foo { ... }\`` 는 불일치가 아니다.
+    // 이 줄이 없으면 타입을 이름으로 소비하는 정상 선언이 전부 후보가 된다
+    // (2026-09-03 봇 실측: 이 플랜 한 건에서 오탐 후보 19건).
+    if (r.symbol.trim() === want) return;
     out.push({
       id: `sig-${r.consumer}-${i}`,
       kind: "signature_mismatch",
@@ -1029,7 +1068,7 @@ export function stage1Defects(g: RelationGraph): PreflightDefect[] {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1052,7 +1091,8 @@ git commit -m "feat(preflight): 1단계 결함 검출 — 매달린 참조·순�
 **Interfaces:**
 - Consumes: `parseFiles(body: string): TaskFiles` from Task 1
 - Consumes: `ParsedTask` (기존 — `controller/contract.ts`)
-- Produces: `overlappingPairs(tasks: ParsedTask[]): FilePair[]`, `interface FilePair { a: string; b: string; sharedFiles: string[] }`
+- Produces: `overlappingPairs(tasks: ParsedTask[]): FilePair[]`
+- Produces: `interface FilePair { a: string; b: string; sharedFiles: string[] }`
 
 **테스트로 증명할 것:**
 - [ ] 같은 파일을 `Create`/`Modify` 하는 두 태스크가 짝으로 나온다
@@ -1129,7 +1169,7 @@ describe("overlappingPairs", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: FAIL — `overlappingPairs is not a function`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1170,7 +1210,7 @@ export function overlappingPairs(tasks: ParsedTask[]): FilePair[] {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1194,7 +1234,10 @@ git commit -m "feat(preflight): 파일 겹침 짝 (2단계 검사 단위)"
 - Consumes: `RelationGraph` from Task 4
 - Consumes: `Relation` from Task 4
 - Consumes: `PreflightDefect` from Task 3
-- Produces: `relationCoverage(g: RelationGraph, examinedStage2: string[], failed: string[]): RelationCoverage`, `interface RelationCoverage { declared: number; examined_stage1: number; examined_stage2: number; not_examined: string[] }`, `preflightVerdict(defects: PreflightDefect[], coverage: RelationCoverage): Verdict`, `type Verdict = "CLEAN" | "REJECTED"`
+- Produces: `relationCoverage(g: RelationGraph, examinedStage2: string[], failed: string[]): RelationCoverage`
+- Produces: `interface RelationCoverage { declared: number; examined_stage1: number; examined_stage2: number; not_examined: string[] }`
+- Produces: `preflightVerdict(defects: PreflightDefect[], coverage: RelationCoverage): Verdict`
+- Produces: `type Verdict = "CLEAN" | "REJECTED"`
 
 **테스트로 증명할 것:**
 - [ ] `declared` 가 그래프의 `relations` 개수와 같다
@@ -1262,7 +1305,7 @@ describe("preflightVerdict", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: FAIL — `relationCoverage is not a function`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1316,7 +1359,7 @@ export function preflightVerdict(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1340,7 +1383,10 @@ git commit -m "feat(preflight): 관계 단위 커버리지 + 판정 (설계 D25)
 - Consumes: `PreflightDefect` from Task 3
 - Consumes: `CheckResult` (기존 — `controller/contract.ts`)
 - Consumes: `Violation` (기존 — `controller/contract.ts`)
-- Produces: `checkPreflightRaw(raw: string, planSha256: string): CheckResult & { data?: PreflightRaw }`, `interface PreflightRaw { schema: number; plan_sha256: string; stage1: RawStage; stage2: RawStage2; critic?: { additional_defects: PreflightDefect[] } }`, `interface RawStage { relations_declared: number; defects: PreflightDefect[] }`, `interface RawStage2 { units_examined: string[]; units_failed: string[]; defects: PreflightDefect[] }`
+- Produces: `checkPreflightRaw(raw: string, planSha256: string): CheckResult & { data?: PreflightRaw }`
+- Produces: `interface PreflightRaw { schema: number; plan_sha256: string; stage1: RawStage; stage2: RawStage2; critic?: { additional_defects: PreflightDefect[] } }`
+- Produces: `interface RawStage { relations_declared: number; defects: PreflightDefect[] }`
+- Produces: `interface RawStage2 { units_examined: string[]; units_failed: string[]; defects: PreflightDefect[] }`
 
 > 설계 D11(스키마 검증 · 실패는 `BLOCKED`)의 구현이다. `contract.ts` 의 `checkBuildResult` 와
 > 같은 패턴을 따른다 — 이 레포에서 외부 경계를 검증하는 방식은 하나다.
@@ -1427,7 +1473,7 @@ describe("checkPreflightRaw", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: FAIL — `checkPreflightRaw is not a function`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1462,7 +1508,12 @@ function checkDefectShape(d: unknown, where: string, v: Violation[]): void {
   const o = d as Record<string, unknown>;
   const bad = (m: string) =>
     v.push({ severity: "error", file: "preflight-raw.json", rule: "D27", message: `${where}: ${m}` });
-  if (!o || typeof o !== "object") return bad("결함 항목이 객체가 아닙니다");
+  // `v.push()` 는 number 를 반환하므로 `return bad(...)` 는 `: void` 선언과
+  // 충돌한다 (TS2322). 조기 반환은 두 줄로 쓴다.
+  if (!o || typeof o !== "object") {
+    bad("결함 항목이 객체가 아닙니다");
+    return;
+  }
   if (typeof o.id !== "string" || !o.id) bad("id 가 없습니다");
   if (typeof o.kind !== "string" || !KINDS.has(o.kind)) bad(`kind 가 유효하지 않습니다: ${String(o.kind)}`);
   if (!Array.isArray(o.task_ids) || o.task_ids.length < 2) {
@@ -1528,7 +1579,7 @@ export function checkPreflightRaw(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1555,7 +1606,11 @@ git commit -m "feat(preflight): 워크플로우 산출 스키마 검증 — 실�
 - Consumes: `RelationGraph` from Task 4
 - Consumes: `FilePair` from Task 6
 - Consumes: `PreflightDefect` from Task 3
-- Produces: `assembleResult(input: AssembleInput): PreflightResult`, `interface PreflightResult { schema: 1; branch: string; plan_sha256: string; scope: string; verdict: Verdict; relations: RelationCoverage; examined: ExaminedUnit[]; defects: PreflightDefect[]; applied: AppliedEntry[] }`, `interface AppliedEntry { defect_id: string; at: string; sha256_before: string; sha256_after: string }`, `interface ExaminedUnit { kind: "relation" | "pair" | "cluster"; label: string; task_ids: string[]; result: "clean" | "defect" }`, `interface AssembleInput { branch: string; planSha256: string; raw: PreflightRaw; graph: RelationGraph; pairs: FilePair[]; previousApplied: AppliedEntry[]; now: string }`
+- Produces: `assembleResult(input: AssembleInput): PreflightResult`
+- Produces: `interface PreflightResult { schema: 1; branch: string; plan_sha256: string; scope: string; verdict: Verdict; relations: RelationCoverage; examined: ExaminedUnit[]; defects: PreflightDefect[]; applied: AppliedEntry[] }`
+- Produces: `interface AppliedEntry { defect_id: string; at: string; sha256_before: string; sha256_after: string }`
+- Produces: `interface ExaminedUnit { kind: "relation" | "pair" | "cluster"; label: string; task_ids: string[]; result: "clean" | "defect" }`
+- Produces: `interface AssembleInput { branch: string; planSha256: string; raw: PreflightRaw; graph: RelationGraph; pairs: FilePair[]; previousApplied: AppliedEntry[]; now: string }`
 
 > 설계 D9(결과가 "검사하지 않은 것"을 담는다) · D15(무엇을 적용했는지 남긴다) · D29(재검사를
 > 넘어 살아남는다)의 구현이다.
@@ -1651,7 +1706,7 @@ describe("assembleResult", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: FAIL — `assembleResult is not a function`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1748,7 +1803,7 @@ export function assembleResult(input: AssembleInput): PreflightResult {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1772,7 +1827,9 @@ git commit -m "feat(preflight): 결과 조립 + applied 누적 (설계 D29)"
 - Consumes: `FixPatch` from Task 3
 - Consumes: `ParsedTask` (기존 — `controller/contract.ts`)
 - Consumes: `parseTasks(planText: string): ParsedTask[]` (기존 — `controller/contract.ts`)
-- Produces: `findFixSites(planText: string, patch: FixPatch): number[]`, `applyPatch(planText: string, patch: FixPatch, siteIndex?: number): ApplyOutcome`, `type ApplyOutcome = { status: "applied"; text: string } | { status: "not_found" } | { status: "ambiguous"; sites: number[] }`
+- Produces: `findFixSites(planText: string, patch: FixPatch): number[]`
+- Produces: `applyPatch(planText: string, patch: FixPatch, siteIndex?: number): ApplyOutcome`
+- Produces: `type ApplyOutcome = { status: "applied"; text: string } | { status: "not_found" } | { status: "ambiguous"; sites: number[] }`
 
 **테스트로 증명할 것:**
 - [ ] 앵커가 대상 태스크 본문에 한 번 있으면 `applied` 이고 텍스트가 바뀐다
@@ -1923,7 +1980,7 @@ describe("applyPatch", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: FAIL — `findFixSites is not a function`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -2008,7 +2065,7 @@ export function applyPatch(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -2037,7 +2094,9 @@ git commit -m "feat(preflight): 패치 적용 — 태스크 범위 앵커, 0/1/2
 - Consumes: `assembleResult(input: AssembleInput): PreflightResult` from Task 9
 - Consumes: `applyPatch(planText: string, patch: FixPatch, siteIndex?: number): ApplyOutcome` from Task 10
 - Consumes: `ContractPaths` from Task 3
-- Produces: `gateDecision(input: GateInput): GateOutcome`, `interface GateInput { planExists: boolean; planSha256: string; previous: PreflightResult | null; contractOk: boolean }`, `type GateOutcome = { action: "skip"; reason: string } | { action: "run"; reason: string } | { action: "cached"; reason: string }`, CLI: `bin/preflight <branch> --gate|--plan|--record|--apply <id...>`
+- Produces: `gateDecision(input: GateInput): GateOutcome`
+- Produces: `interface GateInput { planExists: boolean; planSha256: string; previous: PreflightResult | null; contractOk: boolean }`
+- Produces: `type GateOutcome = { action: "skip"; reason: string } | { action: "run"; reason: string } | { action: "cached"; reason: string }`, CLI: `bin/preflight <branch> --gate|--plan|--record|--apply <id...>`
 
 > 설계 D12(적용은 검사와 분리된 별도 명령이다)의 구현이다 — `--record` 에서 멈추고,
 > `--apply` 는 사람이 시작한다.
@@ -2099,7 +2158,7 @@ describe("gateDecision (설계 D10)", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: FAIL — `gateDecision is not a function`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -2330,7 +2389,12 @@ git commit -m "feat(preflight): bin/preflight CLI 네 모드 + gateDecision (설
 **Interfaces:**
 - Consumes: `gateDecision(input: GateInput): GateOutcome` from Task 11
 - Consumes: `PreflightRaw` from Task 8
-- Produces: `workflows/plan-preflight.js` — `docs/plans/<slug>/preflight-raw.json` 을 쓰는 워크플로우 스크립트
+- Produces: (심볼 없음 — 산출물이 파일이다)
+
+> 이 태스크의 산출물은 `workflows/plan-preflight.js` 파일과 그것이 쓰는
+> `docs/plans/<slug>/preflight-raw.json` 이다. **`**Interfaces:**` 는 심볼만 표현하므로**
+> 파일 경로를 여기 적지 않는다 — 적으면 `symbolName("workflows/plan-preflight.js")` 가
+> `"workflows"` 가 되어 거짓 매달린 참조가 난다 (설계 §4.2 한계).
 
 **테스트로 증명할 것:**
 - [ ] 스크립트가 쓰는 형식의 픽스처 JSON 을 `checkPreflightRaw` 가 `ok: true` 로 통과시킨다 (형식 왕복)
@@ -2350,8 +2414,14 @@ describe("워크플로우 스크립트 (Task 12)", () => {
   const src = readFileSync("workflows/plan-preflight.js", "utf8");
 
   test("모든 agent() 호출에 model 이 명시돼 있다 (하드룰 #3)", () => {
-    const calls = (src.match(/\bagent\(/g) ?? []).length;
-    const models = (src.match(/\bmodel\s*:/g) ?? []).length;
+    // **주석을 먼저 벗긴다.** 이 스크립트는 주석이 본문보다 길고 주석 안에
+    // `agent()` 가 등장한다 — 벗기지 않으면 calls 가 과대 집계돼 테스트가
+    // 구현과 무관하게 깨진다 (2026-09-03 봇이 실측: calls 6 vs models 5).
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    const calls = (code.match(/\bagent\(/g) ?? []).length;
+    const models = (code.match(/\bmodel\s*:/g) ?? []).length;
     expect(calls).toBeGreaterThan(0);
     expect(models).toBeGreaterThanOrEqual(calls);
   });
@@ -2395,7 +2465,7 @@ describe("워크플로우 산출 형식 왕복", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: FAIL — `ENOENT: workflows/plan-preflight.js`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -2558,7 +2628,7 @@ return {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -2587,7 +2657,11 @@ git commit -m "feat(preflight): 2단계 워크플로우 — 후보 판정·미�
 > 심볼 의존이 아니라 파일 의존이고, `**Interfaces:**`는 심볼만 표현한다 — 파일 경로를
 > 심볼로 적으면 `symbolName("bin/preflight")`가 `"bin"`이 되어 거짓 매달린 참조가 난다.
 > 순서는 플랜의 선형 순서가 강제한다 (설계 §4.2 한계).
-- Produces: `/preflight` 스킬 (검사 → 사람 결정 → 적용 → 재검사 순서를 묶는다), `PostToolUse` 훅 설정
+- Produces: (심볼 없음 — 산출물이 파일이다)
+
+> 이 태스크의 산출물은 `.claude/skills/preflight/SKILL.md` (검사 → 사람 결정 → 적용 →
+> 재검사 순서를 묶는다) 와 `.claude/settings.json` 의 `PostToolUse` 훅이다.
+> 둘 다 파일이므로 `**Interfaces:**` 에 적지 않는다 (위 Task 12 와 같은 이유).
 
 **테스트로 증명할 것:**
 - [ ] `.claude/settings.json` 의 훅이 `PostToolUse` 다 — `PreToolUse` 가 아니다 (설계 D23: 쓰기를 막으면 안 된다)
@@ -2632,7 +2706,7 @@ describe("훅과 스킬 배선 (Task 13)", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: FAIL — `ENOENT: .claude/settings.json`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -2730,7 +2804,7 @@ bin/preflight "$(git branch --show-current)" --apply <채택한 결함 id들>
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun test && bin/preflight "$(git branch --show-current)" --gate; echo "exit=$?"`
+Run: `bun run typecheck && bun test && bin/preflight "$(git branch --show-current)" --gate; echo "exit=$?"`
 Expected: PASS, 그리고 `--gate` 가 `exit=0`
 
 - [ ] **Step 5: Commit**
@@ -2752,7 +2826,8 @@ git commit -m "feat(preflight): /preflight 스킬 + PostToolUse 훅 (설계 D13�
 - Test: `controller/contract.test.ts`
 
 **Interfaces:**
-- Consumes: `checkPlan(planText: string): Violation[]`, `parseTasks(planText: string): ParsedTask[]` from Task 2
+- Consumes: `checkPlan(planText: string): Violation[]` from Task 2
+- Consumes: `parseTasks(planText: string): ParsedTask[]` (기존 — `controller/contract.ts:122`. Task 2 는 `checkPlan` 만 생산한다)
 - Produces: (문서 변경 — 새 코드 심볼 없음). 오버레이가 `**Interfaces:**` 를 필수로 규정하고, `CLAUDE.md` 라우팅에 `/preflight` 행이 생긴다
 
 **테스트로 증명할 것:**
@@ -2861,7 +2936,7 @@ describe("CLAUDE.md 라우팅 (AMENDMENTS B3)", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/contract.test.ts`
+Run: `bun run typecheck && bun test controller/contract.test.ts`
 Expected: FAIL — 오버레이 예시 블록에 `Interfaces` 필수 문구가 없고, `CLAUDE.md` 에 `/preflight` 행이 없다
 
 - [ ] **Step 3: Write minimal implementation**
@@ -2898,6 +2973,9 @@ Expected: FAIL — 오버레이 예시 블록에 `Interfaces` 필수 문구가 �
 - [ ] 모든 태스크에 `**Interfaces:**` 가 있고, `Consumes` 의 심볼이 출처 태스크의 `Produces` 에 글자 그대로 존재한다
 - [ ] `Consumes` 는 **한 줄에 하나**다. 세미콜론·쉼표로 여러 개를 붙이지 않았다 (파서가 뒤쪽을 버린다)
 - [ ] 태스크가 아닌 출처(기존 코드·파일)는 `from Task N` 을 쓰지 않았다 — 심볼 의존만 `from` 을 쓴다
+- [ ] `Produces`·`Consumes` 의 백틱 **뒤에 산문을 붙이지 않았다.** 파서는 바깥쪽 백틱만 벗기므로 설명이 심볼에 이어붙어 짝이 어긋난다 (`from Task N` 은 예외 — 파서가 처리한다)
+- [ ] **파일·산출물을 `Produces` 에 적지 않았다.** `**Interfaces:**` 는 심볼만 표현한다 — `symbolName("bin/foo")` 는 `"bin"` 이 되어 거짓 매달린 참조를 만든다
+- [ ] **`verification=deterministic` 태스크의 Step 4 가 테스트 러너만 부르지 않는다.** `bun test` 는 트랜스파일만 하므로 **GREEN 이 타입 무결성을 증명하지 않는다** — 타입을 정의·수정하거나 새 파일을 만드는 태스크는 `bun run typecheck` 를 함께 돌린다. 이것이 없으면 타입 오류가 세 태스크 뒤에서 터진다 (2026-09-03 1·3·4·5회전이 전부 이 계열이었다)
 - [ ] **문서 전체를 검사하는 함수에 문서 조각을 먹이는 테스트가 없다.** `checkPlan` 처럼 플랜 전체 불변식(Global Constraints · Task 1..N 연속)을 보는 함수에 태스크 조각을 넣고 `toEqual([])` 를 기대하면 원리적으로 실패한다. 조각을 완전한 플랜으로 **감싸거나**, 기대를 "관심 있는 위반의 유무"로 쓴다 (2026-09-03 봇이 3회전에서 반송한 결함)
 ```
 
@@ -2946,7 +3024,8 @@ git commit -m "feat(overlay): Interfaces 를 필수로 승격 + /preflight 라�
 **Interfaces:**
 - Consumes: `PreflightResult` from Task 9
 - Consumes: `Violation` (기존 — `controller/contract.ts`)
-- Produces: `checkPreflightGate(raw: string | null, planSha256: string): GateVerdict`, `type GateVerdict = { ok: true } | { ok: false; outcome: "REJECTED" | "BLOCKED"; violations: Violation[] }`
+- Produces: `checkPreflightGate(raw: string | null, planSha256: string): GateVerdict`
+- Produces: `type GateVerdict = { ok: true } | { ok: false; outcome: "REJECTED" | "BLOCKED"; violations: Violation[] }`
 
 **테스트로 증명할 것:**
 - [ ] `preflight.json` 이 없으면 `REJECTED` 이고 이유에 "사전 검사"가 들어간다
@@ -2962,9 +3041,12 @@ git commit -m "feat(overlay): Interfaces 를 필수로 승격 + /preflight 라�
 ```ts
 import { checkPreflightGate } from "./preflight";
 
-// SHA·result 를 **모듈 스코프**에 둔다. 아래 두 번째 describe 가 이것들을 쓰므로
-// describe 콜백 안에 두면 TS2304 + 런타임 ReferenceError 다 (2026-09-03 봇 지적).
-const SHA = "a".repeat(64);
+// `result` 를 **모듈 스코프**에 둔다 — 아래 두 번째 describe 가 이것을 쓰므로
+// describe 콜백 안에 두면 TS2304 + 런타임 ReferenceError 다.
+// ⚠️ `const SHA` 를 **다시 선언하지 마라.** Task 8 Step 1 이 이미 같은 파일 모듈
+// 스코프에 `const SHA = "a".repeat(64)` 를 넣었다. 재선언은 bun 에서
+// `error: "SHA" has already been declared` 로 테스트 파일 전체가 죽는다
+// (2026-09-03 봇이 프로브로 실측). 값이 같으므로 그대로 재사용한다.
 const result = (over: Record<string, unknown> = {}) => JSON.stringify({
     schema: 1, branch: "feature/x", plan_sha256: SHA, scope: "interface-graph+file-overlap",
   verdict: "CLEAN", relations: { declared: 1, examined_stage1: 1, examined_stage2: 1, not_examined: [] },
@@ -3038,7 +3120,7 @@ describe("runBuilder — 게이트 미통과 시 세션을 띄우지 않는다",
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun test controller/preflight.test.ts`
+Run: `bun run typecheck && bun test controller/preflight.test.ts`
 Expected: FAIL — `checkPreflightGate is not a function`
 
 - [ ] **Step 3: Write minimal implementation**
