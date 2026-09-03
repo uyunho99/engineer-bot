@@ -231,6 +231,7 @@ SDD 루프가 시작조차 못 한다. 명세 §4.2는 "각 태스크에 `[id] .
 |---|---|
 | **채택** | 봇 호스트는 **한 쪽만 켠다.** 어느 쪽인지는 아래 판정 |
 | **권고** | **6.2.0 (릴리스) 유지 — `superpowers-dev`를 끈다** |
+| ✅ **해소됨 (2026-09-03)** | `superpowers-dev@superpowers-marketplace`가 `false`로 내려갔다. `./bootstrap.sh check` → *"활성 플러그인 중 이름 충돌 없음"*. `versions.lock`의 superpowers 항목을 한 줄로 줄였고, 이제 그 핀이 실제로 가리킬 대상이 하나다. **A8~A13은 6.3.0을 고를 경우의 판정이었으므로 적용되지 않는다** — A3의 "질문 → 반송" 변환 오버레이가 계속 유효하다 |
 | 근거 | ① `dev` 브랜치는 이동하는 타깃이다. BUILD-PLAN §0-A가 gstack을 `--no-team`으로 설치한 것과 같은 이유로 봇에 부적합하다 ② **6.2.0의 실패 모델이 이 명세와 정합한다** — 플랜 결함을 사람에게 올리는 동작이 §6.3 반송과 1:1로 맞고, A3 오버레이가 이미 작성돼 있다 ③ 6.3.0의 "Rulings, not stalls" 철학은 게이트 ①의 설계 의도와 반대 방향이다 (A9) |
 | 대가 | 6.3.0의 headless 친화 변경을 포기한다. A3 변환 오버레이가 계속 필요하다 (이미 있으므로 추가 비용 0) |
 | 적용 | `~/.claude/settings.json` — `"superpowers-dev@superpowers-marketplace": false`. `bootstrap.sh check`에 **중복 이름 플러그인 탐지**를 추가한다 |
