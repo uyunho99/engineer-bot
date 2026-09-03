@@ -73,6 +73,46 @@ function buildPrompt(planPath: string, discoveriesPath: string, resultPath: stri
   ].join("\n");
 }
 
+/**
+ * `claude` 에 넘길 argv 를 만든다.
+ *
+ * **`--` 구분자가 없으면 프롬프트가 사라진다.** `--add-dir` 는 가변 인자
+ * (`--add-dir <directories...>`)여서 뒤따르는 프롬프트를 디렉터리로 삼킨다.
+ * 그러면 claude 가 `Input must be provided either through stdin or as a prompt
+ * argument when using --print` 로 즉시 exit 1 한다.
+ *
+ * 2026-09-03 첫 실제 실행에서 이 버그로 빌드가 2초 만에 BLOCKED 됐다.
+ * 단위 테스트 107개가 잡지 못한 이유는 테스트가 `claude` 를 띄우지 않았기 때문이다
+ * (BUILD-PLAN Phase 0-B 가 찾으려던 바로 그 종류의 결함).
+ *
+ * 순수 함수로 뽑아 둔 이유가 이것이다 — argv 구성은 테스트할 수 있어야 한다.
+ */
+export function buildClaudeArgs(opts: {
+  settingsPath: string;
+  overlay: string;
+  repoRoot: string;
+  prompt: string;
+  model?: string;
+}): string[] {
+  const args = [
+    "--print",
+    "--output-format",
+    "json",
+    "--permission-mode",
+    "acceptEdits",
+    "--settings",
+    opts.settingsPath,
+    "--append-system-prompt",
+    opts.overlay,
+    "--add-dir",
+    opts.repoRoot,
+  ];
+  if (opts.model) args.push("--model", opts.model);
+  // 프롬프트 앞의 `--` 는 필수다. 위 주석 참조.
+  args.push("--", opts.prompt);
+  return args;
+}
+
 /** 컨트롤러가 직접 결론을 써야 하는 경우 (세션이 보고를 남기지 못했을 때) */
 async function writeFallbackResult(
   path: string,
@@ -135,21 +175,13 @@ export async function runBuilder(opts: BuilderOptions): Promise<BuilderOutcome> 
   const settings = join(HARNESS_ROOT, "config", "builder.settings.json");
   const prompt = buildPrompt(p.plan, p.discoveries, p.buildResult);
 
-  const args = [
-    "--print",
-    "--output-format",
-    "json",
-    "--permission-mode",
-    "acceptEdits",
-    "--settings",
-    settings,
-    "--append-system-prompt",
+  const args = buildClaudeArgs({
+    settingsPath: settings,
     overlay,
-    "--add-dir",
-    p.repoRoot,
-  ];
-  if (opts.model) args.push("--model", opts.model);
-  args.push(prompt);
+    repoRoot: p.repoRoot,
+    prompt,
+    model: opts.model,
+  });
 
   const proc = Bun.spawn(["claude", ...args], {
     cwd: p.repoRoot,
@@ -165,8 +197,24 @@ export async function runBuilder(opts: BuilderOptions): Promise<BuilderOutcome> 
     proc.kill();
   }, timeoutMs);
 
+  // 스트림을 종료 대기와 **동시에** 읽는다. 파이프로 열어두고 읽지 않으면
+  // 세션의 오류 메시지가 버려져 실패를 진단할 수 없다 — 2026-09-03 첫 실행에서
+  // 원인 파악에 수동 재현이 필요했던 이유가 이것이다.
+  const stdoutP = new Response(proc.stdout).text();
+  const stderrP = new Response(proc.stderr).text();
+
   const exitCode = await proc.exited;
   clearTimeout(timer);
+
+  const sessionStderr = (await stderrP).trim();
+  const sessionStdout = (await stdoutP).trim();
+  /** 진단용 꼬리 — BLOCKED 사유에 붙인다 */
+  const diag = () => {
+    const parts: string[] = [];
+    if (sessionStderr) parts.push(`stderr:\n${sessionStderr.slice(-2000)}`);
+    else if (sessionStdout) parts.push(`stdout:\n${sessionStdout.slice(-2000)}`);
+    return parts.length ? `\n\n--- 세션 출력 ---\n${parts.join("\n\n")}` : "";
+  };
 
   // ── 4. 외부 보고 수확 (A6) ───────────────────────────────────
   let raw: string | null = null;
@@ -183,7 +231,9 @@ export async function runBuilder(opts: BuilderOptions): Promise<BuilderOutcome> 
   }
 
   if (raw === null) {
-    const reason = `세션이 ${p.buildResult} 를 남기지 않았습니다 (exit=${exitCode}) — 외부 보고 계약 위반`;
+    const reason =
+      `세션이 ${p.buildResult} 를 남기지 않았습니다 (exit=${exitCode}) — 외부 보고 계약 위반` +
+      diag();
     await writeFallbackResult(p.buildResult, opts.branch, reason);
     return done({ outcome: "BLOCKED", reason, exitCode, tasks });
   }

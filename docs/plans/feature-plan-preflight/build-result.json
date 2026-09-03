@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "branch": "feature/plan-preflight",
+  "outcome": "BLOCKED",
+  "finished_at": "2026-09-03T07:34:57.579Z",
+  "blocked": {
+    "task_id": "?",
+    "reason": "세션이 /Users/yunho/Documents/Persona/engineer-bot/docs/plans/feature-plan-preflight/build-result.json 를 남기지 않았습니다 (exit=1) — 외부 보고 계약 위반",
+    "attempts": []
+  }
+}

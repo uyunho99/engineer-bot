@@ -1,0 +1,101 @@
+import { describe, expect, test } from "bun:test";
+import { buildClaudeArgs } from "./builder";
+
+/**
+ * argv 구성 회귀 테스트.
+ *
+ * 2026-09-03 첫 실제 실행에서 `bin/builder` 가 2초 만에 BLOCKED 됐다. 원인은
+ * `--add-dir` 가 가변 인자(`--add-dir <directories...>`)여서 뒤따르는 프롬프트를
+ * 디렉터리로 삼킨 것이었다. claude 는 `Input must be provided either through stdin
+ * or as a prompt argument when using --print` 로 즉시 종료했다.
+ *
+ * 실측 증명:
+ *   claude --print --add-dir <dir> "1+1은?"      → Error (프롬프트 유실)
+ *   claude --print --add-dir <dir> -- "1+1은?"   → {"result":"2입니다."}
+ *
+ * 단위 테스트 107개가 이것을 잡지 못한 이유는 **테스트가 claude 를 띄우지 않았기
+ * 때문**이다. argv 구성을 순수 함수로 뽑아 그 층을 테스트 가능하게 만든다.
+ */
+
+const base = {
+  settingsPath: "/harness/config/builder.settings.json",
+  overlay: "# 오버레이 본문",
+  repoRoot: "/repo",
+  prompt: "승인된 플랜을 실행하라",
+};
+
+describe("buildClaudeArgs — 프롬프트 유실 방어", () => {
+  test("프롬프트 바로 앞에 `--` 가 있다", () => {
+    const args = buildClaudeArgs(base);
+    const i = args.indexOf(base.prompt);
+    expect(i).toBeGreaterThan(0);
+    expect(args[i - 1]).toBe("--");
+  });
+
+  test("프롬프트가 마지막 인자다", () => {
+    const args = buildClaudeArgs(base);
+    expect(args[args.length - 1]).toBe(base.prompt);
+  });
+
+  test("`--add-dir` 값 바로 뒤에 프롬프트가 오지 않는다", () => {
+    const args = buildClaudeArgs(base);
+    const d = args.indexOf("--add-dir");
+    expect(d).toBeGreaterThan(-1);
+    // --add-dir <dir> 다음은 반드시 플래그이거나 `--` 여야 한다.
+    const after = args[d + 2];
+    expect(after === "--" || after.startsWith("--")).toBe(true);
+  });
+
+  test("`--` 가 정확히 한 번만 나온다", () => {
+    const args = buildClaudeArgs(base);
+    expect(args.filter((a) => a === "--")).toHaveLength(1);
+  });
+
+  test("대시로 시작하는 프롬프트도 플래그로 해석되지 않는다", () => {
+    // `--` 이후는 전부 위치 인자다. 이것이 `--` 를 쓰는 두 번째 이유다.
+    const args = buildClaudeArgs({ ...base, prompt: "--help 를 설명하라" });
+    expect(args[args.length - 1]).toBe("--help 를 설명하라");
+    expect(args[args.length - 2]).toBe("--");
+  });
+});
+
+describe("buildClaudeArgs — 필수 플래그", () => {
+  test("--print · --output-format json 이 있다 (A6 외부 계약의 전제)", () => {
+    const args = buildClaudeArgs(base);
+    expect(args).toContain("--print");
+    const i = args.indexOf("--output-format");
+    expect(args[i + 1]).toBe("json");
+  });
+
+  test("--settings 가 권한 파일을 가리킨다 (명세 §8)", () => {
+    const args = buildClaudeArgs(base);
+    expect(args[args.indexOf("--settings") + 1]).toBe(base.settingsPath);
+  });
+
+  test("--append-system-prompt 로 오버레이 전문이 주입된다 (명세 P4)", () => {
+    const args = buildClaudeArgs(base);
+    expect(args[args.indexOf("--append-system-prompt") + 1]).toBe(base.overlay);
+  });
+
+  test("--permission-mode 가 acceptEdits 다", () => {
+    const args = buildClaudeArgs(base);
+    expect(args[args.indexOf("--permission-mode") + 1]).toBe("acceptEdits");
+  });
+});
+
+describe("buildClaudeArgs — 모델", () => {
+  test("model 을 주면 --model 이 들어간다", () => {
+    const args = buildClaudeArgs({ ...base, model: "opus" });
+    expect(args[args.indexOf("--model") + 1]).toBe("opus");
+  });
+
+  test("model 을 안 주면 --model 이 없다 — 세션 기본값을 쓴다", () => {
+    expect(buildClaudeArgs(base)).not.toContain("--model");
+  });
+
+  test("--model 을 줘도 프롬프트는 여전히 마지막이고 `--` 가 앞에 있다", () => {
+    const args = buildClaudeArgs({ ...base, model: "opus" });
+    expect(args[args.length - 1]).toBe(base.prompt);
+    expect(args[args.length - 2]).toBe("--");
+  });
+});

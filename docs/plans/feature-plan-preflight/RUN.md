@@ -90,3 +90,36 @@ gh repo create engineer-bot --private --source=. --remote=origin
 ```
 
 원격 생성은 외부에 산출물을 만드는 일이므로 사람이 판단한다.
+
+## Phase 0-B 관찰 #1 — argv 버그 (2026-09-03, 첫 실행)
+
+첫 `bin/builder` 실행이 **2초 만에 `BLOCKED`** 으로 끝났다.
+
+```
+⛔ BLOCKED — feature/plan-preflight
+세션이 …/build-result.json 를 남기지 않았습니다 (exit=1) — 외부 보고 계약 위반
+```
+
+**원인:** `--add-dir` 는 가변 인자(`--add-dir <directories...>`)여서 뒤따르는
+프롬프트를 디렉터리로 삼켰다. claude 가 `Input must be provided either through
+stdin or as a prompt argument when using --print` 로 즉시 exit 1 했다.
+
+실측 증명:
+```
+claude --print --add-dir <dir> "1+1은?"      → Error (프롬프트 유실)
+claude --print --add-dir <dir> -- "1+1은?"   → {"result":"2입니다."}
+```
+
+**왜 단위 테스트 107개가 못 잡았나:** 테스트가 `claude` 를 한 번도 띄우지 않았다.
+BUILD-PLAN 이 *"❌ 실제 claude -p 세션으로 플랜을 완주한 적 없음"* 이라고 적어둔
+칸의 대가가 정확히 이것이다.
+
+**수정 2건:**
+1. `buildClaudeArgs()` 를 순수 함수로 뽑고 프롬프트 앞에 `--` 를 넣었다.
+   argv 구성이 테스트 가능해졌다 (`controller/builder.test.ts`, 12건).
+2. **stderr 를 포착한다.** `builder.ts` 가 stdout/stderr 를 파이프로 열고 읽지
+   않아서 세션의 오류 메시지가 버려졌다 — 원인 파악에 수동 재현이 필요했던 이유다.
+   이제 BLOCKED 사유에 세션 출력 꼬리가 붙는다.
+
+**교훈:** 하네스 코드가 외부 프로세스를 띄우는 지점은 단위 테스트가 닿지 않는다.
+그 경계의 **입력 구성**만이라도 순수 함수로 뽑아야 테스트가 가능하다.
