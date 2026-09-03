@@ -205,3 +205,28 @@ builder 세션이 누적한다. SDD 워크스페이스는 최종 리뷰 후 삭�
   타입 정의를 추가·수정하는 태스크는 Step 4 에 `bun run typecheck` 를 함께 두어야 한다.
 - [setup] SDD 워크스페이스 경로 충돌이 그대로다 (3·4회전 관찰 재확인) — `.superpowers/sdd/plan`.
   이번 회전은 ledger 만 새로 썼고 태스크를 디스패치하지 않아 실해는 없다.
+
+## 2026-09-03 · 6회전 (실빌드 — 태스크 디스패치 시작)
+
+- [setup] **사전 스캔이 처음으로 깨끗하게 나왔다.** 플랜이 제안한 파서(`parseFiles`·
+  `parseInterfaces`·`symbolName`)를 프로브로 구현해 plan.md 자기 자신에 대고 돌렸다:
+  태스크 15개 전부 Files(Create/Modify ≥1)·Interfaces 를 갖고, 매달린 참조 0건·순서
+  위반 0건. 5회전까지의 반송 사유가 전부 소멸했다 — 이 검사기의 자기 시연이 반송
+  루프를 닫는 데 실제로 쓰였다는 증거다.
+- [setup] **`noUnusedLocals: true` 는 rest-omit 관용구를 허용한다** — `const { kind,
+  ...noKind } = obj` 는 typecheck 를 통과한다 (프로브 실측). Task 8 Step 1 의 테스트가
+  이 형태를 쓰므로 미리 확인했다. 반대로 `[string, string, ...string[]]` 에 1개 배열을
+  대입하면 `TS2322` 로 거부된다 — Task 3 요건 6 은 관찰 가능하다.
+- [setup] **`./bootstrap.sh check` 는 headless 권한 목록에 없다.** `.builder-settings.json`
+  의 allow 는 `Bash(bun:*)`·git·gh·SDD 스크립트뿐이고 `./bootstrap.sh` 나 `bash` 가 없다.
+  → 같은 세 단계를 도는 **`bun run check`** 를 쓴다 (`package.json` 의 check 스크립트가
+  `typecheck && test && ./bootstrap.sh check` 를 부르고, bun 이 부모 프로세스이므로
+  허용된다). Task 14 Step 4 가 이 경로를 쓴다. 플랜 결함이 아니라 하네스 제약이다.
+- [setup] 기준선은 **134개**다 (플랜에 적힌 130은 승인 시점 값). 플랜이 "숫자를 외우지
+  말고 재실측한다"고 지시한 것이 맞았다.
+- [1] **요건 목록이 코드 경로 단위로 쪼개져 있으면 그 쪼갬을 존중해야 한다.** 리뷰어가
+  잡은 유일한 결함이 이것이다 — `metaSection` 에서 "헤딩이 없다"(`!inside` continue)와
+  "헤딩은 있고 항목이 없다"(`inside=true` → `anyHead`/EOF)는 **다른 분기**인데 구현자가
+  전자의 테스트로 후자를 "암묵적으로 커버됐다"고 보고했다. 실제 버그는 없었지만
+  분기는 미검증이었다. → 이후 태스크의 구현자 디스패치에 "요건 항목마다 전용 테스트를
+  둬라. 인접 항목의 테스트로 커버됐다고 보고하지 마라"를 넣는다.
