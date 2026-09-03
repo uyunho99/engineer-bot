@@ -123,3 +123,85 @@ builder 세션이 누적한다. SDD 워크스페이스는 최종 리뷰 후 삭�
   `sdd-workspace` 가 플랜 basename 으로 디렉터리를 만들어 `.superpowers/sdd/plan` 이다.
   이 레포의 모든 플랜이 `plan.md` 라서 단 하나를 공유한다. ledger 첫 줄 대조가 유일한
   방어선이다.
+
+## 2026-09-03 · 5회전 (REJECTED, Task 1 착수 전)
+
+- [setup] **4회전의 반송 1건 + concern 5건이 전부 반영됐다** (실측 확인). `Violation["file"]`
+  유니온이 Task 3 Step 3 에서 넓어졌고(plan.md:477-491), Task 11 의 `findFixSites` 미사용
+  import 금지·Task 9 의 `PreflightRaw` import·Task 3 의 `contractPaths` import·Task 14 의
+  `readFileSync` import·Task 13 의 `node:fs` 중복 금지·Task 10 의 항진명제 제거가 모두
+  들어갔다. 기준선도 130 pass / 0 fail · typecheck 통과로 일치한다.
+- [plan] **4회전의 concern 을 고친 것이 새 하드 결함을 만들었다 — 이번 반송 사유 중 가장
+  치명적이다** (실측 확인). 4회전은 "Task 15 의 `SHA`·`result` 를 모듈 스코프로 올리면 끝"
+  이라고 concern 을 달았고 플랜은 그대로 반영했다(plan.md:2965-2972). 그런데 **Task 8 Step 1
+  이 이미 같은 파일 모듈 스코프에 `const SHA` 를 갖고 있다**(plan.md:1364). 같은
+  `controller/preflight.test.ts` 에 `const SHA` 두 번 → `bun test` 가 파일을 아예 로드하지
+  못한다: `error: "SHA" has already been declared`, **0 pass / 1 fail**. `tsc` 는 TS2451 2건.
+  → **왜 다음 태스크에 영향을 주는가:** Task 4~12·15 의 테스트가 전부 이 한 파일에 있다.
+  파일이 로드되지 않으므로 **8개 태스크의 GREEN 관찰이 동시에 불가능**해진다.
+  → **누적 교훈:** concern 이 "옮기면 끝"이라고 말할 때, **옮겨 갈 자리에 이미 무엇이 있는지**
+  를 같은 파일 범위에서 확인해야 한다. 이 테스트 파일은 9개 태스크가 순차로 append 하는
+  공유 자원이고, 모듈 스코프는 그 9개가 공유하는 단일 이름공간이다. 다음 플랜을 쓸 때
+  **"한 테스트 파일에 여러 태스크가 append 하면 모듈 스코프 이름을 태스크별로 접두사
+  (`SHA_GATE` 등)한다"** 를 오버레이에 못박을 값이 있다.
+- [plan] **플랜의 모든 `Produces:` 가 쉼표로 여러 심볼을 한 줄에 붙였고, 플랜이 규정하는
+  파서는 첫 번째만 남긴다** (실측 확인 — 이번 회전의 가장 큰 발견).
+  Task 1 의 `unbacktick` 은 `s.replace(/^\`|\`$/g, "")` 로 **바깥쪽 백틱만** 벗기므로
+  `` - Produces: `A`, `B`, `C` `` 는 심볼 하나가 되고 `symbolName()` 이 `A` 만 뽑는다.
+  플랜 자신의 Task 1 파서 + Task 5 검사기를 `plan.md` 에 돌린 결과:
+  **`dangling_ref` 23건 (stage 1, 기계 확정) + stage 2 후보 8건 → `preflightVerdict` = REJECTED.**
+  → **왜 다음 태스크에 영향을 주는가:** Task 14 가 오버레이 self-review 에 넣는 항목이
+  바로 *"`Consumes` 는 한 줄에 하나다. 세미콜론·쉼표로 여러 개를 붙이지 않았다
+  (파서가 뒤쪽을 버린다)"* (plan.md:2899) 다. 플랜이 자기가 도입하는 규칙을 15곳에서 어긴다.
+  그리고 Task 15 가 `bin/builder` 에 게이트를 걸면(D26) **이 브랜치는 자기 게이트에 막혀
+  다시 빌드될 수 없다** — Task 15 의 부트스트랩 주석(plan.md:2938-2939)이 요구하는
+  "`/preflight` 를 한 번 돌려 `preflight.json` 을 만든다"가 REJECTED 를 낳기 때문이다.
+  → **수정안을 실측으로 검증했다:** `Produces`/`Consumes` 를 한 줄에 하나로 쪼갠 사본
+  (14줄 → 쪼갬)에 같은 검사기를 돌리면 `dangling_ref` 가 **23건 → 1건**으로 떨어진다.
+  남는 1건은 Task 14 의 `parseTasks ... from Task 2` 로, 형식과 무관한 별개 결함이다.
+- [plan] **`symbolName()` 의 선언 키워드 벗기기가 `producesSymbol` 에만 적용되고
+  `signatureCandidates` 에는 적용되지 않는다 — 반쪽 수정이다.** Task 5 의 주석은
+  *"이 계획서를 이 형식으로 쓰다가 발견된 버그다"* 라고 그 함정을 명시해 놓고
+  (plan.md:930-934) `producesSymbol` 만 고쳤다. `signatureCandidates` 는 원문 문자열을
+  비교하므로 `Produces: \`interface Foo { ... }\`` 와 `Consumes: \`Foo\`` 는 **항상**
+  후보가 된다. 위 쪼갠 사본으로 실측: **stage 2 후보 19건** — 관계가 전부 올바른
+  플랜에서 나온 순수 오탐 후보다.
+  → **왜 다음 태스크에 영향을 주는가:** 후보 하나가 워크플로우 에이전트 하나(`sonnet`)다.
+  타입을 이름으로 소비하는 태스크가 있는 정상 플랜마다 검사 비용이 선형으로 붙고,
+  반증 단계가 오판하면 정상 플랜이 반송된다. 설계가 그 비용을 알고 받아들인다고
+  쓰여 있으나(오버레이 새 절), 크기가 19건이면 "한 번 더 태우는" 수준이 아니다.
+- [plan] **워크플로우 스크립트의 주석이 자기 테스트를 깨뜨린다** (실측 확인).
+  Task 12 의 테스트는 `(src.match(/\bagent\(/g)).length <= (src.match(/\bmodel\s*:/g)).length`
+  를 요구하는데, 스크립트 19번째 줄의 **주석** `// agent() 호출과 결과 수집뿐이다.` 가
+  `\bagent\(` 에 매치된다. 실측: `calls=6 models=5` → 단언 false.
+  → **누적 교훈:** **소스를 텍스트로 세는 테스트는 주석·문서까지 센다.** 오버레이가
+  "문자열 존재 검사(grep류)를 케이스로 쓰지 마라 — 관찰 대상은 행동이지 텍스트가 아니다"
+  (writing-plans-tagging.md:89)를 이미 금지하고 있고, 이 테스트가 정확히 그 금지 대상이다.
+  워크플로우 스크립트를 단위 테스트로 실행할 수 없다는 제약(설계 §6.1) 때문에 텍스트
+  카운트로 도피한 자리다. 세려면 주석을 먼저 벗겨야 한다.
+- [plan] **Task 14 의 `Consumes` 가 한 줄에 두 심볼이고, 그중 하나는 Task 2 가 생산하지
+  않는다.** `- Consumes: \`checkPlan(...)\`, \`parseTasks(...)\` from Task 2` (plan.md:2755).
+  `parseTasks` 는 기존 코드(`controller/contract.ts`)이고 Task 2 의 `Produces` 는 `checkPlan`
+  뿐이다. 형식을 쪼갠 뒤에도 살아남는 유일한 `dangling_ref` 다. Task 14 가 오버레이에
+  넣는 *"태스크가 아닌 출처(기존 코드·파일)는 `from Task N` 을 쓰지 않았다"* (plan.md:2900)
+  를 자기가 어긴다.
+- [plan] **Task 4 Step 3 의 구현 코드가 쓰지 않는 타입을 import 한다** — TS6196 실측.
+  `import type { ConsumeRef, ParsedTask, TaskInterfaces }` 인데 `buildRelationGraph` 는
+  `ConsumeRef` 를 쓰지 않는다(`for (const c of ifaces.consumes)` 가 추론에 맡긴다).
+  1·3·4회전이 찾은 미사용 import 결함과 같은 계열이지만 **이번엔 테스트가 아니라 구현
+  블록**이고, Task 4 의 `**Interfaces:**` 는 `Consumes: ConsumeRef from Task 1` 을 선언한다 —
+  즉 플랜은 쓸 의도였고 코드가 안 쓴다. Task 11 Step 4 의 `bun run typecheck` 에서 터진다.
+- [plan] **Task 8 Step 3 의 `checkDefectShape` 가 `void` 함수에서 값을 반환한다** —
+  TS2322 실측 (`Type 'number' is not assignable to type 'void'`). `const bad = (m) => v.push(...)`
+  는 `number` 를 반환하고(Array.push), `return bad("...")` 가 `: void` 선언과 충돌한다.
+  Task 11 Step 4 의 typecheck 에서 터진다. `bad(...); return;` 으로 두 줄로 나누면 끝이고
+  요건은 안 바뀐다.
+- [setup] **`bun test` 는 타입 오류를 통과시킨다 — 이것이 결함이 세 태스크 뒤에서 터지는
+  구조적 이유다** (4회전 관찰의 일반화). Task 4~10 의 Step 4 는 전부 `bun test` 뿐이고
+  bun 은 트랜스파일만 한다. `bun run typecheck` 가 처음 등장하는 곳은 Task 3(초기)과
+  **Task 11** 이다. 그래서 Task 4·8 의 타입 결함이 Task 11 에서 한꺼번에 드러난다.
+  → **오버레이에 못박을 값:** `verification=deterministic` 태스크의 Step 4 가 타입 있는
+  언어에서 `bun test` 만 두면 그 태스크의 GREEN 은 **타입 무결성을 증명하지 않는다.**
+  타입 정의를 추가·수정하는 태스크는 Step 4 에 `bun run typecheck` 를 함께 두어야 한다.
+- [setup] SDD 워크스페이스 경로 충돌이 그대로다 (3·4회전 관찰 재확인) — `.superpowers/sdd/plan`.
+  이번 회전은 ledger 만 새로 썼고 태스크를 디스패치하지 않아 실해는 없다.
