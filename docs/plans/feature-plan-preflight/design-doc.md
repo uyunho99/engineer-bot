@@ -170,21 +170,49 @@ AMENDMENTS A7에서 superpowers를 **6.2.0(릴리스)** 에 고정하기로 했�
 
 ## 4. 스코프 / 비스코프
 
-### 4.1 스코프
+### 4.1 스코프 — 2단계로 나눈다
 
-1. **주제별 묶기** — AI가 `plan.md` 전체를 훑어 "같은 것을 다루는 할 일"을 묶는다
-2. **파일 겹침 짝** — 기계가 `**Files:**` 라인에서 같은 파일을 건드리는 짝을 뽑는다 (공짜)
-3. **묶음 검사** — 묶음마다 AI 하나가 내부 모순을 찾는다
-4. **반증** — 발견마다 AI 하나가 반박을 시도한다. 반박에 실패한 것만 진짜 결함
-5. **수정 제안** — 살아남은 결함마다 "어떻게 고치면 되는가"를 제안한다. 제안에는 **적용할 정확한
-   텍스트**가 포함된다 (설명만이 아니라)
-6. **승인된 수정 적용** — 사람이 결함마다 채택/기각을 결정하고, 채택된 것을 `plan.md`에 반영한다.
-   무엇을 적용했는지 기록한다 (§6.4)
-7. **재검사** — 적용 후 계획서가 바뀌었으므로 다시 검사한다. 고친 것이 새 모순을 만들 수 있다.
-   D10의 해시 비교가 이것을 자동으로 강제한다
-8. **자동 실행 장치** — `plan.md` 저장 시 형식 검사가 돌고, 내용 검사가 필요하면 알린다
-9. **중복 방지** — 같은 내용을 두 번 검사하지 않는다 (내용 해시)
-10. **상세 보고** — 무엇을 검사했는지, **무엇을 검사하지 않았는지**를 남긴다
+> **2026-09-03 개정 (Codex outside voice).** 초안은 AI에게 "주제로 묶어라"고 시켰다.
+> 그런데 **계획서가 이미 자기 관계를 선언한다** — `overlay/writing-plans-tagging.md`가 정의하는
+> `**Interfaces:** Consumes / Produces`가 그것이다. 초안은 그 선언을 쓰지 않고 AI에게 다시
+> 찾게 시켰고, 그 결과 커버리지를 **관계**가 아니라 **태스크** 단위로 세는 오류까지 만들었다
+> (구 D18). 아래처럼 나눈다: **기계가 선언된 관계를 전부 검사하고, AI가 선언되지 않은 것을 찾는다.**
+
+**1단계 — 기계 (결정론적 · 무료 · 100% 테스트)**
+
+1. **관계 그래프 추출** — 각 태스크의 `**Interfaces:**`에서 `Consumes`/`Produces`를 파싱해
+   태스크 간 의존 그래프를 만든다
+2. **매달린 참조** — `X from Task N`을 소비하는데 Task N의 `Produces`에 X가 없다 → **결함 확정**
+3. **순서 위반** — 앞 태스크가 뒤 태스크의 산출을 소비한다 → **결함 확정**
+4. **서명 불일치 후보** — 같은 심볼의 `Produces` 서명과 `Consumes` 서명이 텍스트로 다르다 →
+   **확정하지 않고 2단계로 넘긴다** (표기만 다를 수 있다)
+5. **파일 겹침 짝** — `**Files:**`에서 같은 파일을 건드리는 짝을 뽑는다
+
+**2단계 — AI (선언되지 않은 것을 찾는다)**
+
+6. **서명 후보 판정** — 1단계가 넘긴 후보가 진짜 불일치인지 판정
+7. **미선언 관계 탐색** — 짝·묶음마다 AI 하나가 *"선언에 없지만 실제로 충돌하는 것"*을 찾는다.
+   §2의 전화번호 예처럼 `Interfaces`에 안 적힌 암묵적 결합이 대상이다
+8. **반증** — 발견마다 AI 하나가 반박을 시도한다. 반박에 실패한 것만 진짜 결함
+9. **완결성 검사관** — 전체를 다시 보고 놓친 관계를 찾는다 (D17)
+
+**3단계 — 사람 (게이트 ① 앞)**
+
+10. **수정 제안** — 결함마다 구조화된 패치를 낸다 (D24)
+11. **승인된 수정 적용** — 결함마다 채택/기각을 결정하고 채택분만 반영 (§6.4)
+12. **재검사** — 반영 후 다시 검사한다 (D10)
+
+**전 단계 공통**
+
+13. **관계 단위 커버리지 보고** — 선언된 관계 몇 개 중 몇 개를 검사했는지, **검사하지 않은 관계가
+    무엇인지** 기록한다 (D25). 태스크 단위로 세지 않는다
+14. **기계 게이트** — `bin/builder`가 `preflight.json`을 읽고 통과하지 않은 플랜의 빌드를 거부한다
+    (D26). 이것이 없으면 이 기능 전체가 강제되지 않는다
+15. **자동 실행 장치** — `plan.md` 저장 시 형식 검사가 돌고, 내용 검사가 필요하면 알린다 (D23)
+16. **중복 방지** — 같은 내용을 **유효한 `CLEAN`으로** 검사한 적이 있으면 건너뛴다 (D10)
+
+**1단계만으로도 이 기능은 성립한다.** 2단계가 기대에 못 미쳐도 매달린 참조와 순서 위반은
+잡힌다 — 그리고 그 둘이 SDD를 실제로 깨뜨리는 결함이다. 이것이 단계를 나눈 이유다.
 
 ### 4.2 비스코프 (Non-Goals)
 
@@ -283,15 +311,21 @@ plan.md 저장
    ↓   형식 OK + 해시 불일치 → 세션에 알림
 [스킬 /preflight]
    ↓
-1단계  bin/preflight <branch> --plan        기계
-   │   parseTasks() → **Files:** 파싱 → 파일 겹침 짝
-   ↓   args JSON (stdout)
-2단계  Workflow({scriptPath, args})         에이전트
-   │   ① 주제 묶기       AI 1개 · 계획서 전체
-   │   ② 묶음 검사       AI n개 · 묶음마다
-   │   ③ 반증           AI m개 · 발견마다
-   │   ④ 수정 제안      AI k개 · 살아남은 결함마다
-   ↓   결과 JSON
+1단계  bin/preflight <branch> --plan        기계 · 결정론적 · 무료
+   │   parseTasks → parseInterfaces → 관계 그래프
+   │     · 매달린 참조      → 결함 확정  (stage 1)
+   │     · 순서 위반        → 결함 확정  (stage 1)
+   │     · 서명 불일치      → 후보로 2단계에 넘김
+   │   extractFiles → 파일 겹침 짝
+   ↓   args JSON (stdout) — 확정 결함 + 후보 + 검사할 짝·묶음
+2단계  Workflow({scriptPath, args})         에이전트 · 선언되지 않은 것을 찾는다
+   │   ① 서명 후보 판정   AI · 1단계가 넘긴 것만
+   │   ② 미선언 관계 탐색 AI n개 · 짝·묶음마다
+   │   ③ 완결성 검사관    AI 1개 · 전체 재검토 (D17)
+   │   ④ 반증            AI m개 · 발견마다
+   │   ⑤ 수정 제안       AI k개 · 살아남은 결함마다 → FixPatch (D24)
+   ↓   docs/plans/<slug>/preflight-raw.json  ← 워크플로우가 직접 쓴다 (D28)
+       세션이 값을 텍스트로 옮기지 않는다 (하드룰 #4)
 3단계  bin/preflight <branch> --record      기계
    ↓   스키마 검증 → preflight.json → 판정 출력
    │
@@ -326,17 +360,53 @@ plan.md 저장
 
 ### 6.3 계약 — 입력과 출력
 
-**D6 — 파일 경로는 `**Files:**` 메타 라인으로 강제한다.**
+**D6 — 형식을 새로 만들지 않는다. `overlay/writing-plans-tagging.md`가 이미 정의한 것을 쓴다.**
+
+⚠️ **2026-09-03 정정.** 초안은 `**Files:** a.ts, b.ts` 한 줄 CSV를 전제했다. **오버레이의 실제
+형식은 멀티라인 목록이다** (`overlay/writing-plans-tagging.md:36`, `controller/contract.test.ts:49`
+정상 픽스처):
 
 ```markdown
-### Task 3: 쌍 추출 함수 구현
-**Tags:** verification=deterministic, validation=invisible
-**Files:** controller/preflight.ts, controller/preflight.test.ts
+### Task 3: 키워드 발산 엔진
+
+**Tags:** verification=generative validation=invisible
+
+**Files:**
+- Create: `src/keywords/expand.ts`
+- Test: `tests/keywords/expand.test.ts`
+
+**Interfaces:**
+- Consumes: `PersonaSeed` from Task 2
+- Produces: `expandKeywords(seed: PersonaSeed): string[]`
 ```
 
-명세 §4.2가 각 할 일에 "파일 경로"를 이미 필수로 요구한다 — 형식만 정하는 것이다.
-2축 태그가 `**Tags:**` 메타 라인에 실리는 것과 같은 방식이며, 같은 이유다: AMENDMENTS B4에 따라
-`### Task N:` 헤딩 형식을 깰 수 없으므로 부가 정보는 다음 줄의 메타 라인에 싣는다.
+초안 형식대로 구현하면 **실제 플랜에서 `extractFiles`가 빈 배열을 낸다** — D21이 경고한
+조용한 실패를 초안의 형식 가정이 직접 만들어낸다.
+
+| | 결정 |
+|---|---|
+| **채택** | 위 형식을 그대로 파싱한다. `- Create:` / `- Test:` 접두, 백틱 감싼 경로 |
+| **`**Interfaces:**`를 필수로 올린다** | 지금은 오버레이의 **예시**일 뿐이고 `contract.ts`가 파싱하지 않는다. 1단계 기계 검사의 유일한 입력이므로 계약 필수 항목이 된다 |
+| 파급 | **`controller/contract.test.ts`가 수정 대상에 들어간다.** 기존 정상 픽스처가 새 필수 항목(`Interfaces`)을 갖도록 고쳐야 한다 — 초안의 10파일 목록에 이것이 빠져 있었다 |
+
+**D24 — 수정 제안은 자연어가 아니라 구조화된 패치다.**
+
+초안은 `suggested_fix`에 "적용할 정확한 텍스트"를 담으라고만 했다. **그것으로는 적용할 수 없다** —
+삽입인지 교체인지, 어느 태스크의 어느 위치인지가 없다. 그리고 `--apply d1`을 설계했는데
+`Defect`에 `id`가 없었다.
+
+```ts
+export interface FixPatch {
+  op: "insert_after" | "replace";
+  task_id: string;          // 어느 태스크 안인지
+  anchor: string;           // 그 태스크 본문에서 찾을 기준 문자열
+  text: string;             // 넣거나 바꿀 내용 (바이트 그대로 — D14)
+}
+```
+
+`anchor`는 **해당 태스크 본문 안에서만** 찾는다. 계획서 전체에서 찾으면 다른 태스크의 같은 줄에
+매치된다 — D22가 다루던 다중 매치 문제의 절반이 이 범위 제한으로 사라진다. 태스크 안에서도
+여럿이면 D22대로 사람에게 묻는다.
 
 **D7 — 결과는 새 파일 `docs/plans/<slug>/preflight.json`이다.**
 `build-result.json`에 합치지 않는다. 그것은 **빌드 결과**(A6: 세션 → 컨트롤러)이고 이것은
@@ -351,22 +421,76 @@ task_id · plan_text(문제 있는 원문 인용) · conflict · suggested_fix
 
 **반송 경로가 하나가 된다.** 사람이 보는 화면이 사전 검사든 빌드 중 반송이든 같다.
 
-**D20 — 공유하려면 타입에 이름이 있어야 한다.** `contract.ts:346`의 `defects`는 지금
-**익명 인라인 타입**이라 `import`할 수 없다. 이름을 빼내고 `BuildResult`가 그것을 참조하게 한다:
+**D20 — 익명 타입에 이름을 준다.** `contract.ts:346`의 `defects`는 지금 **익명 인라인 타입**이라
+`import`할 수 없다. 이름을 빼내고 `BuildResult`가 그것을 참조하게 한다.
+
+**D27 — 그러나 preflight는 `BuildDefect`를 재사용하지 않고 전용 타입을 쓴다.**
+
+⚠️ **2026-09-03 정정. 초안(D8)의 "스키마 재사용"이 의미를 흐렸다.**
+빌드 중 결함은 태스크 **하나**의 문제여도 된다 ("Task 5의 구현이 플랜과 다르다"). 사전 검사의
+결함은 **본질적으로 관계**다 ("Task 3과 Task 8이 서로 안 맞는다"). 초안은 `related_task_ids`를
+**선택 필드**로 뒀는데, 그러면 스키마가 "두 태스크가 충돌한다"를 강제하지 못한다 — §7의 전화번호
+픽스처 수용 기준을 타입이 보증할 수 없다.
 
 ```ts
-export interface Defect {
+// 공통 조상 없음. 두 타입은 다른 것을 뜻한다.
+export interface BuildDefect {          // 빌드 중 반송 (기존, 이름만 부여)
   task_id: string;
-  plan_text: string;          // 문제 있는 플랜 원문 인용
-  conflict: string;           // 무엇과 충돌하는지
-  suggested_fix?: string;     // 적용할 정확한 텍스트 (D5)
-  related_task_ids?: string[]; // preflight 가 추가 — 짝/묶음이므로 (선택)
+  plan_text: string;
+  conflict: string;
+  suggested_fix?: string;
 }
-// BuildResult.defects?: Defect[]
+
+export interface PreflightDefect {      // 사전 검사 (신규)
+  id: string;                           // --apply 의 인자. 초안에 없었다 (D24)
+  kind: "dangling_ref" | "order_violation" | "signature_mismatch" | "undeclared_conflict";
+  task_ids: [string, string, ...string[]];  // 최소 2개. 타입이 관계를 강제한다
+  relation?: string;                    // 어느 심볼/인터페이스 때문인지 (1단계 결함은 필수)
+  plan_text: string;                    // 문제 있는 원문 인용
+  conflict: string;
+  patch?: FixPatch;                     // 구조화된 수정 (D24)
+  stage: 1 | 2;                         // 기계가 잡았나 AI가 잡았나
+}
 ```
 
-`related_task_ids`는 선택 필드이므로 builder 쪽 동작은 바뀌지 않는다. 익명 타입을 그대로 두고
-preflight가 같은 모양을 다시 적으면 두 벌이 되고, **한쪽만 고쳤을 때 조용히 갈라진다.**
+`task_ids`의 튜플 타입이 **컴파일 시점에 최소 2개를 강제한다.** `stage` 필드가 있으므로
+"기계가 확정한 것"과 "AI가 판단한 것"을 사람이 구분해서 볼 수 있다 — 1단계 결함은 반박할 여지가
+없고, 2단계 결함은 오탐일 수 있다.
+
+**반송 화면은 여전히 하나다.** `formatViolations`처럼 두 타입을 같은 형식으로 출력하는 함수를
+공유한다 — 공유해야 하는 것은 **표현**이었고, 타입이 아니었다.
+
+**D28 — 워크플로우 → `--record` 경계에 전체 스키마를 정의한다.**
+
+⚠️ **2026-09-03 추가.** 초안은 *"스키마로 검증한다"(D11)*고만 쓰고 `defects[]` 밖의 계약을
+정의하지 않았다. 그러면 세션이 워크플로우 반환값을 **텍스트로 옮겨 적는** 경로가 생기고,
+그것은 하드룰 #4(파일 + JSON 스키마만이 경계)와 A6가 막으려던 바로 그 실패다.
+
+워크플로우는 **파일에 쓴다.** 세션이 값을 옮기지 않는다:
+
+```jsonc
+// docs/plans/<slug>/preflight-raw.json  ← 워크플로우가 직접 쓴다
+{
+  "schema": 1,
+  "plan_sha256": "…",              // 어느 플랜을 봤는지. --record 가 대조한다
+  "stage1": { "relations_declared": 12, "defects": [...] },
+  "stage2": { "units_examined": [...], "units_failed": [...], "defects": [...] },
+  "critic": { "additional_defects": [...] }
+}
+```
+
+`--record`가 이 파일을 읽어 검증하고 `preflight.json`으로 정규화한다.
+`units_failed`가 비어 있지 않으면 그 관계는 `not_examined`로 간다 (D25).
+`plan_sha256`이 현재 `plan.md`와 다르면 **`BLOCKED`** — 검사 도중 플랜이 바뀌었다는 뜻이다.
+
+**D29 — `applied[]`는 재검사를 넘어 살아남는다.**
+
+⚠️ **2026-09-03 추가.** 초안대로면 적용 후 재검사 시 `--record`가 새 `preflight.json`을 쓰면서
+**이전 `applied[]`가 사라진다.** D15의 감사 기록이 첫 재검사에서 소멸한다.
+
+`--record`는 기존 `preflight.json`이 있으면 `applied[]`를 **읽어서 이어붙인다.** 나머지 필드는
+새 검사 결과로 교체한다. `applied[]`만 누적이다 — 그것이 "계획서가 왜 이렇게 바뀌었는지"의
+유일한 기록이기 때문이다 (`git log`와 두 겹을 이룬다).
 
 **D21 — `extractFiles`는 파일 시스템을 건드리지 않는다.** `**Files:**`에 적힌 경로는 대부분
 **아직 존재하지 않는 파일**이다 — 계획서는 "이 파일을 만들 것"을 적은 문서다. 구현자가
@@ -394,22 +518,70 @@ preflight가 같은 모양을 다시 적으면 두 벌이 되고, **한쪽만 �
 }
 ```
 
-**D18 — `not_examined`는 기계가 계산한다. 에이전트에게 묻지 않는다.**
+**D25 — 커버리지는 관계 단위로 센다. 태스크 단위로 세지 않는다.**
+
+⚠️ **2026-09-03 정정. 초안(구 D18)이 틀렸다.** 초안은 이렇게 썼다:
 
 ```
-not_examined = parseTasks(plan.md) 의 전체 태스크  −  examined[] 에 등장한 태스크
+not_examined = 전체 태스크  −  examined[] 에 등장한 태스크      ← 틀렸다
 ```
 
-에이전트에게 "네가 빠뜨린 것을 보고하라"고 시키면 안 된다. 자기 실수를 자기가 신고하라는
-것이고, 빠뜨린 줄 아는 에이전트는 애초에 빠뜨리지 않는다. `preflight.ts`의 순수 함수이므로
-테스트된다. **이 필드의 신뢰성이 에이전트의 정직성에 의존해서는 안 된다.**
+**모순의 단위는 태스크가 아니라 태스크 간 관계다.** 태스크 13개가 전부 어떤 묶음에 한 번씩
+들어가면 이 차집합은 빈 배열이 된다. 그런데 **묶음 A와 묶음 B 사이의 관계는 하나도 안 봤을 수
+있다.** 초안은 거짓 안심을 주는 필드를 "최악 실패의 방어선"이라고 불렀다.
+
+관계 단위로 센다:
+
+```
+선언된 관계        = 모든 태스크의 Consumes 항목 총계          (기계가 정확히 안다)
+1단계가 검사한 관계 = 선언된 관계 전부                          (기계는 빠뜨리지 않는다)
+2단계가 검사한 관계 = AI 가 실제로 비교한 짝·묶음 조합
+미검사 관계        = (검사 대상으로 뽑혔지만 에이전트가 죽거나 스킵된 것)
+```
+
+`preflight.json`에 `relations: { declared, examined_stage1, examined_stage2, not_examined[] }`로
+남긴다. **1단계가 결정론적이라 `examined_stage1 == declared`가 항상 성립하고, 그것이 이 필드가
+믿을 만한 유일한 이유다.** 2단계의 커버리지는 별도로 집계하며 완결성을 주장하지 않는다.
+
+에이전트에게 "네가 빠뜨린 것을 보고하라"고 시키지 않는 원칙은 유지한다 — 계산은 기계가 한다.
 
 `not_examined`가 핵심이다. **조용히 빠뜨리고 "이상 없음"이라고 하는 것이 이 기능의 최악 실패다.**
 워크플로우 레퍼런스가 같은 원칙을 명시한다: *"No silent caps ... silent truncation reads as
 'covered everything' when it didn't."*
 
-**D10 — 같은 내용은 두 번 검사하지 않는다.** `plan.md`의 sha256을 `preflight.json`에 저장하고,
-일치하면 검사를 건너뛴다. 자동 실행(§4.1-6)이 낭비가 되지 않게 하는 장치다.
+**D10 — 캐시 적중 조건은 "같은 해시 + 유효한 `CLEAN`"이다. 해시 일치만으로는 안 된다.**
+
+⚠️ **2026-09-03 정정.** 초안은 *"해시가 일치하면 검사를 건너뛴다"*였다. **직전 결과가
+`REJECTED`여도 "이미 검사됨"으로 통과한다.** 결함이 있는 플랜이 캐시를 타고 게이트 ①을
+지나간다 — 이 기능이 막으려던 것을 이 기능이 만든다.
+
+```
+캐시 적중 = plan_sha256 일치  AND  verdict == "CLEAN"  AND  스키마 유효
+그 외 전부 = 다시 검사한다
+```
+
+`REJECTED`·`BLOCKED`·스키마 깨짐은 **재검사 대상이다.** 자동 실행(§4.1-15)의 낭비를 막는 것이
+목적이지만, 낭비를 막다가 결함을 통과시키면 목적이 뒤집힌다.
+
+**D26 — `bin/builder`가 `preflight.json`을 읽고 게이트를 기계로 강제한다.**
+
+⚠️ **2026-09-03 추가. 초안에 이것이 없었고, 그래서 초안 전체가 강제되지 않았다.**
+`controller/builder.ts:115`는 `checkHandoff()`만 부른다. `preflight` 언급이 0건이고
+**`builder.ts`가 수정 대상 목록에도 없었다.** 즉 초안대로 만들면 검사를 안 돌려도, `REJECTED`가
+나와도 빌드가 그냥 시작된다. "승인 전 검사"라는 주장에 강제 수단이 없었다.
+
+`runBuilder`의 계약 검증 단계에 한 줄이 늘어난다:
+
+| `preflight.json` 상태 | 빌드 |
+|---|---|
+| 없음 | **`REJECTED`** — "사전 검사를 돌리지 않았습니다" |
+| `plan_sha256`이 현재 `plan.md`와 불일치 | **`REJECTED`** — "검사 후 플랜이 바뀌었습니다" |
+| `verdict != "CLEAN"` | **`REJECTED`** — 결함 목록을 그대로 보고 |
+| 스키마 깨짐 | **`BLOCKED`** (하드룰 #4) |
+| `CLEAN` + 해시 일치 | 진행 |
+
+이것이 게이트 ①을 "사람이 승인한다"에서 "**검사를 통과한 것만 사람이 승인할 수 있다**"로 만든다.
+사람이 승인 발화를 해도 검사를 통과하지 않았으면 빌드가 시작되지 않는다.
 
 **D11 — 워크플로우 반환값은 스키마로 검증한다. 실패는 `BLOCKED`다.**
 하드룰 #4. `contract.ts`의 `checkBuildResult`와 같은 패턴이다. 이상한 값이 오면 **조용히 `CLEAN`으로
@@ -504,19 +676,26 @@ AI가 문장을 다시 쓰지 않는다. 사람이 승인한 텍스트와 실제
 | `workflows/plan-preflight.js` | 워크플로우 스크립트 (얇은 글루) |
 | `bin/preflight` | CLI — `--gate` / `--plan` / `--record` / `--apply <결함 id…>` |
 | `.claude/skills/preflight/SKILL.md` | 검사 3단계 + 사람 결정 + 적용을 묶는 스킬 |
-| `.claude/settings.json` (훅) | `plan.md` 쓰기 감지 → `--gate` |
+| `.claude/settings.json` (훅) | `plan.md` 쓰기 감지 → `--gate` (`PostToolUse` — D23) |
+| `docs/plans/<slug>/preflight-raw.json` | 워크플로우가 직접 쓰는 원본 (D28) |
 
 **고치는 것**
 
 | 파일 | 변경 |
 |---|---|
-| `controller/paths.ts` | `preflight` 경로 추가 |
-| `controller/contract.ts` | `**Files:**` 파싱 + 필수 검증 |
-| `overlay/writing-plans-tagging.md` | `**Files:**` 라인 강제 지시 |
+| `controller/paths.ts` | `preflight` · `preflightRaw` 경로 추가 |
+| `controller/contract.ts` | `**Files:**` · **`**Interfaces:**`** 파싱 + 필수 검증 · `BuildDefect` 이름 부여 (D20) |
+| **`controller/builder.ts`** | **`preflight.json`을 읽고 게이트를 강제한다 (D26)** — 초안에 빠져 있었다. 이것이 없으면 이 기능 전체가 강제되지 않는다 |
+| **`controller/contract.test.ts`** | 기존 정상 픽스처에 `**Interfaces:**`를 추가한다 (D6) — 새 필수 항목이 생겼으므로. 초안 목록에 빠져 있었다 |
+| `overlay/writing-plans-tagging.md` | `**Interfaces:**`를 **예시에서 필수로** 승격 (D6) |
 | `CLAUDE.md` | 라우팅 테이블에 `/preflight` 행 추가 (P6 소유권) |
 
-`contract.ts`를 고치면 **기존 테스트 93개가 안전망이 된다** — 파싱을 추가하다 기존 계약 검증을
-깨면 즉시 드러난다.
+파일 12개다 (신규 7 · 수정 5). 초안의 10개에서 늘었고, 늘어난 둘이 **`builder.ts`와
+`contract.test.ts`** — Codex가 지적한 "범위가 실제로 닫혀 있지 않다"의 실체다.
+
+`contract.ts`를 고치면 **기존 테스트 107개가 안전망이 된다** — 파싱을 추가하다 기존 계약 검증을
+깨면 즉시 드러난다. 다만 `**Interfaces:**` 필수화는 **기존 픽스처를 의도적으로 깨뜨린다**.
+그 실패는 회귀가 아니라 계약 변경의 신호이므로, 픽스처를 고치는 것이 정답이다.
 
 ---
 
@@ -532,6 +711,29 @@ AI가 문장을 다시 쓰지 않는다. 사람이 승인한 텍스트와 실제
 5. `checkDefects()` — 스키마에 맞지 않는 입력에 `BLOCKED`를 낸다. **빈 배열은 유효한 입력이며
    `CLEAN`이다** (결함 없음과 검증 실패를 구분한다).
 6. `preflightVerdict()` — 결함이 하나라도 있으면 `REJECTED`.
+
+### 7.1.2 1단계 기계 검사 (2026-09-03 추가 · D6 · D25 · D26)
+
+23. `parseInterfaces(task)` — `**Interfaces:**`의 `Consumes`/`Produces`를 뽑는다. `from Task N`의
+    N을 분리한다. 섹션이 없으면 빈 결과이며 던지지 않는다.
+24. `extractFiles(task)` — **멀티라인 `- Create:` / `- Test:` 형식**을 파싱한다 (D6). 한 줄 CSV가
+    아니다. 백틱을 벗긴다. 파일 시스템을 건드리지 않는다 (D21).
+25. `danglingRefs(tasks)` — `X from Task N`을 소비하는데 Task N의 `Produces`에 X가 없으면 결함.
+    Task N이 아예 없는 경우도 같다.
+26. `orderViolations(tasks)` — 앞 태스크가 뒤 태스크의 산출을 소비하면 결함.
+27. `signatureCandidates(tasks)` — 같은 심볼의 `Produces`/`Consumes` 서명이 텍스트로 다르면
+    **결함이 아니라 후보**로 낸다. `stage: 2`로 넘긴다.
+28. 위 셋이 낸 `PreflightDefect`는 `task_ids`가 **항상 2개 이상**이고 `relation`이 채워져 있다
+    (D27 — 타입이 강제한다).
+29. `relationCoverage(tasks, examined)` — 선언된 관계 수와 검사된 관계 수를 센다.
+    **1단계만 돈 경우 `examined_stage1 == declared`가 성립한다** (D25).
+30. **게이트 강제** — `runBuilder`가 `preflight.json` 없음 / 해시 불일치 / `verdict != CLEAN` 에
+    각각 `REJECTED`를 내고, 스키마 깨짐에 `BLOCKED`를 낸다 (D26). **빌드가 시작되지 않는다.**
+31. `--record`가 `preflight-raw.json`의 `plan_sha256`이 현재 `plan.md`와 다르면 `BLOCKED` (D28).
+32. `--record`가 기존 `preflight.json`의 `applied[]`를 **읽어 이어붙인다.** 재검사 후에도 이전
+    적용 기록이 남아 있다 (D29).
+33. `findFixSites`는 **해당 태스크 본문 안에서만** anchor를 찾는다 (D24). 다른 태스크의 같은
+    줄에 매치되지 않는다.
 
 ### 7.1.1 엣지 케이스 (전부 던지지 않고 우아하게 끝나야 한다)
 
@@ -551,10 +753,11 @@ E5가 중요하다. **검사를 안 한 것과 검사해서 깨끗한 것은 다
 7. **모순이 있는 계획서** 픽스처(§2의 전화번호 예)를 넣으면 `REJECTED`가 나오고, `defects[]`에
    해당 두 할 일의 id가 담긴다.
 8. **모순이 없는 계획서** 픽스처를 넣으면 `CLEAN`이 나오고, `examined[]`가 비어 있지 않다.
-9. 같은 계획서를 두 번 검사하지 않는다. `preflight.json`의 `plan_sha256`이 현재 `plan.md`의
-   해시와 같으면 `--gate`가 **"이미 검사됨"을 반환하고 종료 코드 0으로 끝난다** — 에이전트 단계로
-   넘어가지 않는다. (에이전트가 안 떴다는 것을 직접 단언하지 않고, **그 앞의 관문이 막는 것**을
-   단언한다. 기계적으로 검증 가능해야 하므로.)
+9. 캐시는 **`CLEAN`일 때만** 적중한다 (D10). 해시가 같아도 `verdict`가 `REJECTED`·`BLOCKED`거나
+   스키마가 깨졌으면 `--gate`가 **재검사를 요구한다.** 해시 일치만으로 통과시키면 결함 있는
+   플랜이 캐시를 타고 게이트를 지나간다.
+9-1. 해시 일치 + `CLEAN`일 때 `--gate`는 "이미 검사됨"으로 종료 코드 0으로 끝나며 에이전트 단계로
+   넘어가지 않는다.
 10. `not_examined` 필드는 비어 있더라도 **항상 존재한다.**
 10-1. `notExamined(tasks, examined)` — 전체 태스크에서 검사된 것을 뺀 차집합을 낸다.
    `examined[]`가 비면 전체 태스크가 나오고, 전부 검사됐으면 빈 배열이 나온다. **에이전트
