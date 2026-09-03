@@ -51,6 +51,9 @@ const GOOD_PLAN = `# 페르소나 카드 목록 Implementation Plan
 **Files:**
 - Create: \`src/personas/list.ts\`
 
+**Interfaces:**
+- Produces: \`listPersonas(): Persona[]\`
+
 **테스트로 증명할 것:**
 - [ ] 페르소나가 0개면 빈 배열, 예외 없음
 - [ ] 최신순으로 정렬된다
@@ -63,6 +66,10 @@ const GOOD_PLAN = `# 페르소나 카드 목록 Implementation Plan
 
 **Files:**
 - Create: \`src/personas/Card.tsx\`
+
+**Interfaces:**
+- Consumes: \`listPersonas(): Persona[]\` from Task 1
+- Produces: \`PersonaCard\`
 
 - [ ] **Step 1: Write the failing test**
 `;
@@ -444,5 +451,58 @@ describe("parseInterfaces", () => {
 
   test("섹션이 없으면 빈 배열 둘, 예외 없음", () => {
     expect(parseInterfaces("본문만")).toEqual({ consumes: [], produces: [] });
+  });
+});
+
+describe("checkPlan — Files/Interfaces 필수 (설계 D6)", () => {
+  const task = (extra: string) =>
+    [
+      "## 태스크",
+      "",
+      "### Task 1: 예시",
+      "",
+      "**Tags:** verification=deterministic validation=invisible",
+      "",
+      extra,
+      "",
+      "**테스트로 증명할 것:**",
+      "- [ ] 무언가 관찰된다",
+    ].join("\n");
+
+  const errorsOf = (text: string) =>
+    checkPlan(text).filter((v) => v.severity === "error");
+
+  test("Files 섹션이 없으면 error", () => {
+    const v = errorsOf(task("**Interfaces:**\n- Produces: `f(): void`"));
+    expect(v.some((x) => x.message.includes("Files"))).toBe(true);
+  });
+
+  test("Create/Modify 가 하나도 없으면 error — Test 만으로는 부족", () => {
+    const v = errorsOf(
+      task("**Files:**\n- Test: `a.test.ts`\n\n**Interfaces:**\n- Produces: `f(): void`"),
+    );
+    expect(v.some((x) => x.message.includes("Files"))).toBe(true);
+  });
+
+  test("Interfaces 섹션이 없으면 error", () => {
+    const v = errorsOf(task("**Files:**\n- Create: `a.ts`"));
+    expect(v.some((x) => x.message.includes("Interfaces"))).toBe(true);
+  });
+
+  test("Consumes·Produces 둘 다 비면 error", () => {
+    const v = errorsOf(task("**Files:**\n- Create: `a.ts`\n\n**Interfaces:**"));
+    expect(v.some((x) => x.message.includes("Interfaces"))).toBe(true);
+  });
+
+  test("Produces 만 있어도 통과 — 첫 태스크는 소비할 것이 없다", () => {
+    const v = errorsOf(
+      task("**Files:**\n- Create: `a.ts`\n\n**Interfaces:**\n- Produces: `f(): void`"),
+    );
+    expect(v.filter((x) => /Files|Interfaces/.test(x.message))).toEqual([]);
+  });
+
+  test("위반 메시지에 태스크 번호가 들어간다", () => {
+    const v = errorsOf(task("**Interfaces:**\n- Produces: `f(): void`"));
+    expect(v.some((x) => x.message.includes("1"))).toBe(true);
   });
 });

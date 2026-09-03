@@ -396,6 +396,32 @@ export function checkPlan(planText: string): Violation[] {
         }),
       );
     }
+
+    // ── Files / Interfaces 필수 (설계 D6) ───────────────────────
+    //
+    // Interfaces 가 1단계 기계 검사의 유일한 입력이다. 없으면 preflight 가
+    // 관계 그래프를 만들 수 없고, 검사기가 조용히 아무것도 하지 않는다.
+    const files = parseFiles(t.body);
+    if (files.create.length + files.modify.length === 0) {
+      v.push(
+        err({
+          file: "plan.md",
+          rule: "§4.2",
+          message: `Task ${t.id}: **Files:** 에 Create 또는 Modify 항목이 없습니다 (Test 만으로는 부족)`,
+        }),
+      );
+    }
+
+    const ifaces = parseInterfaces(t.body);
+    if (ifaces.consumes.length + ifaces.produces.length === 0) {
+      v.push(
+        err({
+          file: "plan.md",
+          rule: "§4.2",
+          message: `Task ${t.id}: **Interfaces:** 에 Consumes 또는 Produces 항목이 없습니다 — 1단계 관계 검사의 입력입니다`,
+        }),
+      );
+    }
   }
 
   const generative = tasks.filter((t) => t.verification === "generative").length;
