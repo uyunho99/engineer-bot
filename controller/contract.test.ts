@@ -389,6 +389,19 @@ describe("parseFiles", () => {
     });
   });
 
+  test("섹션이 있지만 항목이 없으면 빈 배열 세 개", () => {
+    expect(parseFiles("**Files:**\n")).toEqual({
+      create: [], modify: [], test: [],
+    });
+  });
+
+  test("섹션이 있지만 바로 다음 섹션이 나오면 빈 배열 세 개", () => {
+    const emptyBeforeNext = "**Files:**\n\n**Interfaces:**\n- Produces: `f(): void`";
+    expect(parseFiles(emptyBeforeNext)).toEqual({
+      create: [], modify: [], test: [],
+    });
+  });
+
   test("중복 경로는 한 번만", () => {
     const dup = "**Files:**\n- Create: `x.ts`\n- Create: `x.ts`";
     expect(parseFiles(dup).create).toEqual(["x.ts"]);
