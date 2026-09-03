@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
 import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, type PreflightRaw } from "./preflight";
@@ -720,5 +721,57 @@ describe("gateDecision (설계 D10)", () => {
     expect(gateDecision({
       planExists: true, planSha256: SHA, previous: prev("REJECTED"), contractOk: true,
     }).action).toBe("run");
+  });
+});
+
+describe("워크플로우 스크립트 (Task 12)", () => {
+  const src = readFileSync("workflows/plan-preflight.js", "utf8");
+
+  test("모든 agent() 호출에 model 이 명시돼 있다 (하드룰 #3)", () => {
+    // **주석을 먼저 벗긴다.** 이 스크립트는 주석이 본문보다 길고 주석 안에
+    // `agent()` 가 등장한다 — 벗기지 않으면 calls 가 과대 집계돼 테스트가
+    // 구현과 무관하게 깨진다 (2026-09-03 봇이 실측: calls 6 vs models 5).
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    const calls = (code.match(/\bagent\(/g) ?? []).length;
+    const models = (code.match(/\bmodel\s*:/g) ?? []).length;
+    expect(calls).toBeGreaterThan(0);
+    expect(models).toBeGreaterThanOrEqual(calls);
+  });
+
+  test("meta 블록이 있다", () => {
+    expect(src).toContain("export const meta");
+  });
+});
+
+describe("워크플로우 산출 형식 왕복", () => {
+  const SHA = "a".repeat(64);
+  const asWorkflowWrites = {
+    schema: 1,
+    plan_sha256: SHA,
+    stage1: { relations_declared: 2, defects: [] },
+    stage2: { units_examined: ["pair:1x2"], units_failed: [], defects: [] },
+    critic: { additional_defects: [] },
+  };
+
+  test("스크립트가 쓰는 형식이 checkPreflightRaw 를 통과한다", () => {
+    expect(checkPreflightRaw(JSON.stringify(asWorkflowWrites), SHA).ok).toBe(true);
+  });
+
+  test("units_failed 가 있으면 REJECTED 로 이어진다", () => {
+    const withFail = {
+      ...asWorkflowWrites,
+      stage2: { ...asWorkflowWrites.stage2, units_failed: ["pair:1x2"] },
+    };
+    const checked = checkPreflightRaw(JSON.stringify(withFail), SHA);
+    expect(checked.ok).toBe(true);
+    const g = graphOf(planOf(task(1, ["- Produces: `a()`"]), task(2, ["- Consumes: `a()` from Task 1"])));
+    const r = assembleResult({
+      branch: "feature/x", planSha256: SHA, raw: checked.data!, graph: g,
+      pairs: [], previousApplied: [], now: "2026-09-03T00:00:00Z",
+    });
+    expect(r.relations.not_examined).toEqual(["pair:1x2"]);
+    expect(r.verdict).toBe("REJECTED");
   });
 });
