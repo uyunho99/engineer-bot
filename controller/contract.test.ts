@@ -5,6 +5,8 @@ import {
   checkHandoff,
   checkPlan,
   formatViolations,
+  parseFiles,
+  parseInterfaces,
   parseTasks,
 } from "./contract";
 
@@ -353,5 +355,81 @@ describe("formatViolations", () => {
       { severity: "error", file: "plan.md", rule: "r", message: "e" },
     ]);
     expect(out.indexOf("ERROR")).toBeLessThan(out.indexOf("WARN"));
+  });
+});
+
+describe("parseFiles", () => {
+  const body = [
+    "### Task 1: 예시",
+    "",
+    "**Files:**",
+    "- Create: `src/a.ts`",
+    "- Modify: `src/b.ts:12-30`",
+    "- Test: `src/a.test.ts`",
+    "",
+    "**Interfaces:**",
+    "- Produces: `f(): void`",
+  ].join("\n");
+
+  test("Create/Modify/Test 를 분리해 뽑고 백틱을 벗긴다", () => {
+    expect(parseFiles(body)).toEqual({
+      create: ["src/a.ts"],
+      modify: ["src/b.ts:12-30"],
+      test: ["src/a.test.ts"],
+    });
+  });
+
+  test("다음 ** 섹션에서 멈춘다 — Interfaces 항목을 삼키지 않는다", () => {
+    expect(parseFiles(body).create).not.toContain("f(): void");
+  });
+
+  test("섹션이 없으면 빈 배열 세 개, 예외 없음", () => {
+    expect(parseFiles("### Task 1: 없음\n\n본문만 있다")).toEqual({
+      create: [], modify: [], test: [],
+    });
+  });
+
+  test("중복 경로는 한 번만", () => {
+    const dup = "**Files:**\n- Create: `x.ts`\n- Create: `x.ts`";
+    expect(parseFiles(dup).create).toEqual(["x.ts"]);
+  });
+
+  test("존재하지 않는 경로도 그대로 반환한다 (파일시스템 미접근)", () => {
+    const ghost = "**Files:**\n- Create: `아직/없는/파일.ts`";
+    expect(parseFiles(ghost).create).toEqual(["아직/없는/파일.ts"]);
+  });
+
+  test("코드펜스 안의 항목은 무시한다", () => {
+    const fenced = [
+      "**Files:**",
+      "- Create: `real.ts`",
+      "",
+      "```markdown",
+      "**Files:**",
+      "- Create: `fake.ts`",
+      "```",
+    ].join("\n");
+    expect(parseFiles(fenced).create).toEqual(["real.ts"]);
+  });
+});
+
+describe("parseInterfaces", () => {
+  test("Consumes 에서 심볼과 출처 태스크를 분리한다", () => {
+    const b = "**Interfaces:**\n- Consumes: `PersonaSeed` from Task 2";
+    expect(parseInterfaces(b).consumes).toEqual([{ symbol: "PersonaSeed", fromTask: "2" }]);
+  });
+
+  test("from 절이 없으면 fromTask 는 null", () => {
+    const b = "**Interfaces:**\n- Consumes: `Loose`";
+    expect(parseInterfaces(b).consumes).toEqual([{ symbol: "Loose", fromTask: null }]);
+  });
+
+  test("Produces 는 서명 전문을 보존한다", () => {
+    const b = "**Interfaces:**\n- Produces: `expand(seed: PersonaSeed): string[]`";
+    expect(parseInterfaces(b).produces).toEqual(["expand(seed: PersonaSeed): string[]"]);
+  });
+
+  test("섹션이 없으면 빈 배열 둘, 예외 없음", () => {
+    expect(parseInterfaces("본문만")).toEqual({ consumes: [], produces: [] });
   });
 });

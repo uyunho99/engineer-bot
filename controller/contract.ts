@@ -159,6 +159,93 @@ export function parseTasks(planText: string): ParsedTask[] {
   return tasks;
 }
 
+// ─── 태스크 메타 섹션 파싱 (설계 D6) ─────────────────────────────
+//
+// 형식은 overlay/writing-plans-tagging.md 가 정의한 것이다. 새로 만들지 않는다.
+//
+//   **Files:**
+//   - Create: `src/a.ts`
+//   - Test:   `src/a.test.ts`
+//
+//   **Interfaces:**
+//   - Consumes: `PersonaSeed` from Task 2
+//   - Produces: `expand(seed: PersonaSeed): string[]`
+//
+// 주의: 여기서 나온 경로는 **아직 존재하지 않는 파일**이 대부분이다 (계획서다).
+// 존재 확인으로 걸러내면 신규 파일이 전부 사라진다 (설계 D21).
+
+export interface TaskFiles {
+  create: string[];
+  modify: string[];
+  test: string[];
+}
+
+export interface ConsumeRef {
+  symbol: string;
+  /** `from Task N` 의 N. 절이 없으면 null */
+  fromTask: string | null;
+}
+
+export interface TaskInterfaces {
+  consumes: ConsumeRef[];
+  produces: string[];
+}
+
+/** `**Name:**` 헤딩 다음의 `- ` 항목들을 다음 `**` 헤딩 전까지 모은다. */
+function metaSection(body: string, name: string): string[] {
+  const lines = stripFences(body).split("\n");
+  const head = new RegExp(`^\\s*\\*\\*${name}:\\*\\*\\s*$`);
+  const anyHead = /^\s*\*\*[^*]+:\*\*/;
+  const items: string[] = [];
+  let inside = false;
+  for (const line of lines) {
+    if (head.test(line)) {
+      inside = true;
+      continue;
+    }
+    if (!inside) continue;
+    if (anyHead.test(line)) break;
+    const m = /^\s*-\s+(.*\S)\s*$/.exec(line);
+    if (m) items.push(m[1]);
+  }
+  return items;
+}
+
+const unbacktick = (s: string) => s.replace(/^`|`$/g, "").trim();
+
+const dedupe = (xs: string[]) => [...new Set(xs)];
+
+export function parseFiles(body: string): TaskFiles {
+  const out: TaskFiles = { create: [], modify: [], test: [] };
+  for (const item of metaSection(body, "Files")) {
+    const m = /^(Create|Modify|Test)\s*:\s*(.+)$/i.exec(item);
+    if (!m) continue;
+    const key = m[1].toLowerCase() as keyof TaskFiles;
+    out[key].push(unbacktick(m[2]));
+  }
+  out.create = dedupe(out.create);
+  out.modify = dedupe(out.modify);
+  out.test = dedupe(out.test);
+  return out;
+}
+
+export function parseInterfaces(body: string): TaskInterfaces {
+  const consumes: ConsumeRef[] = [];
+  const produces: string[] = [];
+  for (const item of metaSection(body, "Interfaces")) {
+    const c = /^Consumes\s*:\s*(.+)$/i.exec(item);
+    if (c) {
+      const from = /\bfrom\s+Task\s+(\d+)/i.exec(c[1]);
+      const symbol = unbacktick(c[1].replace(/\bfrom\s+Task\s+\d+.*$/i, "").trim());
+      consumes.push({ symbol, fromTask: from ? from[1] : null });
+      continue;
+    }
+    const p = /^Produces\s*:\s*(.+)$/i.exec(item);
+    if (p) produces.push(unbacktick(p[1]));
+  }
+  return { consumes, produces };
+}
+
 /**
  * task-brief의 awk가 추출하지 못할 형태의 태스크 헤딩을 찾는다.
  * `### 3. 무엇` 처럼 `Task N` 형식을 안 지킨 헤딩이 있으면 SDD가 시작 못 한다.
