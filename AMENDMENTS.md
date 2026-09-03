@@ -373,7 +373,20 @@ superpowers/brainstorming 이걸 넣는 게 더 도움이 될 거 같아."*
 | 근거 | A7과 같은 종류의 문제다. 그때는 플러그인 2개가 같은 이름을 선언해 versions.lock의 대상이 모호해졌고, 여기서는 대상 자체가 파일로 존재하지 않는다 |
 | 대응 | 봇 호스트에서 돌려야 하는 스킬은 **레포에 vendoring한다** (`.claude/skills/<name>/`, git 추적). claude.ai 등록본은 사람이 대화형으로 쓸 때만 의존한다 |
 | 미결 | `qa-planning`의 산출물 `QA_PLAN.md`는 경로가 지정돼 있지 않다 → B2와 같은 정규화 문제. 배치(기획 단계 vs 게이트 ② 전)도 미정. `docs/plans/feature-plan-preflight/design-doc.md` §1.1.1 참조 |
-| 적용 | `bootstrap.sh check` — vendoring된 스킬의 sha 확인을 추가할 것 (미구현) |
+| 적용 | ✅ 구현됨 (2026-09-03) — `config/vendored-skills.json`(매니페스트) · `controller/vendored.ts`(검증, 테스트 14개) · `bootstrap.sh check_vendored_skills` |
+
+**vendoring 계약** — 등재된 스킬은 업스트림과 **바이트 단위로 같아야 한다.**
+해시는 **git blob sha1**이라 `git hash-object <파일>`로 사람이 직접 확인할 수 있고,
+GitHub 트리 API 값과 그대로 대조된다. 해시가 어긋나면 둘 중 하나다 — 누가 사본을 고쳤거나
+(= 몰래 fork했거나, 명세 P4 위반), 업스트림을 올리고 매니페스트를 갱신하지 않았거나.
+드리프트 탐지는 실측으로 확인했다 (파일 한 줄 추가 → `exit 1` + 변경 파일 지목 → 되돌리니 통과).
+
+**첫 등재: `webapp-testing`** (`anthropics/skills` sha `5304866`, 6개 파일).
+실측에서 드러난 함정 하나 — **Python playwright에는 `1.58.2`가 없다.** Node는 1.58.2,
+Python은 1.58.0이 최신이다. 다행히 두 버전 다 **chromium 리비전 1208**을 쓰므로
+(`microsoft/playwright` `browsers.json` 실측) gstack의 node playwright와 브라우저를 공유하고,
+설치해도 공유 캐시에 리비전이 늘지 않았다. **버전을 안 맞추면 2026-07-30 `bootstrap repair`가
+고쳐야 했던 상태(1208 vs 1228 불일치)가 재발한다.**
 
 
 ## C. 남은 미결 (사용자 입력 대기)

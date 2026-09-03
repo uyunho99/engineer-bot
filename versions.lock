@@ -23,3 +23,9 @@ superpowers_dev_dirty=1
 # `Hermes Agent` 행이 존재함으로 판정 (6.2.0 grep 0건). `.in_use` 락은 6.2.0 쪽에만 있어
 # 세션마다 달라질 수 있음.
 superpowers_observed=6.3.0
+
+# vendoring된 스킬 (config/vendored-skills.json 이 파일 단위 해시를 갖는다)
+vendored_webapp_testing=53048666b05b4799081517d00e09e0a2dd688678
+# webapp-testing 런타임. node(gstack) 1.58.2 와 python 1.58.0 이 같은 chromium 1208 을 쓴다.
+python_playwright=1.58.0
+playwright_chromium_revision=1208
