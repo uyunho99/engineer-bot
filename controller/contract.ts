@@ -15,7 +15,12 @@ export type Severity = "error" | "warn";
 
 export interface Violation {
   severity: Severity;
-  file: "design-doc.md" | "plan.md" | "build-result.json";
+  file:
+    | "design-doc.md"
+    | "plan.md"
+    | "build-result.json"
+    | "preflight.json"      // 사전 검사 결과 (설계 D7)
+    | "preflight-raw.json"; // 워크플로우 원본 (설계 D28)
   /** 명세/AMENDMENTS의 근거 조항 */
   rule: string;
   message: string;
@@ -440,6 +445,52 @@ export function checkPlan(planText: string): Violation[] {
   return v;
 }
 
+// ─── 결함 타입 (설계 D20 · D24 · D27) ────────────────────────────
+//
+// 두 타입은 다른 것을 뜻한다. 공통 조상을 두지 않는다.
+//   BuildDefect      빌드 중 반송 — 태스크 하나의 문제여도 된다
+//   PreflightDefect  사전 검사   — 본질적으로 태스크 간 관계다
+// 공유해야 하는 것은 **표현**이고, 타입이 아니었다.
+
+export interface BuildDefect {
+  task_id: string;
+  plan_text: string;
+  conflict: string;
+  suggested_fix?: string;
+}
+
+/** 사람이 승인한 수정을 기계가 그대로 적용하기 위한 패치 (설계 D24) */
+export interface FixPatch {
+  op: "insert_after" | "replace";
+  /** 어느 태스크 본문 안인지. anchor 는 이 범위에서만 찾는다 */
+  task_id: string;
+  /** 그 태스크 본문에서 찾을 기준 문자열 */
+  anchor: string;
+  /** 넣거나 바꿀 내용. 바이트 그대로 들어간다 (설계 D14) */
+  text: string;
+}
+
+export type DefectKind =
+  | "dangling_ref"
+  | "order_violation"
+  | "signature_mismatch"
+  | "undeclared_conflict";
+
+export interface PreflightDefect {
+  /** `--apply` 의 인자 */
+  id: string;
+  kind: DefectKind;
+  /** 최소 2개. 튜플 타입이 컴파일 시점에 관계를 강제한다 (설계 D27) */
+  task_ids: [string, string, ...string[]];
+  /** 어느 심볼·인터페이스 때문인지. 1단계 결함은 필수다 */
+  relation?: string;
+  plan_text: string;
+  conflict: string;
+  patch?: FixPatch;
+  /** 1 = 기계가 확정 · 2 = AI 가 판단 (사람이 신뢰도를 구분할 수 있게) */
+  stage: 1 | 2;
+}
+
 // ─── build-result.json (AMENDMENTS A6) ────────────────────────
 
 export type Outcome = "SUCCESS" | "REJECTED" | "BLOCKED";
@@ -458,7 +509,7 @@ export interface BuildResult {
   screenshots?: string[];
   concerns?: Array<{ task_id: string; note: string }>;
   verification_gaps?: Array<{ task_id: string; reason: string }>;
-  defects?: Array<{ task_id: string; plan_text: string; conflict: string; suggested_fix?: string }>;
+  defects?: BuildDefect[];
   blocked?: { task_id: string; reason: string; attempts?: string[] };
 }
 

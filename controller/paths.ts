@@ -48,6 +48,11 @@ export interface ContractPaths {
   screenshotDir: string;
   /** gstack 산출 디렉터리 (심링크 대상, 자유 명명) */
   gstackDir: string;
+  /** 사전 검사 결과 (정규화됨). 새 파일이다 — build-result.json 에 합치지 않는다 (설계 D7).
+   *  게이트 ① 앞에서 builder 가 읽는다 (설계 D26) */
+  preflight: string;
+  /** 워크플로우가 직접 쓰는 원본. 세션이 값을 옮기지 않는다 (설계 D28) */
+  preflightRaw: string;
 }
 
 export function contractPaths(repoRoot: string, branch: string): ContractPaths {
@@ -64,6 +69,8 @@ export function contractPaths(repoRoot: string, branch: string): ContractPaths {
     buildResult: join(planDir, "build-result.json"),
     screenshotDir: join(planDir, "shots"),
     gstackDir: join(repoRoot, "docs", "gstack"),
+    preflight: join(planDir, "preflight.json"),
+    preflightRaw: join(planDir, "preflight-raw.json"),
   };
 }
 

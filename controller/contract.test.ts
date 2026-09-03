@@ -9,6 +9,7 @@ import {
   parseInterfaces,
   parseTasks,
 } from "./contract";
+import { contractPaths } from "./paths";
 
 const errorsOnly = (vs: ReturnType<typeof checkPlan>) => vs.filter((v) => v.severity === "error");
 
@@ -514,3 +515,15 @@ describe("checkPlan — Files/Interfaces 필수 (설계 D6)", () => {
     expect(ifacesViolation?.taskId).toBe("1");
   });
 });
+
+describe("contractPaths — preflight 경로 (설계 D7 · D28)", () => {
+  test("contractPaths 가 preflight 경로 두 개를 만든다", () => {
+    const p = contractPaths("/repo", "feature/x");
+    expect(p.preflight).toBe("/repo/docs/plans/feature-x/preflight.json");
+    expect(p.preflightRaw).toBe("/repo/docs/plans/feature-x/preflight-raw.json");
+  });
+});
+
+// 타입이 관계를 강제하는지는 typecheck 로 관찰한다 (설계 D27).
+// 아래를 주석 해제하면 `bun run typecheck` 가 실패해야 한다:
+//   const bad: PreflightDefect["task_ids"] = ["only-one"];
