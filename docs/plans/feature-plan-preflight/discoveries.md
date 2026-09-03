@@ -74,3 +74,52 @@ builder 세션이 누적한다. SDD 워크스페이스는 최종 리뷰 후 삭�
   2회전이 Task 11 에서 찾은 것과 같은 계열(전사 시 import 정리)이다.
 - [plan] **Global Constraints 의 "기존 테스트 107개"가 실측과 다르다** — 현재 130개다.
   리뷰어의 attention lens 에 틀린 수치가 들어가면 회귀 판정 기준이 흔들린다.
+
+## 2026-09-03 · 4회전 (REJECTED, Task 1 착수 전)
+
+- [setup] **3회전의 반송 6건이 전부 반영됐다** — 특히 Task 14 의 `planAround` 봉투가
+  들어갔고, 실측으로 확인했다: 오버레이 예시 블록(`### Task 3`, generative/invisible)을
+  Task 1·2 스텁 + `## Global Constraints` 로 감싸면 `checkPlan` error 0건이다
+  (generative 골든셋 부재는 `warn` 이라 필터를 통과한다). Task 14 는 이제 통과 가능하다.
+- [setup] 기준선 재실측: `bun test` **130 pass / 0 fail**, `bun run typecheck` 통과
+  (bun 1.3.14). Global Constraints 의 130 이 실측과 일치한다.
+- [plan] **`Violation["file"]` 이 닫힌 리터럴 유니온이다 — 이번 반송 사유다** (실측 확인).
+  `contract.ts:18` 이 `file: "design-doc.md" | "plan.md" | "build-result.json"` 으로
+  좁혀 놓았는데, Task 8 Step 3 은 `file: "preflight-raw.json"` 을, Task 15 Step 3 은
+  `file: "preflight.json"` 을 push 한다. 두 태스크 모두 `Consumes: Violation (기존)` 을
+  선언하고 `Modify: controller/contract.ts` 는 **선언하지 않는다.** 유니온을 넓힐 권한을
+  가진 태스크가 플랜에 없다. 프로브로 `bun run typecheck` → `TS2322` 2건 확인.
+  **왜 다음 태스크에 영향을 주는가:** Task 11·14·15 의 Step 4 통과 기준이
+  `bun run typecheck` 다. 플랜의 마지막 3분의 1이 전부 이 결함 위에서 실패한다.
+- [plan] **이것이 정확히 이 기능이 잡으려는 `undeclared_conflict` 다 — 자기 시연이다.**
+  `**Interfaces:**` 그래프는 **심볼**을 모델링하고 **심볼의 필드 모양**은 모델링하지
+  않는다. `Consumes: Violation` 은 "이 타입을 쓴다"까지만 말하고 "이 타입의 `file`
+  필드가 내 파일명을 받아주는가"는 말하지 못한다. 1단계 기계 검사(설계 §6.2)는 이
+  결함을 원리적으로 못 잡고, 2단계 파일 겹침 짝도 못 잡는다 — Task 8 과 contract.ts 를
+  함께 건드리는 태스크가 없으므로 짝이 만들어지지 않는다.
+  → **설계 §7.4 관찰 항목에 추가할 값이 있다:** "기존 타입을 소비하는 태스크가 그
+  타입의 리터럴 유니온을 넓혀야 하는 경우"는 이 검사기의 알려진 사각지대다.
+- [plan] **Task 15 Step 1 의 두 번째 `describe` 가 첫 `describe` 의 지역 변수를 쓴다** —
+  `SHA`·`result` 는 `describe("checkPreflightGate")` 콜백 **안**에 선언돼 있는데
+  (plan.md:2933-2938), `describe("runBuilder — ...")` 의 테스트가 `result()`·`SHA` 를
+  참조한다 (plan.md:2997). 스코프 밖이라 `TS2304` + 런타임 ReferenceError 다.
+  결함이 아니라 전사 세부다 — 두 const 를 모듈 스코프로 올리면 끝이고 요건은 안 바뀐다.
+  다만 최저가 모델에 전사를 맡기면 조용히 깨진다.
+- [plan] **Task 12·13 이 같은 테스트 파일에 `node:fs` import 를 각각 추가한다** —
+  Task 12 는 `import { readFileSync }` (plan.md:2319), Task 13 은
+  `import { existsSync, readFileSync }` (plan.md:2574). 같은 파일에서 `readFileSync`
+  중복 선언이고, Task 13 의 `existsSync` 는 쓰이지 않아 `noUnusedLocals` 에도 걸린다.
+  Task 9·11 과 같은 계열(전사 시 import 정리)이다.
+- [plan] **Task 3·14 의 테스트가 쓰는 심볼이 `contract.test.ts` import 목록에 없다** —
+  Task 3 은 `contractPaths`(plan.md:432), Task 14 는 `readFileSync`(plan.md:2738).
+  현재 `contract.test.ts` 는 둘 다 import 하지 않는다. Task 1 이 "`import` 줄에
+  `parseFiles`, `parseInterfaces`, 타입을 추가한다"를 명시한 것처럼 명시가 필요하다.
+- [plan] **Task 10 의 "원본이 안 바뀐다" 단언은 항진명제다** — `const before = TWO_TASKS;`
+  뒤에 `expect(TWO_TASKS).toBe(before)` 다 (plan.md:1833-1836). 문자열은 불변이라
+  어떤 구현에서도 통과한다. D16(부분 적용 금지)을 실제로 증명하려면 반환값 쪽을 봐야
+  한다 — `not_found` 일 때 `r` 에 `text` 필드가 없다는 것이 진짜 관찰이고, 그건 이미
+  `expect(r.status).toBe("not_found")` 가 하고 있다. Minor.
+- [setup] **SDD 워크스페이스 경로 충돌이 그대로 남아 있다** (3회전 관찰 재확인) —
+  `sdd-workspace` 가 플랜 basename 으로 디렉터리를 만들어 `.superpowers/sdd/plan` 이다.
+  이 레포의 모든 플랜이 `plan.md` 라서 단 하나를 공유한다. ledger 첫 줄 대조가 유일한
+  방어선이다.

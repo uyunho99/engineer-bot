@@ -2,41 +2,49 @@
   "schema": 1,
   "branch": "feature/plan-preflight",
   "outcome": "REJECTED",
-  "finished_at": "2026-09-03T08:04:32Z",
+  "finished_at": "2026-09-03T09:12:00Z",
   "tasks_total": 15,
   "tasks_done": 0,
   "commits": [],
   "tests": {
     "passed": 130,
     "failed": 0,
-    "summary": "기준선 130/130 통과 (변경 없음). 태스크를 디스패치하지 않았으므로 새 테스트는 추가되지 않았습니다. 1·2회전과 달리 이번 세션은 `bun test`·`git`·`bun run typecheck` 를 정상 실행했습니다 — 권한 결함(RUN.md 관찰 #2)은 해소됐습니다."
+    "summary": "기준선 130/130 통과 · `bun run typecheck` 통과 (bun 1.3.14). 태스크를 하나도 디스패치하지 않았으므로 새 테스트는 없습니다. 3회전이 지적한 Global Constraints 의 테스트 수(130)는 이제 실측과 일치합니다."
   },
   "test_cases": [],
   "screenshots": [],
   "defects": [
     {
-      "task_id": "14",
-      "plan_text": "**테스트로 증명할 것:** 첫 항목 (plan.md:2725)\n- [ ] **오버레이의 예시 블록을 뽑아 `checkPlan` 에 넣으면 error 위반이 0건이다** — 오버레이가 자기 계약을 지킨다\n\nStep 1 의 테스트 코드 (plan.md:2744-2748):\n  test(\"예시 블록이 checkPlan 을 통과한다\", () => {\n    const plan = [\"## 태스크\", \"\", exampleBlock(overlay)].join(\"\\n\");\n    const errors = checkPlan(plan).filter((v) => v.severity === \"error\");\n    expect(errors).toEqual([]);\n  });\n\nStep 4 의 통과 기준 (plan.md:2820-2821):\n  Run: `bun test && bun run typecheck && ./bootstrap.sh check`\n  Expected: PASS — 전체 테스트 통과",
-      "conflict": "이 테스트는 통과할 수 없습니다. `checkPlan` 은 **플랜 전체** 불변식을 검사하는데, 테스트는 **태스크 한 개 조각**을 넣고 error 0건을 요구합니다. 실측 결과 error 3건이 납니다 (bun 1.3.14, 현재 오버레이 기준):\n\n  1. writing-plans 템플릿 | `## Global Constraints` 섹션이 없습니다\n     → 테스트가 조립하는 봉투는 `## 태스크` 뿐입니다 (plan.md:2745).\n  2. AMENDMENTS B4 | Task 1이 없습니다 — 번호가 1..N 연속이어야 합니다 (현재: 3)\n  3. AMENDMENTS B4 | Task 2이 없습니다 — 번호가 1..N 연속이어야 합니다 (현재: 3)\n\n2·3번은 원리적으로 고칠 수 없습니다. 오버레이의 예시 블록은 `- Consumes: \\`PersonaSeed\\` from Task 2` 를 시연하려고 **의도적으로 `### Task 3`** 입니다 (overlay/writing-plans-tagging.md:32,41). `### Task 1` 로 번호를 내리면 `from Task 2` 가 전방 참조가 되어 예시가 가르치려는 내용 자체가 깨집니다.\n\n결함이 Step 1 의 코드 오타가 아니라 **요건 문장(plan.md:2725)** 에 있다는 점이 중요합니다. 전사 세부를 고쳐서는 해소되지 않고, 구현자가 요건을 임의 재해석해야만 통과합니다 — 오버레이가 금지한 \"어떻게든 되게 만들기\"입니다.\n\n대조군: Task 2 의 같은 계열 테스트들(plan.md:296-331)은 `errorsOf(...).some((x) => x.message.includes(\"Files\"))` 처럼 **메시지로 필터**하므로 봉투 위반 3건에 영향받지 않습니다. Task 14 만 `toEqual([])` 를 써서 플랜 전체 규칙을 함께 떠안았습니다.",
-      "suggested_fix": "테스트의 의도(\"오버레이 예시가 자기 **태스크 단위** 계약을 지킨다\")는 타당하므로 의도를 유지하고 봉투만 고칩니다. 권장안 — Step 1 의 `plan` 조립을 유효한 최소 플랜 봉투로 바꿉니다: `## Global Constraints` 헤딩 + `PersonaSeed` 를 생산하는 Task 1·2 스텁(각각 Tags·Files·Interfaces·테스트로 증명할 것 구비)을 앞에 붙이고 그 뒤에 `exampleBlock(overlay)` 를 놓습니다. 이러면 `from Task 2` 참조까지 실제로 해소되어 검증이 오히려 강해집니다. 요건 문장(2725)도 \"최소 플랜 봉투에 넣으면 error 0건\"으로 함께 고쳐 주십시오.\n\n경량 대안: 조립은 그대로 두고 봉투 규칙만 제외합니다 — `.filter((v) => !/Global Constraints|번호가 1\\.\\.N/.test(v.message))`. 단 이쪽은 규칙 메시지 문구에 결합되어 깨지기 쉽습니다.\n\n피해야 할 안: `v.taskId` 로 필터하지 마십시오. Task 2 Step 3 이 추가하는 Files/Interfaces 위반은 `err({ file, rule, message })` 로만 push 하고 `taskId` 를 넣지 않습니다 (plan.md:365-382). taskId 필터는 이 테스트가 잡아야 할 위반을 정확히 숨깁니다."
+      "task_id": "8",
+      "plan_text": "Task 8 **Interfaces:** (plan.md:1316)\n- Consumes: `Violation` (기존 — `controller/contract.ts`)\n\nTask 8 **Files:** (plan.md:1309-1311)\n- Modify: `controller/preflight.ts`\n- Test: `controller/preflight.test.ts`\n\nTask 8 Step 3 (plan.md:1435-1448):\n  function checkDefectShape(d: unknown, where: string, v: Violation[]): void {\n    const o = d as Record<string, unknown>;\n    const bad = (m: string) =>\n      v.push({ severity: \"error\", file: \"preflight-raw.json\", rule: \"D27\", message: `${where}: ${m}` });\n\nTask 8 Step 3 (plan.md:1462-1463):\n  const bad = (m: string) =>\n    v.push({ severity: \"error\", file: \"preflight-raw.json\", rule: \"D28\", message: m });\n\n같은 결함이 Task 15 에도 있습니다 — Task 15 **Files:** (plan.md:2909-2911) 는 `controller/builder.ts`·`controller/preflight.ts`·`controller/preflight.test.ts` 뿐이고, **Interfaces:** (plan.md:2915) 는 역시 `Consumes: Violation (기존)` 입니다. Step 3 (plan.md:3028-3030):\n  const v = (message: string): Violation[] => [\n    { severity: \"error\", file: \"preflight.json\", rule: \"D26\", message },\n  ];",
+      "conflict": "`Violation[\"file\"]` 은 **닫힌 문자열 리터럴 유니온**입니다 (controller/contract.ts:16-24):\n\n  export interface Violation {\n    severity: Severity;\n    file: \"design-doc.md\" | \"plan.md\" | \"build-result.json\";\n    rule: string;\n    message: string;\n    taskId?: string;\n  }\n\n`string` 이 아니므로 `\"preflight-raw.json\"`·`\"preflight.json\"` 은 대입되지 않습니다. 프로브 파일로 실측했습니다 (bun 1.3.14, `bun run typecheck`):\n\n  probe-violation.ts(3,29): error TS2322: Type '\"preflight-raw.json\"' is not assignable to type '\"design-doc.md\" | \"plan.md\" | \"build-result.json\"'.\n  probe-violation.ts(4,29): error TS2322: Type '\"preflight.json\"' is not assignable to type '\"design-doc.md\" | \"plan.md\" | \"build-result.json\"'.\n\n(프로브는 삭제했습니다 — 작업 트리는 깨끗합니다.)\n\n**유니온을 넓힐 권한을 가진 태스크가 플랜에 없습니다.** `Violation` 은 `controller/contract.ts` 에 있고, 그 파일을 `Modify` 로 선언하는 태스크는 Task 1·2·3 뿐입니다. 그 셋 중 어느 것도 `Violation` 을 손대라고 말하지 않으며, Task 3 의 Step 3 코드(plan.md:471-522)는 새 타입 4개를 추가할 뿐 `Violation` 을 건드리지 않습니다. Task 8·15 는 반대로 `Consumes: Violation (기존)` — **바뀌지 않은** 기존 타입을 쓴다고 선언합니다.\n\n**load-bearing 입니다.** Task 11 Step 4 (plan.md:2282), Task 14 Step 4 (plan.md:2879), Task 15 Step 4 (plan.md:3096) 의 통과 기준이 모두 `bun run typecheck` 입니다. 플랜의 마지막 3분의 1이 전부 이 결함 위에서 실패합니다. Task 8·15 자신의 Step 4 는 `bun test` 뿐이라(트랜스파일만 하고 타입체크를 하지 않음) 그 자리에서는 초록으로 보이고, Task 11 에 가서 처음 터집니다 — 즉 세 태스크 뒤에서 원인이 드러나는 형태입니다.\n\n**현장 수정이 불가능한 이유** (하드룰 #2 · 오버레이 §플랜 결함):\n- Task 8·15 의 구현자가 `contract.ts` 를 고치면 선언되지 않은 파일을 수정한 것이므로 태스크 리뷰어의 spec 준수 판정에서 걸립니다.\n- `file` 값을 `\"plan.md\"` 로 바꾸면 컴파일은 되지만 의미가 거짓이 됩니다 — `checkPreflightRaw` 의 위반은 `preflight-raw.json` 의 형식 문제이고, `formatViolations` 가 사람에게 `plan.md [D27] ...` 로 출력하면 잘못된 파일을 고치러 갑니다.\n- Task 8 은 `Produces: checkPreflightRaw(...): CheckResult & { data?: PreflightRaw }` 를 선언하므로 지역 타입을 새로 만들어 우회할 수도 없습니다 (`CheckResult.violations` 가 `Violation[]` 입니다).\n\n어느 길도 요건 재해석 없이는 갈 수 없어서 반송합니다.\n\n**부가 관찰 — 이 결함이 곧 이 기능의 자기 시연입니다.** `**Interfaces:**` 그래프는 **심볼**을 모델링하고 **심볼의 필드 모양**은 모델링하지 않습니다. `Consumes: Violation` 은 \"이 타입을 쓴다\"까지만 말하고 \"이 타입의 `file` 필드가 내 파일명을 받아주는가\"는 말하지 못합니다. 그래서 1단계 기계 검사(설계 §6.2)로는 원리적으로 못 잡고, 2단계 파일 겹침 짝으로도 못 잡습니다 — Task 8 과 `contract.ts` 를 함께 건드리는 태스크가 없어 짝이 만들어지지 않기 때문입니다. 설계 §7.4 관찰 항목에 \"기존 타입을 소비하는 태스크가 그 타입의 리터럴 유니온을 넓혀야 하는 경우\"를 이 검사기의 알려진 사각지대로 적어 둘 값이 있습니다.",
+      "suggested_fix": "권장안 — **Task 3 에 유니온 확장을 명시적으로 넣습니다.** Task 3 은 이미 `Modify: controller/contract.ts` 를 선언하고 제목이 \"계약 표면 — 결함 타입 명명과 경로 추가\" 이므로, preflight 의 계약 표면을 여는 자리로 정확히 맞습니다. 세 곳을 고칩니다:\n\n1. Task 3 **Interfaces:** 의 Produces 에 추가:\n   `Violation[\"file\"]` 에 `\"preflight.json\" | \"preflight-raw.json\"` 추가 (유니온 확장 — 시그니처 호환)\n\n2. Task 3 \"테스트로 증명할 것\" 에 항목 추가:\n   - [ ] `file: \"preflight.json\"` · `file: \"preflight-raw.json\"` 인 `Violation` 이 타입체크를 통과한다 (Task 8·15 가 이 채널로 위반을 보고한다)\n   ⚠️ 이 항목도 Task 3 의 네 번째 항목과 같이 `bun run typecheck` 로 관찰합니다 — 리뷰어에게 그 단서를 함께 주십시오.\n\n3. Task 3 Step 3 에 `controller/contract.ts` 의 `Violation` 수정을 추가:\n     export interface Violation {\n       severity: Severity;\n       /** preflight.json·preflight-raw.json 은 Task 8·15 가 쓴다 (설계 D26·D28) */\n       file: \"design-doc.md\" | \"plan.md\" | \"build-result.json\" | \"preflight.json\" | \"preflight-raw.json\";\n       rule: string;\n       message: string;\n       taskId?: string;\n     }\n\n   Step 4 는 이미 `bun run typecheck && bun test` 이므로 그대로 두면 됩니다.\n\n이 변경은 유니온 **확장**이라 기존 130개 테스트에 회귀를 만들지 않습니다 (좁히는 것이 아니라 넓히는 것이고, `Violation.file` 을 switch 로 소진하는 코드는 레포에 없습니다 — `formatViolations` 는 문자열로만 씁니다).\n\n확인 겸 부탁 — Task 8·15 의 **Interfaces:** 의 `Consumes: Violation (기존 — controller/contract.ts)` 를 `Consumes: Violation from Task 3` 으로 바꿀지 판단해 주십시오. 그러면 1단계 기계 검사가 이 의존을 실제로 검증하게 되어(Task 3 의 Produces 와 연결됨) 같은 계열의 결함이 다음부터는 자동으로 잡힙니다. 다만 Task 3 의 Produces 문자열과 Task 8·15 의 Consumes 문자열이 글자 그대로 같아야 `dangling_ref` 오탐이 나지 않으니, 양쪽 표기를 맞춰 주십시오."
     }
   ],
   "concerns": [
     {
       "task_id": "15",
-      "note": "\"테스트로 증명할 것\" 7번 항목(`runBuilder` 가 사전 검사 미통과 시 `claude` 프로세스를 띄우지 않는다)에 대응하는 코드가 Step 1 의 테스트 블록에 없습니다. 6개만 전사되어 있습니다. 결함은 아니지만(요건이 코드를 지배한다) 전사 태스크로 최저가 모델에 맡기면 조용히 누락됩니다. 디스패치에 \"이 한 건은 직접 작성한다\"를 명시해야 합니다."
-    },
-    {
-      "task_id": "9",
-      "note": "Step 1 의 테스트가 `Partial<PreflightRaw>` 를 쓰는데 import 목록에는 `assembleResult` 만 있습니다 (plan.md:1550,1569). tsconfig 의 `include` 가 `controller/**/*.ts` 이고 `noUnusedLocals: true` 이므로 테스트 파일도 타입체크 대상입니다 — `PreflightRaw` 타입 import 를 함께 추가해야 Task 11 의 `bun run typecheck` 가 통과합니다. Task 1 이 \"import 줄에 타입을 추가한다\"고 명시한 것과 같은 계열의 전사 세부입니다."
+      "note": "Step 1 의 두 번째 `describe` 가 첫 `describe` 의 지역 변수를 참조합니다. `SHA`·`result` 는 `describe(\"checkPreflightGate (설계 D26)\")` 콜백 **안**에 선언돼 있는데 (plan.md:2933-2938), `describe(\"runBuilder — 게이트 미통과 시 세션을 띄우지 않는다\")` 의 두 번째 테스트가 `checkPreflightGate(result(), SHA)` 를 씁니다 (plan.md:2997). 스코프 밖이라 `TS2304 Cannot find name` + 런타임 ReferenceError 입니다. 결함으로 올리지 않은 이유는 두 const 를 모듈 스코프로 올리면 끝이고 요건이 전혀 바뀌지 않기 때문입니다 — Task 15 가 소유한 파일 안의 전사 세부입니다. 다만 최저가 모델에 전사를 맡기면 조용히 깨집니다. Step 1 블록에서 두 const 를 `describe` 밖으로 옮겨 두시면 확실합니다."
     },
     {
       "task_id": "13",
-      "note": "`.claude/settings.json` 을 새로 만드는 태스크입니다. 현재 이 레포에 그 파일은 없고 `.claude/skills/webapp-testing/` 만 있으므로 충돌은 없습니다. 다만 빌드 도중 이 파일이 생기면 훅이 같은 세션에 로드될 수 있습니다. `--gate` 는 항상 exit 0 이고(plan.md:2187) 매처가 `docs/plans/.*/plan\\.md` 쓰기로 한정되므로 실질 위험은 낮다고 판단했습니다 — 다만 1회전 관찰 항목으로 남길 만합니다."
+      "note": "Task 12 Step 1 이 `import { readFileSync } from \"node:fs\";` (plan.md:2319) 를, Task 13 Step 1 이 `import { existsSync, readFileSync } from \"node:fs\";` (plan.md:2574) 를 **같은** `controller/preflight.test.ts` 에 추가합니다. `readFileSync` 중복 선언이고, Task 13 의 `existsSync` 는 그 테스트에서 쓰이지 않아 `noUnusedLocals: true` 에도 걸립니다. Task 9·11 과 같은 계열입니다 — Task 13 Step 1 에 \"이미 있는 `node:fs` import 에 합친다. `existsSync` 는 넣지 않는다\"를 한 줄 적어 주십시오."
+    },
+    {
+      "task_id": "3",
+      "note": "Step 1 의 테스트가 `contractPaths` 를 쓰는데 (plan.md:432) 현재 `controller/contract.test.ts` 의 import 목록(1-9행)에는 없습니다 — `contract.ts` 에서 오는 6개만 있고 `./paths` 에서 오는 것은 없습니다. Task 1 이 \"`import` 줄에 `parseFiles`, `parseInterfaces`, 타입을 추가한다\"(plan.md:138)를 명시한 것과 같이, `import { contractPaths } from \"./paths\";` 추가를 명시해 주십시오."
+    },
+    {
+      "task_id": "14",
+      "note": "Step 1 의 테스트가 `readFileSync` 를 쓰는데 (plan.md:2738, 2817) `controller/contract.test.ts` 는 `node:fs` 를 import 하지 않습니다. `import { readFileSync } from \"node:fs\";` 추가를 명시해 주십시오. 한편 Task 14 의 `planAround` 봉투는 실측으로 검증했습니다 — 오버레이의 예시 블록(`### Task 3`, verification=generative validation=invisible)을 Task 1·2 스텁과 `## Global Constraints` 로 감싸면 `checkPlan` error 0건입니다. generative 골든셋 부재는 `warn` 이라 `severity === \"error\"` 필터를 통과하고, generative 비율 1/3 도 0.5 이하라 경고가 나지 않습니다. 3회전 반송은 제대로 해소됐습니다."
+    },
+    {
+      "task_id": "10",
+      "note": "\"앵커가 없으면 not_found 이고 원본이 전혀 바뀌지 않는다 (설계 D16)\" 를 증명하는 단언이 항진명제입니다 — `const before = TWO_TASKS;` 뒤의 `expect(TWO_TASKS).toBe(before)` (plan.md:1833-1836) 는 문자열이 불변이므로 어떤 구현에서도 통과합니다. 실제 관찰은 이미 앞줄의 `expect(r.status).toBe(\"not_found\")` 가 하고 있습니다 (`not_found` 분기에는 `text` 필드가 없으므로 부분 적용이 타입 수준에서 불가능합니다). Minor 이고 리뷰어가 \"assert 없는 테스트\"로 오인할 수 있으니, 남기시려면 Task 3 의 네 번째 항목처럼 \"이 줄은 D16 의 의도 표기이고 실제 관찰은 status 단언이다\"를 한 줄 붙여 주십시오."
     },
     {
       "task_id": "0",
-      "note": "Global Constraints 의 \"기존 테스트 107개는 유지된다\"가 실측과 어긋납니다. 현재 기준선은 **130개**입니다 (하네스 수정으로 `controller/builder.test.ts` 12건 등이 추가됨). 리뷰어에게 넘기는 attention lens 에 틀린 수치가 들어가면 회귀 판정 기준이 흔들립니다. 130 으로 갱신을 권합니다."
+      "note": "SDD 워크스페이스 경로 충돌이 3회전 관찰대로 남아 있습니다 — `scripts/sdd-workspace` 가 플랜 파일의 basename 으로 디렉터리를 만들어 `.superpowers/sdd/plan` 이 되고, 이 레포의 경로 계약(§4.1)상 모든 플랜이 `plan.md` 라서 모든 기능이 단 하나의 워크스페이스를 공유합니다. 지금은 ledger 첫 줄의 플랜 경로 대조가 유일한 방어선이고 브리프·리포트 파일명은 `task-N-*` 로 겹칩니다. 이번 회전은 태스크를 디스패치하지 않아 실해가 없었지만(ledger 만 새로 썼습니다), 다음 기능에서 이전 잔여 파일을 읽을 위험이 그대로입니다. `bin/builder` 나 오버레이가 워크스페이스를 슬러그로 분리하도록 손볼 값이 있습니다."
     }
   ],
   "verification_gaps": []
