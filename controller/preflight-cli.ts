@@ -92,7 +92,6 @@ if (mode === "--apply") {
     process.exit(2);
   }
   let text = planText;
-  const before = planSha;
   const applied = [...previous.applied];
   for (const id of rest) {
     const d = previous.defects.find((x) => x.id === id);
@@ -100,6 +99,12 @@ if (mode === "--apply") {
       console.error(`결함 ${id} 에 적용할 패치가 없습니다`);
       process.exit(2);
     }
+    // 매 반복마다 "지금까지 누적된" text 기준으로 before 해시를 다시 계산한다.
+    // 루프 밖에서 한 번만 잡으면 2번째 id부터 직전 패치가 이미 반영된 상태를
+    // 반영하지 못해, applied[] 의 sha256_after(N) === sha256_before(N+1) 체인이
+    // 깨진다 — 이 로그는 사람이 승인한 수정의 감사 추적이라 체인이 생명이다
+    // (설계 D15·D29, 2026-09-03 리뷰 지적).
+    const before = sha256(text);
     const r = applyPatch(text, d.patch);
     if (r.status === "not_found") {
       console.error(`결함 ${id}: 앵커를 찾지 못했습니다 — 아무것도 적용하지 않았습니다`);

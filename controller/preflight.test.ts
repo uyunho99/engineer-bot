@@ -697,8 +697,9 @@ describe("gateDecision (설계 D10)", () => {
   });
 
   test("이전 결과가 없으면 run", () => {
-    expect(gateDecision({ planExists: true, planSha256: SHA, previous: null, contractOk: true }).action)
-      .toBe("run");
+    const r = gateDecision({ planExists: true, planSha256: SHA, previous: null, contractOk: true });
+    expect(r.action).toBe("run");
+    expect(r.reason).toBeTruthy();
   });
 
   test("해시가 다르면 run", () => {
@@ -708,9 +709,11 @@ describe("gateDecision (설계 D10)", () => {
   });
 
   test("해시 같고 CLEAN 이면 cached", () => {
-    expect(gateDecision({
+    const r = gateDecision({
       planExists: true, planSha256: SHA, previous: prev("CLEAN"), contractOk: true,
-    }).action).toBe("cached");
+    });
+    expect(r.action).toBe("cached");
+    expect(r.reason).toBeTruthy();
   });
 
   test("해시 같지만 REJECTED 면 run — 결함이 캐시를 타지 않는다 (D10)", () => {
