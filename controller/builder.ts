@@ -13,7 +13,7 @@
  *   5. 실패 시 정직한 결론 — 보고가 없거나 깨지면 BLOCKED (성공이 아니다)
  */
 
-import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   checkBuildResult,
@@ -191,6 +191,84 @@ export function isStaleReport(mtimeMs: number, spawnedAtMs: number): boolean {
  * 변조는 `REJECTED` 가 아니라 `BLOCKED` 다 — 플랜의 결함이 아니라 하네스 계약 위반이고,
  * 사람이 봐야 할 것은 "플랜을 고치라"가 아니라 "이 회전의 결과를 믿지 마라"다.
  */
+/**
+ * SDD 작업 폴더의 소유자를 ledger 첫 줄에서 읽는다 (AMENDMENTS B6).
+ *
+ * 업스트림 `scripts/sdd-workspace` 는 폴더 이름을 **플랜 파일의 basename** 으로
+ * 만든다. 그런데 명세 §4.1(B2) 이 모든 플랜을 `docs/plans/<slug>/plan.md` 로
+ * 고정하므로 **이 레포의 모든 기능이 `.superpowers/sdd/plan/` 한 곳을 공유한다.**
+ *
+ * ledger 첫 줄이 소유자를 적는다 (실측):
+ *   `# SDD ledger — plan: /abs/path/docs/plans/feature-a/plan.md`
+ *
+ * 업스트림의 유일한 방어선은 스킬이 이 줄을 보고 "다른 플랜이면 새로 시작하라"고
+ * 지시하는 것이다. 그것은 ledger 파일 하나만 보호한다 — `task-N-brief.md`·
+ * `task-N-report.md`·리뷰 패키지는 전부 `task-N-*` 로 명명되므로 **두 번째 기능의
+ * Task 1 이 첫 기능의 `task-1-brief.md` 를 읽을 수 있다.**
+ */
+export function sddWorkspaceOwner(ledgerHead: string): string | null {
+  const m = /^#\s*SDD ledger\s*[—-]\s*plan:\s*(\S+)/m.exec(ledgerHead);
+  return m ? m[1]! : null;
+}
+
+/**
+ * 작업 폴더를 그대로 둘지, 격리할지 판정한다 (B6).
+ *
+ * 격리(`archive`)를 고른 이유 — AMENDMENTS B6 은 "경고하거나 슬러그별로 격리"를
+ * 채택으로 적었다. **경고만으로는 부족하다:** headless 세션에는 경고를 읽고
+ * 멈출 사람이 없고, 스킬은 ledger 만 보므로 브리프·리포트는 그대로 남는다.
+ * 지우지 않고 옮기는 이유는 ledger 가 리뷰 결함·판정 근거의 유일한 기록이라서다
+ * (6회전 concern #8 — 봇이 스스로 남긴 판단).
+ *
+ * 소유자를 읽지 못하면(`null`) 격리한다. 형식이 바뀌었거나 손상된 것이고,
+ * 어느 쪽이든 **누구 것인지 모르는 폴더를 재사용하는 것이 더 위험하다.**
+ */
+export function sddWorkspaceAction(
+  owner: string | null,
+  currentPlanPath: string,
+  exists: boolean,
+): "none" | "keep" | "archive" {
+  if (!exists) return "none";
+  if (owner === null) return "archive";
+  return owner === currentPlanPath ? "keep" : "archive";
+}
+
+/**
+ * 다른 플랜의 SDD 작업 폴더를 격리한다 (B6). 격리했으면 옮긴 경로를 낸다.
+ *
+ * 지우지 않고 **옮긴다.** ledger 가 리뷰 결함·판정 근거·park 된 항목의 유일한
+ * 기록이다 (6회전 concern #8). 사람이 게이트 ② 를 통과시킨 뒤 지우면 된다.
+ */
+export async function isolateSddWorkspace(
+  repoRoot: string,
+  planPath: string,
+  slug: string,
+  now: Date = new Date(),
+): Promise<string | null> {
+  const sddDir = join(repoRoot, ".superpowers", "sdd", "plan");
+  let ledgerHead = "";
+  let exists = true;
+  try {
+    ledgerHead = (await readFile(join(sddDir, "progress.md"), "utf8")).slice(0, 400);
+  } catch {
+    // ledger 가 없어도 폴더는 있을 수 있다 (브리프만 남은 중단 흔적).
+    try {
+      await stat(sddDir);
+    } catch {
+      exists = false;
+    }
+  }
+  if (sddWorkspaceAction(sddWorkspaceOwner(ledgerHead), planPath, exists) !== "archive") {
+    return null;
+  }
+  const stamp = now.toISOString().replace(/[:.]/g, "-");
+  const archiveRoot = join(repoRoot, ".superpowers", "sdd", "archive");
+  const dest = join(archiveRoot, `${slug}-${stamp}`);
+  await mkdir(archiveRoot, { recursive: true });
+  await rename(sddDir, dest);
+  return dest;
+}
+
 export function checkDocIntegrity(
   before: { plan: string; designDoc: string },
   after: { plan: string; designDoc: string },
@@ -320,6 +398,13 @@ export async function runBuilder(opts: BuilderOptions): Promise<BuilderOutcome> 
     model: opts.model,
     superpowersDir: superpowersDir ?? undefined,
   });
+
+  // ── 3-A. SDD 작업 폴더 격리 (AMENDMENTS B6) ────────────────────
+  // 세션 기동 **전**에 한다. 스킬이 폴더를 만든 뒤에는 손댈 수 없다.
+  const archived = await isolateSddWorkspace(p.repoRoot, p.plan, p.slug);
+  if (archived) {
+    console.log(`[builder] 다른 플랜의 SDD 작업 폴더를 격리했습니다 → ${archived} (B6)`);
+  }
 
   // 보고 신선도 판정의 기준선 — spawn 직전 시각을 잡는다 (isStaleReport 참조)
   const spawnedAtMs = Date.now();

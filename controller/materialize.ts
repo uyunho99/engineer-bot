@@ -12,11 +12,48 @@
  *           │  materialize
  *           ▼
  *   docs/plans/<slug>/design-doc.md              ← 계약 (고정 명명, builder 입력)
+ *
+ * ## 방향이 뒤집힌 경우 — `--export` (AMENDMENTS A14)
+ *
+ * 2026-09-03 라우팅 교체로 기획 진입점이 `superpowers:brainstorming` 이 됐다.
+ * 그 스킬은 산출을 **계약 경로에 직접 쓴다** — gstack 을 거치지 않는다. 그런데
+ * `plan-eng-review` 는 여전히 `~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md` 를
+ * **하드코딩 glob** 으로 찾는다 (B1). 그러면 자기 입력을 못 찾는다.
+ *
+ * 그래서 `--export` 가 반대 방향을 잇는다. 이름을 계약 쪽으로 바꾸는 대신
+ * gstack 이 기대하는 이름으로 **복사본을 하나 더** 만든다 — 원본 스킬을 고치지
+ * 않는다는 P4 를 지키는 유일한 방법이다.
+ *
+ *   docs/plans/<slug>/design-doc.md
+ *           │  materialize --export
+ *           ▼
+ *   docs/gstack/{user}-{branch}-design-{ts}.md   ← eng-review 가 glob 으로 찾는다
  */
 
 import { readdir, readFile, stat, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { contractPaths } from "./paths";
+
+/**
+ * gstack 명명으로 되돌리는 파일명 (A14 `--export`).
+ *
+ * 실측한 gstack 산출물과 **글자 단위로 같은 형태**여야 한다 — eng-review 가
+ * `*-<branch>-design-*.md` 로 glob 하므로 브랜치가 파일명에 들어가고
+ * `/` 는 `-` 로 바뀐다 (슬러그와 같은 규칙). 타임스탬프는 `YYYYMMDDHHMMSS` 다:
+ *
+ *   yunho-feature-plan-preflight-design-20260903151051.md
+ *
+ * 타임스탬프를 붙이는 이유는 eng-review 가 `ls -t` 로 최신을 고르기 때문이다.
+ * 고정 이름으로 덮어쓰면 설계 변경 이력이 사라지고, 같은 초에 두 번 내보내면
+ * 같은 파일이 되므로 호출자가 그것을 감수한다 (덮어쓰기).
+ */
+export function exportFileName(user: string, slug: string, at: Date): string {
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  const ts =
+    `${at.getFullYear()}${p2(at.getMonth() + 1)}${p2(at.getDate())}` +
+    `${p2(at.getHours())}${p2(at.getMinutes())}${p2(at.getSeconds())}`;
+  return `${user}-${slug}-design-${ts}.md`;
+}
 
 export interface Candidate {
   name: string;
@@ -139,13 +176,76 @@ export async function materialize(repoRoot: string, branch: string): Promise<Mat
   return { designDoc, testPlan, warnings };
 }
 
+/**
+ * `materialize` 가 붙인 헤더를 벗긴다.
+ *
+ * 왜 필요한가 — `materialize` 는 되돌려 복사할 때 `<!-- materialized from ... -->`
+ * 를 앞에 붙인다. `--export` 가 그것을 그대로 gstack 에 내보내면 **왕복마다 헤더가
+ * 쌓인다.** 편집이 없어도 재현된다: export(T1) → materialize 는 design-doc 이
+ * T1 보다 오래됐으므로 덮어쓰고 헤더를 하나 더 붙인다.
+ *
+ * A14 가 경고한 양방향 위험의 나머지 절반이다 — 내용 유실은 `copyIfNewer` 의
+ * mtime 비교가 막지만, **헤더 누적은 막지 않는다.**
+ */
+export function stripMaterializedHeader(body: string): string {
+  return body.replace(/^<!-- materialized from[\s\S]*?-->\n+/, "");
+}
+
+export interface ExportResult {
+  from: string;
+  to: string;
+}
+
+/**
+ * 계약 경로의 design-doc.md 를 gstack 명명으로 내보낸다 (A14).
+ *
+ * 원본을 옮기지 않고 **복사**한다. 계약 경로가 builder 의 입력이므로 그것이
+ * 사라지면 빌드가 멈춘다 — 내보내기는 eng-review 를 위한 부수적 사본이다.
+ *
+ * 설계문서가 없으면 `null` 을 낸다. 이것은 오류가 아니다 — 기획을 시작하지
+ * 않은 브랜치에서 내보낼 것이 없는 것은 정상이다.
+ */
+export async function exportDesignDoc(
+  repoRoot: string,
+  branch: string,
+  opts: { user?: string; now?: Date } = {},
+): Promise<ExportResult | null> {
+  const p = contractPaths(repoRoot, branch);
+  let body: string;
+  try {
+    body = await readFile(p.designDoc, "utf8");
+  } catch {
+    return null;
+  }
+  const user = opts.user ?? process.env.USER ?? "unknown";
+  const name = exportFileName(user, p.slug, opts.now ?? new Date());
+  const clean = stripMaterializedHeader(body);
+  const to = join(p.gstackDir, name);
+  await mkdir(p.gstackDir, { recursive: true });
+  await writeFile(to, clean, "utf8");
+  return { from: p.designDoc, to };
+}
+
 if (import.meta.main) {
   const repoRoot = process.env.TARGET_REPO ?? process.cwd();
   const branch = process.argv[2];
   if (!branch) {
-    console.error("usage: bun controller/materialize.ts <branch>");
+    console.error("usage: bun controller/materialize.ts <branch> [--export]");
     process.exit(2);
   }
+  if (process.argv.includes("--export")) {
+    // 반대 방향 (A14) — 계약 → gstack. eng-review 가 자기 입력을 찾게 한다.
+    const e = await exportDesignDoc(repoRoot, branch);
+    if (!e) {
+      console.error(
+        `! design-doc.md 가 없습니다 — 내보낼 것이 없습니다 (${contractPaths(repoRoot, branch).designDoc})`,
+      );
+      process.exit(1);
+    }
+    console.log(`✓ ${e.to} ← ${e.from}`);
+    process.exit(0);
+  }
+
   const r = await materialize(repoRoot, branch);
   if (r.designDoc) console.log(`✓ design-doc.md ← ${r.designDoc.from}`);
   if (r.testPlan) console.log(`✓ eng-review-test-plan.md ← ${r.testPlan.from}`);

@@ -1,15 +1,18 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
 import {
   buildClaudeArgs,
   checkDocIntegrity,
+  isolateSddWorkspace,
   isStaleReport,
   mergeSettings,
   resolveSuperpowersDir,
   runBuilder,
+  sddWorkspaceAction,
+  sddWorkspaceOwner,
 } from "./builder";
 import { checkDesignDoc, checkPlan } from "./contract";
 import { contractPaths } from "./paths";
@@ -410,5 +413,125 @@ describe("checkDocIntegrity — 봇은 플랜을 현장에서 고치지 않는�
     const v = checkDocIntegrity(before, { ...before, plan: "고침" });
     expect(v[0]!.message).toContain("신뢰할 수 없습니다");
     expect(v[0]!.message).toContain("git diff");
+  });
+});
+
+/**
+ * SDD 작업 폴더 격리 (AMENDMENTS B6).
+ *
+ * B2 가 모든 플랜을 `docs/plans/<slug>/plan.md` 로 고정한 대가다 — 업스트림이
+ * 폴더 이름을 basename 으로 만들므로 모든 기능이 한 폴더를 공유한다. 플랜이
+ * 하나뿐일 때는 터지지 않으므로, 두 번째 기능 착수 전에 닫아야 한다.
+ */
+describe("sddWorkspaceOwner — ledger 첫 줄에서 소유자를 읽는다", () => {
+  test("실측한 ledger 형식을 읽는다 (em dash)", () => {
+    const head = "# SDD ledger — plan: /repo/docs/plans/feature-a/plan.md\n\n## Setup\n";
+    expect(sddWorkspaceOwner(head)).toBe("/repo/docs/plans/feature-a/plan.md");
+  });
+
+  test("하이픈 변형도 읽는다 — 업스트림 서식 변화에 한 겹 여유를 둔다", () => {
+    expect(sddWorkspaceOwner("# SDD ledger - plan: /r/p/plan.md")).toBe("/r/p/plan.md");
+  });
+
+  test("형식이 다르면 null — 추측하지 않는다", () => {
+    expect(sddWorkspaceOwner("# 다른 문서\n내용")).toBeNull();
+    expect(sddWorkspaceOwner("")).toBeNull();
+  });
+});
+
+describe("sddWorkspaceAction — 남기거나 격리한다", () => {
+  const mine = "/repo/docs/plans/feature-a/plan.md";
+  const other = "/repo/docs/plans/feature-b/plan.md";
+
+  test("폴더가 없으면 할 일이 없다", () => {
+    expect(sddWorkspaceAction(null, mine, false)).toBe("none");
+    expect(sddWorkspaceAction(other, mine, false)).toBe("none");
+  });
+
+  test("내 플랜의 폴더는 그대로 둔다 — 중단된 빌드의 재개를 깨지 않는다", () => {
+    expect(sddWorkspaceAction(mine, mine, true)).toBe("keep");
+  });
+
+  test("다른 플랜의 폴더는 격리한다 — task-1-brief.md 가 겹친다", () => {
+    expect(sddWorkspaceAction(other, mine, true)).toBe("archive");
+  });
+
+  /**
+   * 이 갈래가 B6 의 핵심이다. 업스트림 스킬은 ledger 만 보고 "다른 플랜이면 새로
+   * 시작하라"고 지시하는데, ledger 를 **읽을 수 없는** 경우는 그 지시가 닿지 않는다.
+   * 누구 것인지 모르는 폴더를 재사용하는 것이 지우는 것보다 위험하다.
+   */
+  test("소유자를 못 읽으면 격리한다 — 모르는 폴더를 재사용하지 않는다", () => {
+    expect(sddWorkspaceAction(null, mine, true)).toBe("archive");
+  });
+});
+
+/**
+ * 격리의 **실제 파일시스템 동작**. 위의 두 순수 함수는 판정만 본다.
+ *
+ * `runBuilder({ dryRun: true })` 로는 이 지점에 닿을 수 없다 — dryRun 조기 반환이
+ * 3-A 보다 앞이다. 그것을 뒤로 옮기면 dry run 이 디렉터리를 옮기게 되므로 옮기지
+ * 않았다. 대신 동작을 함수로 뽑아 실제 폴더로 관찰한다. 호출 지점 3줄은 다음
+ * 봇 빌드가 **두 번째 플랜**이므로 그때 실제로 격리가 일어나는 것으로 확인된다.
+ */
+describe("isolateSddWorkspace — 실제 폴더를 옮긴다 (B6)", () => {
+  const roots: string[] = [];
+  const mkRoot = (ledger: string | null, withBrief = true) => {
+    const root = mkdtempSync(join(tmpdir(), "engineer-bot-b6-"));
+    roots.push(root);
+    const sdd = join(root, ".superpowers", "sdd", "plan");
+    mkdirSync(sdd, { recursive: true });
+    if (ledger !== null) writeFileSync(join(sdd, "progress.md"), ledger, "utf8");
+    if (withBrief) writeFileSync(join(sdd, "task-1-brief.md"), "이전 기능의 Task 1", "utf8");
+    return root;
+  };
+  afterAll(() => roots.forEach((r) => rmSync(r, { recursive: true, force: true })));
+
+  const at = new Date("2026-09-04T02:00:00Z");
+
+  test("다른 플랜이면 옮긴다 — task-1-brief.md 가 따라간다", async () => {
+    const root = mkRoot("# SDD ledger — plan: /repo/docs/plans/feature-b/plan.md\n");
+    const dest = await isolateSddWorkspace(root, "/repo/docs/plans/feature-a/plan.md", "feature-a", at);
+    expect(dest).not.toBeNull();
+    // 원래 자리는 비었다 — 스킬이 새로 시작한다.
+    expect(existsSync(join(root, ".superpowers", "sdd", "plan"))).toBe(false);
+    // 기록은 살아 있다 (concern #8 — 지우지 않는다).
+    expect(readFileSync(join(dest!, "task-1-brief.md"), "utf8")).toContain("이전 기능");
+    expect(dest).toContain("feature-a-2026-09-04");
+  });
+
+  test("내 플랜이면 그대로 둔다 — 중단된 빌드의 재개를 깨지 않는다", async () => {
+    const mine = "/repo/docs/plans/feature-a/plan.md";
+    const root = mkRoot(`# SDD ledger — plan: ${mine}\n`);
+    expect(await isolateSddWorkspace(root, mine, "feature-a", at)).toBeNull();
+    expect(existsSync(join(root, ".superpowers", "sdd", "plan", "task-1-brief.md"))).toBe(true);
+  });
+
+  test("ledger 없이 브리프만 남은 중단 흔적도 격리한다", async () => {
+    const root = mkRoot(null);
+    const dest = await isolateSddWorkspace(root, "/repo/docs/plans/feature-a/plan.md", "feature-a", at);
+    expect(dest).not.toBeNull();
+    expect(readFileSync(join(dest!, "task-1-brief.md"), "utf8")).toContain("이전 기능");
+  });
+
+  test("폴더가 아예 없으면 아무것도 하지 않는다", async () => {
+    const root = mkdtempSync(join(tmpdir(), "engineer-bot-b6-"));
+    roots.push(root);
+    expect(await isolateSddWorkspace(root, "/repo/p/plan.md", "s", at)).toBeNull();
+    expect(existsSync(join(root, ".superpowers"))).toBe(false);
+  });
+
+  test("두 번 격리해도 이름이 겹치지 않는다 — 첫 격리를 덮어쓰지 않는다", async () => {
+    const foreign = "# SDD ledger — plan: /repo/docs/plans/feature-b/plan.md\n";
+    const root = mkRoot(foreign);
+    const d1 = await isolateSddWorkspace(root, "/repo/docs/plans/feature-a/plan.md", "feature-a", at);
+    mkdirSync(join(root, ".superpowers", "sdd", "plan"), { recursive: true });
+    writeFileSync(join(root, ".superpowers", "sdd", "plan", "progress.md"), foreign, "utf8");
+    const d2 = await isolateSddWorkspace(
+      root, "/repo/docs/plans/feature-a/plan.md", "feature-a",
+      new Date("2026-09-04T03:00:00Z"),
+    );
+    expect(d2).not.toBe(d1);
+    expect(existsSync(d1!)).toBe(true);
   });
 });
