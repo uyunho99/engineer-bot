@@ -538,6 +538,61 @@ export function gateDecision(input: GateInput): GateOutcome {
   return { action: "cached", reason: "같은 내용으로 이미 CLEAN 판정을 받았습니다" };
 }
 
+export type GateVerdict =
+  | { ok: true }
+  | { ok: false; outcome: "REJECTED" | "BLOCKED"; violations: Violation[] };
+
+/**
+ * 게이트 강제 (설계 D26).
+ *
+ * **이것이 없으면 이 기능 전체가 강제되지 않는다.** 초안에는 이 함수가 없었고,
+ * builder 가 preflight.json 을 읽지 않았다 — 검사를 안 돌려도, REJECTED 가
+ * 나와도 빌드가 시작됐다.
+ *
+ * 게이트 ① 의 의미가 이 함수로 바뀐다:
+ *   "사람이 승인한다" → "검사를 통과한 것만 사람이 승인할 수 있다"
+ */
+export function checkPreflightGate(raw: string | null, planSha256: string): GateVerdict {
+  const v = (message: string): Violation[] => [
+    { severity: "error", file: "preflight.json", rule: "D26", message },
+  ];
+
+  if (raw === null) {
+    return {
+      ok: false, outcome: "REJECTED",
+      violations: v("사전 검사를 돌리지 않았습니다 — /preflight 를 실행하세요"),
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    return {
+      ok: false, outcome: "BLOCKED",
+      violations: v(`preflight.json JSON 파싱 실패: ${e instanceof Error ? e.message : String(e)}`),
+    };
+  }
+
+  const o = parsed as Partial<PreflightResult>;
+  if (o?.schema !== 1) {
+    return { ok: false, outcome: "BLOCKED", violations: v(`preflight.json schema 가 1이 아닙니다: ${String(o?.schema)}`) };
+  }
+  if (o.plan_sha256 !== planSha256) {
+    return {
+      ok: false, outcome: "REJECTED",
+      violations: v("사전 검사 이후 plan.md 가 바뀌었습니다 — 다시 검사하세요"),
+    };
+  }
+  if (o.verdict !== "CLEAN") {
+    return {
+      ok: false, outcome: "REJECTED",
+      violations: v(`사전 검사가 ${o.verdict} 입니다 — 결함 ${o.defects?.length ?? 0}건`),
+    };
+  }
+  return { ok: true };
+}
+
 export type ApplyOutcome =
   | { status: "applied"; text: string }
   | { status: "not_found" }

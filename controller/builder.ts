@@ -220,6 +220,27 @@ export async function runBuilder(opts: BuilderOptions): Promise<BuilderOutcome> 
     });
   }
 
+  // ── 1-B. 사전 검사 게이트 (설계 D26) ────────────────────────────
+  // 계약(형식)이 통과해도 사전 검사를 통과하지 않은 플랜은 빌드하지 않는다.
+  const { checkPreflightGate } = await import("./preflight");
+  const { createHash } = await import("node:crypto");
+  const planSha = createHash("sha256").update(planText, "utf8").digest("hex");
+  let preflightRawText: string | null = null;
+  try {
+    preflightRawText = await readFile(p.preflight, "utf8");
+  } catch {
+    preflightRawText = null;
+  }
+  const gate = checkPreflightGate(preflightRawText, planSha);
+  if (!gate.ok) {
+    return done({
+      outcome: gate.outcome,
+      contractViolations: formatViolations(gate.violations),
+      tasks,
+      reason: "사전 검사 게이트 미통과 — 빌드를 시작하지 않았습니다",
+    });
+  }
+
   if (opts.dryRun) {
     return done({ outcome: "SUCCESS", tasks, reason: "dry-run — 계약 검증만 수행" });
   }

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
-import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, type PreflightRaw } from "./preflight";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, type PreflightRaw } from "./preflight";
 // PreflightRaw 를 함께 import 하라 — 아래 raw() 헬퍼가 그 타입을 쓴다.
 // tsconfig 의 include 가 controller/**/*.ts 이고 noUnusedLocals: true 라
 // 테스트 파일도 타입체크 대상이다 (2026-09-03 봇 지적).
@@ -798,5 +798,79 @@ describe("훅과 스킬 배선 (Task 13)", () => {
   test("스킬에 일괄 승인 금지가 명시돼 있다 (D13)", () => {
     const md = readFileSync(".claude/skills/preflight/SKILL.md", "utf8");
     expect(md).toContain("일괄");
+  });
+});
+
+// `result` 를 **모듈 스코프**에 둔다 — 아래 두 번째 describe 가 이것을 쓰므로
+// describe 콜백 안에 두면 TS2304 + 런타임 ReferenceError 다.
+// ⚠️ `const SHA` 를 다시 선언하지 않는다 — 이미 위(Task 8 Step 1)에서 모듈
+// 스코프에 `const SHA = "a".repeat(64)` 가 선언돼 있다. 그대로 재사용한다.
+const result = (over: Record<string, unknown> = {}) => JSON.stringify({
+  schema: 1, branch: "feature/x", plan_sha256: SHA, scope: "interface-graph+file-overlap",
+  verdict: "CLEAN", relations: { declared: 1, examined_stage1: 1, examined_stage2: 1, not_examined: [] },
+  examined: [], defects: [], applied: [], ...over,
+});
+
+describe("checkPreflightGate (설계 D26)", () => {
+
+  test("파일이 없으면 REJECTED", () => {
+    const r = checkPreflightGate(null, SHA);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("REJECTED");
+    expect(r.violations[0].message).toContain("사전 검사");
+  });
+
+  test("해시가 다르면 REJECTED", () => {
+    const r = checkPreflightGate(result(), "b".repeat(64));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("REJECTED");
+  });
+
+  test("verdict REJECTED 면 REJECTED", () => {
+    const r = checkPreflightGate(result({ verdict: "REJECTED", defects: [{ id: "d1" }] }), SHA);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("REJECTED");
+    expect(r.violations.some((v) => v.message.includes("1"))).toBe(true);
+  });
+
+  test("JSON 이 깨지면 BLOCKED — REJECTED 가 아니다 (하드룰 #4)", () => {
+    const r = checkPreflightGate("{ broken", SHA);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("BLOCKED");
+  });
+
+  test("schema 가 1이 아니면 BLOCKED", () => {
+    const r = checkPreflightGate(result({ schema: 99 }), SHA);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("BLOCKED");
+  });
+
+  test("CLEAN + 해시 일치면 통과", () => {
+    expect(checkPreflightGate(result(), SHA).ok).toBe(true);
+  });
+});
+
+// 요건 7번 — runBuilder 가 게이트 미통과 시 claude 를 띄우지 않는다.
+// 프로세스를 띄우지 않았음을 직접 단언할 수 없으므로, **그 앞의 관문이 막는 것**을
+// 단언한다 (Task 11 의 9번 요건과 같은 논리). runBuilder 는 spawn 전에
+// checkPreflightGate 를 부르고, ok:false 면 즉시 반환한다.
+describe("runBuilder — 게이트 미통과 시 세션을 띄우지 않는다", () => {
+  test("게이트가 REJECTED 면 spawn 전에 반환할 판정을 낸다", () => {
+    const gate = checkPreflightGate(null, "a".repeat(64));
+    expect(gate.ok).toBe(false);
+    if (gate.ok) return;
+    // 이 판정이 runBuilder 의 조기 반환 조건이다 — outcome 이 REJECTED/BLOCKED 면
+    // Bun.spawn 에 도달하지 않는다.
+    expect(["REJECTED", "BLOCKED"]).toContain(gate.outcome);
+  });
+
+  test("게이트가 통과면 판정이 세션 기동을 막지 않는다", () => {
+    const ok = checkPreflightGate(result(), SHA);
+    expect(ok.ok).toBe(true);
   });
 });
