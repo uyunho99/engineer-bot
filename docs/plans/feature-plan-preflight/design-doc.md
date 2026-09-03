@@ -19,11 +19,14 @@ Slack은 아웃바운드 보고만 한다.**
 ```
 [기획 — Claude Code 메인 세션에서 사람과 대화]
 
-  /office-hours                        사람이 질문에 답한다
-       ↓  docs/gstack/{user}-{branch}-design-{ts}.md
-  bun controller/materialize.ts        gstack 명명 → 계약 경로
-       ↓  docs/plans/<slug>/design-doc.md
-  /plan-ceo-review  /plan-eng-review   전제 도전 · 아키텍처
+  superpowers:brainstorming            경로 분류 → 질문 → 접근안 → 섹션별 승인
+       ↓  docs/plans/<slug>/design-doc.md      ← 계약 경로에 직접 쓴다
+       │
+       ├─ /plan-design-review               UI/UX 있는 플랜만. 0~10 평가 후 직접 수정
+       │
+       └─ /plan-eng-review                  아키텍처
+              ↑ 이 스킬만 gstack 명명을 glob 탐색하므로 (B1 하드코딩)
+                design-doc.md 를 docs/gstack/ 로 **내보내야** 한다 (역방향 materialize)
        ↓
   writing-plans (+ 2축 태깅 오버레이)
        ↓  docs/plans/<slug>/plan.md

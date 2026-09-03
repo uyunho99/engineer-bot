@@ -334,6 +334,48 @@ argues from the spec, so the spec travels with it; executors read both]
 
 ---
 
+### A14. 기획 라우팅 교체 — `/office-hours` → `superpowers:brainstorming` (2026-09-03)
+
+**명세 §3.3 원문**: *"신규 기획 요청은 `/office-hours`로 라우팅 (superpowers brainstorming 사용 안 함)"*
+**명세 P6 근거**: 두 플러그인이 같은 트리거를 자기 기획 스킬로 가져가는 충돌 방지.
+
+사용자 판단 (2026-09-03): *"프로덕트를 처음부터 만드는 거라기보다는 기획적인 차원을 더 보는 게
+맞는 거 같아서 office-hours, plan-ceo-review는 제외하고 gstack/plan-design-review랑
+superpowers/brainstorming 이걸 넣는 게 더 도움이 될 거 같아."*
+
+| | 결정 |
+|---|---|
+| **채택** | 기획 진입점을 `superpowers:brainstorming`으로 바꾼다. `/office-hours`·`/plan-ceo-review`를 라우팅에서 뺀다. `/plan-design-review`를 넣는다 |
+| 근거 | ① `/office-hours`는 **0에서 제품을 발굴하는** 소크라테스 문답이다. 이 팀의 작업은 "이미 있는 아이디어를 설계로"에 가깝다 ② brainstorming의 **경로 분류**(spike / bounded / architectural)가 그 형태와 맞고, 매번 같은 무게의 기획 의식을 강요하지 않는다 ③ brainstorming은 **접근안 2~3개를 트레이드오프와 함께** 내므로 `plan-ceo-review`의 도전 층을 부분적으로 흡수한다 |
+| **대가** | **스코프·전제를 정면으로 도전하는 전용 층이 사라진다.** brainstorming의 질문은 "무엇을 만들까"에 집중하고, ceo-review처럼 "이걸 왜 만드나 / 안 만들면 안 되나"를 밀어붙이지 않는다. 되돌리려면 CLAUDE.md의 해당 행 하나만 복구하면 된다 |
+| **부수 효과 — 방향이 뒤집힌다** | B2의 `materialize`는 **gstack 명명 → 계약 경로** 방향이었다. brainstorming은 `docs/plans/<slug>/design-doc.md`에 **직접 쓰므로** 그 방향이 필요 없어진다. 대신 **역방향이 필요해진다**: `/plan-eng-review`가 설계문서를 `~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md`로 **glob 탐색**하므로(B1 — 하드코딩), 계약 경로의 `design-doc.md`를 gstack 명명으로 **내보내야** 그 스킬이 자기 입력을 찾는다. `controller/materialize.ts`에 `--export` 방향을 추가해야 한다 (미구현) |
+| 미구현으로 인한 현재 상태 | **`/plan-eng-review`를 쓰려면 손으로 복사해야 한다.** `cp docs/plans/<slug>/design-doc.md docs/gstack/$(whoami)-<branch>-design-$(date +%Y%m%d%H%M%S).md`. 자동화 전까지 이 단계가 사람 개입 지점이다 |
+| 주의 | **`## Skill routing` 헤딩 문자열은 그대로 유지한다** (B3). gstack이 자기 블록을 삽입하지 않도록 막는 유일한 장치이고, 판정이 헤딩 존재 여부뿐이므로 내용은 자유롭게 바꿔도 된다 |
+| 실측 | `/plan-design-review`는 `allowed-tools`에 `Edit`·`AskUserQuestion`을 갖고 **플랜을 직접 고친다** (*"then fixes the plan to get there"*). 게이트 ① **앞**이고 대화형이므로 하드룰 #2와 충돌하지 않는다 — 승인 전 + 사람이 결정하는 자리다 (feature/plan-preflight 설계 §6.4와 같은 논리) |
+| 적용 | `CLAUDE.md` — dispatcher 규칙 · 라우팅 테이블 · "쓰지 않는 스킬" 표 |
+
+### A15. 핀할 수 없는 스킬이 파이프라인에 들어온다 — `qa-planning` (2026-09-03)
+
+세션 **도중에** `qa-planning`이 사용 가능해졌다. 시작 시점 스킬 목록에는 없었다.
+
+실측:
+
+| 확인 | 결과 |
+|---|---|
+| 로컬 디스크(`~/.claude`, `~/Documents`) | **없음** |
+| `anthropics/skills` 공식 레포의 스킬 목록 | **없음** (webapp-testing은 있다) |
+| `SearchSkills` 카탈로그 | 결과 0건 |
+| 출처 | **사용자가 claude.ai에 등록한 스킬**이 이 세션에 동기화된 것 |
+
+| | 결정 |
+|---|---|
+| **채택** | claude.ai 등록 스킬은 **`versions.lock`이 기록할 수 없다.** 파일이 없으므로 sha도 버전도 없다. 이 스킬에 의존하는 파이프라인 구간은 **재현성 계약 밖**이다 |
+| 근거 | A7과 같은 종류의 문제다. 그때는 플러그인 2개가 같은 이름을 선언해 versions.lock의 대상이 모호해졌고, 여기서는 대상 자체가 파일로 존재하지 않는다 |
+| 대응 | 봇 호스트에서 돌려야 하는 스킬은 **레포에 vendoring한다** (`.claude/skills/<name>/`, git 추적). claude.ai 등록본은 사람이 대화형으로 쓸 때만 의존한다 |
+| 미결 | `qa-planning`의 산출물 `QA_PLAN.md`는 경로가 지정돼 있지 않다 → B2와 같은 정규화 문제. 배치(기획 단계 vs 게이트 ② 전)도 미정. `docs/plans/feature-plan-preflight/design-doc.md` §1.1.1 참조 |
+| 적용 | `bootstrap.sh check` — vendoring된 스킬의 sha 확인을 추가할 것 (미구현) |
+
+
 ## C. 남은 미결 (사용자 입력 대기)
 
 | # | 항목 | 막는 것 |
