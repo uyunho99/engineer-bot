@@ -73,7 +73,8 @@ const sigResults = await parallel((args.stage2Candidates ?? []).map((c) => () =>
     `${PLAN} 의 Task ${c.task_ids[0]} 과 Task ${c.task_ids[1]} 는 심볼 \`${c.relation}\` 의\n` +
     `서명이 텍스트로 다르다:\n${c.plan_text}\n\n` +
     `표기만 다른가, 실제로 타입이 안 맞는가? 실제로 안 맞을 때만 결함으로 보고하라.\n` +
-    `보고할 때 id 는 "${c.id}" 를 그대로 쓰고 stage 는 2 로 한다.`,
+    `보고할 때 id 는 "${c.id}" 를 그대로 쓰고, kind 는 "signature_mismatch", stage 는 2,\n` +
+    `task_ids 는 ["${c.task_ids[0]}", "${c.task_ids[1]}"] 로 한다.`,
     { label: `sig:${c.id}`, phase: 'Candidates', schema: DEFECT_SCHEMA, model: 'sonnet' },
   ).then((r) => { examined.push(`sig:${c.id}`); return r })
     .catch(() => { failed.push(`sig:${c.id}`); return null })))
@@ -88,7 +89,8 @@ const pairResults = await parallel((args.pairs ?? []).map((p) => () => {
     `**Interfaces:** 에 선언되지 않았지만 실제로 충돌하는 것이 있는가?\n` +
     `예: 한쪽이 값을 어떤 형식으로 저장하고 다른 쪽이 다른 형식으로 읽는 경우.\n` +
     `선언된 관계는 이미 기계가 검사했으니 중복 보고하지 마라.\n` +
-    `id 는 "${unit}-<번호>" 형식으로, kind 는 "undeclared_conflict", stage 는 2 로 한다.`,
+    `id 는 "${unit}-<번호>" 형식으로, kind 는 "undeclared_conflict", stage 는 2,\n` +
+    `task_ids 는 ["${p.a}", "${p.b}"] 로 한다.`,
     { label: unit, phase: 'Undeclared', schema: DEFECT_SCHEMA, model: 'opus' },
   ).then((r) => { examined.push(unit); return r })
     .catch(() => { failed.push(unit); return null })
@@ -106,10 +108,15 @@ const critic = await agent(
   `검사 단위: ${examined.join(', ') || '(없음)'}\n` +
   `발견: ${found.map((d) => `${d.id}(${d.task_ids.join('×')})`).join(', ') || '(없음)'}\n\n` +
   `**놓친 관계가 있는가?** 위 단위에 포함되지 않은 태스크 조합에서 모순을 찾아라.\n` +
-  `id 는 "critic-<번호>", kind 는 "undeclared_conflict", stage 는 2 로 한다.`,
+  `id 는 "critic-<번호>", kind 는 "undeclared_conflict", stage 는 2,\n` +
+  `task_ids 는 모순에 관련된 태스크 번호를 2개 이상 그대로 적는다.`,
   { label: 'critic', phase: 'Critic', schema: DEFECT_SCHEMA, model: 'opus' },
-).catch(() => { failed.push('critic'); return null })
+).then((r) => { examined.push('critic'); return r })
+  .catch(() => { failed.push('critic'); return null })
 
+// 검사관이 낸 결함의 id 를 기억해 둔다 — Fix 단계 이후 출처별로 되돌려 쓰려면
+// (stage2.defects 대 critic.additional_defects) id 로만 구분할 수 있다 (설계 D17).
+const criticIds = new Set((critic?.defects ?? []).map((d) => d.id))
 const candidates = [...found, ...(critic?.defects ?? [])]
 
 // ── 4) 반증 — 애매하면 결함이 아니다 (설계 D4) ───────────────────
@@ -137,10 +144,18 @@ const withPatch = await pipeline(
   ).then((patch) => ({ ...d, patch: patch ?? undefined })).catch(() => d),
 )
 
+// 출처별로 되돌려 쓴다 — criticIds 에 있으면 critic.additional_defects, 없으면
+// stage2.defects. withPatch 는 { ...d, patch } 형태라 id 가 그대로 남는다.
+// 두 필터는 criticIds 유무 하나로만 갈리므로 상호 배타적이고, 합쳐서 빠짐없이
+// withPatch 전체를 덮는다 — 어느 결함도 두 버킷 모두에 들어가거나 둘 다에서
+// 빠지지 않는다.
+const stage2Defects = withPatch.filter((d) => !criticIds.has(d.id))
+const criticDefects = withPatch.filter((d) => criticIds.has(d.id))
+
 return {
   schema: 1,
   plan_sha256: args.planSha256,
   stage1: { relations_declared: args.relationsDeclared, defects: args.stage1Defects ?? [] },
-  stage2: { units_examined: examined, units_failed: failed, defects: withPatch },
-  critic: { additional_defects: [] },
+  stage2: { units_examined: examined, units_failed: failed, defects: stage2Defects },
+  critic: { additional_defects: criticDefects },
 }
