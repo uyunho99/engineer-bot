@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
-import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict } from "./preflight";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw } from "./preflight";
 
 const PLAN = [
   "### Task 1: 목록",
@@ -324,5 +324,68 @@ describe("preflightVerdict", () => {
   test("결함 0 이라도 미검사가 있으면 REJECTED — 안 본 것을 통과로 쓰지 않는다", () => {
     const gap = { ...clean, not_examined: ["pair:2x3"] };
     expect(preflightVerdict([], gap)).toBe("REJECTED");
+  });
+});
+
+const SHA = "a".repeat(64);
+const validDefect = {
+  id: "d1", kind: "dangling_ref", task_ids: ["2", "1"],
+  relation: "x()", plan_text: "- Consumes: `x()` from Task 1",
+  conflict: "없는 심볼", stage: 1,
+};
+const validRaw = (over: Record<string, unknown> = {}) => JSON.stringify({
+  schema: 1,
+  plan_sha256: SHA,
+  stage1: { relations_declared: 2, defects: [validDefect] },
+  stage2: { units_examined: ["pair:1x2"], units_failed: [], defects: [] },
+  ...over,
+});
+
+describe("checkPreflightRaw", () => {
+  test("유효하면 ok 이고 data 가 채워진다", () => {
+    const r = checkPreflightRaw(validRaw(), SHA);
+    expect(r.ok).toBe(true);
+    expect(r.data?.stage1.defects).toHaveLength(1);
+  });
+
+  test("JSON 이 깨지면 ok:false", () => {
+    const r = checkPreflightRaw("{ not json", SHA);
+    expect(r.ok).toBe(false);
+    expect(r.violations.length).toBeGreaterThan(0);
+  });
+
+  test("schema 가 1이 아니면 ok:false", () => {
+    expect(checkPreflightRaw(validRaw({ schema: 2 }), SHA).ok).toBe(false);
+  });
+
+  test("plan_sha256 불일치면 ok:false (검사 도중 플랜이 바뀜)", () => {
+    expect(checkPreflightRaw(validRaw(), "b".repeat(64)).ok).toBe(false);
+  });
+
+  test("task_ids 가 1개면 ok:false", () => {
+    const bad = validRaw({
+      stage1: { relations_declared: 1, defects: [{ ...validDefect, task_ids: ["1"] }] },
+    });
+    expect(checkPreflightRaw(bad, SHA).ok).toBe(false);
+  });
+
+  test("kind 가 없으면 ok:false", () => {
+    const { kind, ...noKind } = validDefect;
+    const bad = validRaw({ stage1: { relations_declared: 1, defects: [noKind] } });
+    expect(checkPreflightRaw(bad, SHA).ok).toBe(false);
+  });
+
+  test("units_failed 가 없으면 ok:false", () => {
+    const bad = validRaw({ stage2: { units_examined: [], defects: [] } });
+    expect(checkPreflightRaw(bad, SHA).ok).toBe(false);
+  });
+
+  test("defects 빈 배열은 유효하다 — 결함 없음과 검증 실패는 다르다", () => {
+    const ok = validRaw({ stage1: { relations_declared: 0, defects: [] } });
+    expect(checkPreflightRaw(ok, SHA).ok).toBe(true);
+  });
+
+  test("critic 은 선택 필드다", () => {
+    expect(checkPreflightRaw(validRaw(), SHA).ok).toBe(true);
   });
 });

@@ -22,6 +22,7 @@
 import type { ParsedTask, TaskInterfaces } from "./contract";
 import { parseInterfaces, parseFiles } from "./contract";
 import type { PreflightDefect } from "./contract";
+import type { CheckResult, Violation } from "./contract";
 
 /** 하나의 선언된 의존. 커버리지의 단위다 (설계 D25) */
 export interface Relation {
@@ -234,4 +235,101 @@ export function preflightVerdict(
   if (defects.length > 0) return "REJECTED";
   if (coverage.not_examined.length > 0) return "REJECTED";
   return "CLEAN";
+}
+
+// ─── 워크플로우 산출 검증 (설계 D11 · D28 · 하드룰 #4) ────────────────────
+
+export interface RawStage {
+  relations_declared: number;
+  defects: PreflightDefect[];
+}
+
+export interface RawStage2 {
+  units_examined: string[];
+  units_failed: string[];
+  defects: PreflightDefect[];
+}
+
+export interface PreflightRaw {
+  schema: number;
+  plan_sha256: string;
+  stage1: RawStage;
+  stage2: RawStage2;
+  critic?: { additional_defects: PreflightDefect[] };
+}
+
+const KINDS = new Set([
+  "dangling_ref", "order_violation", "signature_mismatch", "undeclared_conflict",
+]);
+
+function checkDefectShape(d: unknown, where: string, v: Violation[]): void {
+  const o = d as Record<string, unknown>;
+  const bad = (m: string) =>
+    v.push({ severity: "error", file: "preflight-raw.json", rule: "D27", message: `${where}: ${m}` });
+  // `v.push()` 는 number 를 반환하므로 `return bad(...)` 는 `: void` 선언과
+  // 충돌한다 (TS2322). 조기 반환은 두 줄로 쓴다.
+  if (!o || typeof o !== "object") {
+    bad("결함 항목이 객체가 아닙니다");
+    return;
+  }
+  if (typeof o.id !== "string" || !o.id) bad("id 가 없습니다");
+  if (typeof o.kind !== "string" || !KINDS.has(o.kind)) bad(`kind 가 유효하지 않습니다: ${String(o.kind)}`);
+  if (!Array.isArray(o.task_ids) || o.task_ids.length < 2) {
+    bad("task_ids 가 2개 미만입니다 — 사전 검사 결함은 관계입니다");
+  }
+  if (typeof o.plan_text !== "string") bad("plan_text 가 없습니다");
+  if (typeof o.conflict !== "string") bad("conflict 가 없습니다");
+  if (o.stage !== 1 && o.stage !== 2) bad("stage 가 1 또는 2 가 아닙니다");
+}
+
+/**
+ * 워크플로우가 쓴 원본을 검증한다.
+ *
+ * **파싱·검증 실패를 CLEAN 으로 처리하지 않는다** (하드룰 #4). 이 함수가 위반을
+ * 돌려주면 호출자는 BLOCKED 로 취급한다. 검사를 안 한 것과 검사해서 깨끗한 것은
+ * 다르고, 그 둘을 섞는 것이 이 기능의 최악 실패다.
+ */
+export function checkPreflightRaw(
+  raw: string,
+  planSha256: string,
+): CheckResult & { data?: PreflightRaw } {
+  const v: Violation[] = [];
+  const bad = (m: string) =>
+    v.push({ severity: "error", file: "preflight-raw.json", rule: "D28", message: m });
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    bad(`JSON 파싱 실패: ${e instanceof Error ? e.message : String(e)}`);
+    return { ok: false, violations: v };
+  }
+
+  const o = parsed as Record<string, unknown>;
+  if (!o || typeof o !== "object") {
+    bad("최상위가 객체가 아닙니다");
+    return { ok: false, violations: v };
+  }
+  if (o.schema !== 1) bad(`schema 가 1이 아닙니다: ${String(o.schema)}`);
+  if (o.plan_sha256 !== planSha256) {
+    bad(`plan_sha256 이 현재 plan.md 와 다릅니다 — 검사 도중 플랜이 바뀌었습니다`);
+  }
+
+  const s1 = o.stage1 as Record<string, unknown> | undefined;
+  if (!s1 || typeof s1.relations_declared !== "number" || !Array.isArray(s1.defects)) {
+    bad("stage1 이 없거나 relations_declared/defects 가 빠졌습니다");
+  } else {
+    s1.defects.forEach((d, i) => checkDefectShape(d, `stage1.defects[${i}]`, v));
+  }
+
+  const s2 = o.stage2 as Record<string, unknown> | undefined;
+  if (!s2 || !Array.isArray(s2.units_examined) || !Array.isArray(s2.units_failed) || !Array.isArray(s2.defects)) {
+    bad("stage2 가 없거나 units_examined/units_failed/defects 가 빠졌습니다");
+  } else {
+    s2.defects.forEach((d, i) => checkDefectShape(d, `stage2.defects[${i}]`, v));
+  }
+
+  const errors = v.filter((x) => x.severity === "error");
+  if (errors.length) return { ok: false, violations: v };
+  return { ok: true, violations: v, data: parsed as PreflightRaw };
 }
