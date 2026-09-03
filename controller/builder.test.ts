@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildClaudeArgs, mergeSettings, resolveSuperpowersDir } from "./builder";
+import { buildClaudeArgs, isStaleReport, mergeSettings, resolveSuperpowersDir } from "./builder";
 
 /**
  * argv 구성 회귀 테스트.
@@ -174,5 +174,25 @@ describe("buildClaudeArgs — superpowersDir", () => {
     const args = buildClaudeArgs({ ...base, superpowersDir: "/cache/sp", model: "opus" });
     expect(args[args.length - 1]).toBe(base.prompt);
     expect(args[args.length - 2]).toBe("--");
+  });
+});
+
+describe("isStaleReport — 낡은 보고를 이번 결론으로 쓰지 않는다", () => {
+  test("spawn 이전에 쓰인 파일은 낡았다", () => {
+    expect(isStaleReport(1_000, 2_000)).toBe(true);
+  });
+
+  test("spawn 이후에 쓰인 파일은 신선하다", () => {
+    expect(isStaleReport(3_000, 2_000)).toBe(false);
+  });
+
+  test("정확히 같은 시각이면 신선한 쪽으로 본다 — 경계에서 세션을 벌하지 않는다", () => {
+    expect(isStaleReport(2_000, 2_000)).toBe(false);
+  });
+
+  test("2026-09-03 6회전 실측 재현: 17:36 파일 · 17:45 spawn → 낡음", () => {
+    const written = new Date("2026-09-03T17:36:25+09:00").getTime();
+    const spawned = new Date("2026-09-03T17:45:00+09:00").getTime();
+    expect(isStaleReport(written, spawned)).toBe(true);
   });
 });

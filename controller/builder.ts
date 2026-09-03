@@ -13,7 +13,7 @@
  *   5. 실패 시 정직한 결론 — 보고가 없거나 깨지면 BLOCKED (성공이 아니다)
  */
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   checkBuildResult,
@@ -156,6 +156,20 @@ export function mergeSettings(
   return b;
 }
 
+/**
+ * 보고 파일이 **이번 실행이 쓴 것인지** 판정한다.
+ *
+ * 2026-09-03 6회전에서 세션이 63분 돌고 `build-result.json` 을 남기지 못했다.
+ * 그런데 `builder.ts` 는 "파일이 있는가"만 보고 이전 회전(17:36)의 `REJECTED` 를
+ * **이번 회전 결과로 자신 있게 출력했다.** `BLOCKED` 이어야 했다.
+ *
+ * A6 은 "파싱 실패를 조용히 성공으로 처리하지 않는다"를 규정했지만, **낡은 성공을
+ * 새 성공으로 처리하는** 구멍이 남아 있었다. 보고의 신선도도 계약의 일부다.
+ */
+export function isStaleReport(mtimeMs: number, spawnedAtMs: number): boolean {
+  return mtimeMs < spawnedAtMs;
+}
+
 /** 컨트롤러가 직접 결론을 써야 하는 경우 (세션이 보고를 남기지 못했을 때) */
 async function writeFallbackResult(
   path: string,
@@ -242,6 +256,9 @@ export async function runBuilder(opts: BuilderOptions): Promise<BuilderOutcome> 
     superpowersDir: superpowersDir ?? undefined,
   });
 
+  // 보고 신선도 판정의 기준선 — spawn 직전 시각을 잡는다 (isStaleReport 참조)
+  const spawnedAtMs = Date.now();
+
   const proc = Bun.spawn(["claude", ...args], {
     cwd: p.repoRoot,
     // stdin 을 닫는다. 열어두면 claude 가 파이프 입력을 3초 기다린다
@@ -280,10 +297,27 @@ export async function runBuilder(opts: BuilderOptions): Promise<BuilderOutcome> 
 
   // ── 4. 외부 보고 수확 (A6) ───────────────────────────────────
   let raw: string | null = null;
+  let staleReport = false;
   try {
-    raw = await readFile(p.buildResult, "utf8");
+    const st = await stat(p.buildResult);
+    if (isStaleReport(st.mtimeMs, spawnedAtMs)) {
+      // 이전 회전의 보고다. 읽지 않는다 — 낡은 결론을 이번 결론으로 내면
+      // 사람이 게이트 ②에서 그것을 이번 빌드의 결과로 읽는다.
+      staleReport = true;
+    } else {
+      raw = await readFile(p.buildResult, "utf8");
+    }
   } catch {
     raw = null;
+  }
+
+  if (staleReport) {
+    const reason =
+      `세션이 이번 실행에서 ${p.buildResult} 를 갱신하지 않았습니다 (exit=${exitCode}) — ` +
+      `남아 있는 파일은 이전 회전의 보고이므로 읽지 않습니다. 외부 보고 계약 위반` +
+      diag();
+    await writeFallbackResult(p.buildResult, opts.branch, reason);
+    return done({ outcome: "BLOCKED", reason, exitCode, tasks });
   }
 
   if (timedOut) {
