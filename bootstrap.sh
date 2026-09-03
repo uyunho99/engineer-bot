@@ -173,6 +173,23 @@ check_plugin_collisions() {
   warn "      AMENDMENTS A7 참조. 봇 호스트에서는 릴리스 쪽을 남기는 것이 권고입니다."
 }
 
+# ── 2c. vendoring된 스킬 (AMENDMENTS A15) ─────────────────────
+# 판정 로직은 controller/vendored.ts 에 있다 (테스트 14개). 여기서는 호출만 한다 —
+# 셸에 로직을 두면 테스트할 수 없고, 이 레포는 판단을 controller/ 에 모은다.
+check_vendored_skills() {
+  head_ "vendoring된 스킬"
+  local root out rc
+  root="$(cd "$(dirname "$0")" && pwd)"
+  if [ ! -f "$root/config/vendored-skills.json" ]; then
+    warn "config/vendored-skills.json 없음 — vendoring된 스킬 없음"
+    return
+  fi
+  out="$(bun "$root/controller/vendored.ts" 2>&1)"; rc=$?
+  printf '%s\n' "$out"
+  [ $rc -ne 0 ] && FAIL=1
+  return 0
+}
+
 # ── 3. 명세가 이식 대상으로 지정한 gstack 스킬 ────────────────
 check_ported_skills() {
   head_ "이식 대상 스킬 (명세 §3.1)"
@@ -234,7 +251,7 @@ do_pin() {
 # ── main ──────────────────────────────────────────────────────
 case "$MODE" in
   check)
-    check_prereqs; check_gstack; check_superpowers; check_plugin_collisions; check_ported_skills
+    check_prereqs; check_gstack; check_superpowers; check_plugin_collisions; check_vendored_skills; check_ported_skills
     head_ "결과"
     if [ "$FAIL" -eq 0 ]; then ok "이상 없음 — Phase 0 수동 1회전 진행 가능"
     else bad "문제 발견 — ./bootstrap.sh repair 실행"; fi
@@ -243,7 +260,7 @@ case "$MODE" in
   repair)
     do_repair
     head_ "repair 후 재검사"
-    FAIL=0; check_gstack; check_superpowers; check_plugin_collisions
+    FAIL=0; check_gstack; check_superpowers; check_plugin_collisions; check_vendored_skills
     exit "$FAIL"
     ;;
   pin) do_pin ;;

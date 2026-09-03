@@ -147,6 +147,28 @@ export function formatContractRejection(branch: string, violations: string): str
   ].join("\n");
 }
 
+/**
+ * 계약·게이트 검증에서 **판정 자체를 하지 못해** 빌드를 시작하지 않은 경우 (하드룰 #4).
+ *
+ * `formatContractRejection` 과 섞으면 안 된다. 사람이 할 일이 정반대다:
+ *   REJECTED → 문서(플랜·설계 문서)를 고치고 게이트 ① 재승인
+ *   BLOCKED  → 문서는 멀쩡할 수 있다. 산출물·하네스를 고쳐야 한다
+ *
+ * 이 함수가 없던 동안 `bin/builder` 는 깨진 preflight.json(= BLOCKED)을
+ * "↩️ REJECTED" 로 출력했다. 이 브랜치가 지키려는 구분이 사람이 읽는 유일한
+ * 자리에서 무너져 있었고, 반대 의견은 stderr 한 줄뿐이었다.
+ */
+export function formatContractBlocked(branch: string, violations: string): string {
+  return [
+    `⛔ BLOCKED — ${branch}`,
+    "사전 검사 결과를 **판정할 수 없어** 빌드를 시작하지 않았습니다 (하드룰 #4).",
+    "```",
+    violations,
+    "```",
+    "👉 플랜의 결함이 아닙니다 — 위 산출물을 고친 뒤 다시 실행하세요. 플랜 재승인이 필요한 것은 REJECTED 쪽입니다.",
+  ].join("\n");
+}
+
 /** 상태 전이 한 줄 게시 (명세 §2) */
 export function formatTransition(to: string, note?: string): string {
   return note ? `▸ ${to} 진입 — ${note}` : `▸ ${to} 진입`;

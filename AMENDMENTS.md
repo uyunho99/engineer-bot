@@ -204,6 +204,35 @@ SDD 루프가 시작조차 못 한다. 명세 §4.2는 "각 태스크에 `[id] .
 
 ---
 
+### B6. 경로 계약(B2)이 SDD 워크스페이스 분리를 무력화한다 (2026-09-03 실측)
+
+`scripts/sdd-workspace` 는 워크스페이스 디렉터리를 **플랜 파일의 basename** 으로 만든다:
+
+```
+docs/plans/feature-a/plan.md  →  .superpowers/sdd/plan/
+docs/plans/feature-b/plan.md  →  .superpowers/sdd/plan/     ← 같은 곳
+```
+
+그런데 명세 §4.1(B2 정규화)은 **모든** 플랜을 `docs/plans/<slug>/plan.md` 로 고정한다.
+즉 이 레포의 모든 기능이 **단 하나의 워크스페이스를 공유한다.**
+
+업스트림은 워크스페이스를 플랜 단위로 분리한다고 전제하고(A5: "플랜 단위로 만들고
+최종 리뷰가 깨끗해지면 삭제한다"), `task-N-brief.md`·`task-N-report.md`·리뷰 패키지가
+전부 `task-N-*` 로 명명된다. **두 번째 기능을 빌드하면 이전 기능의 `task-1-brief.md` 를
+읽을 수 있다.**
+
+현재 유일한 방어선은 ledger 첫 줄의 플랜 경로 대조다 — 스킬이 "다른 플랜의 ledger 면
+그대로 두고 새로 시작하라"고 지시한다. 그것은 ledger 파일 하나만 보호하고 브리프·리포트는
+보호하지 않는다.
+
+| | 결정 |
+|---|---|
+| **판정** | B2 가 파일명을 고정한 대가다. 계약을 만들 때 **업스트림이 파일명으로 무언가를 구분한다**는 것을 놓쳤다 |
+| **채택** | `bin/builder` 가 세션 기동 전에 `.superpowers/sdd/` 아래 다른 플랜의 잔여물이 있으면 **경고하거나 슬러그별로 격리**한다. 원본 스킬은 고치지 않는다 (P4) |
+| 현재 상태 | **미구현.** 플랜이 하나뿐이라 아직 터지지 않는다. 두 번째 기능 착수 전에 처리해야 한다 |
+| 실측 출처 | 3회전 `discoveries.md` — 봇이 스스로 찾아 기록했다 |
+
+
 ## A′. superpowers 6.3.0 재실측 (2026-09-02)
 
 > A1~A6은 **6.2.0** 실측이다. 2026-09-02 재실측 결과 이 호스트에서 실제로 로드되는 버전은
@@ -231,6 +260,7 @@ SDD 루프가 시작조차 못 한다. 명세 §4.2는 "각 태스크에 `[id] .
 |---|---|
 | **채택** | 봇 호스트는 **한 쪽만 켠다.** 어느 쪽인지는 아래 판정 |
 | **권고** | **6.2.0 (릴리스) 유지 — `superpowers-dev`를 끈다** |
+| ✅ **해소됨 (2026-09-03)** | `superpowers-dev@superpowers-marketplace`가 `false`로 내려갔다. `./bootstrap.sh check` → *"활성 플러그인 중 이름 충돌 없음"*. `versions.lock`의 superpowers 항목을 한 줄로 줄였고, 이제 그 핀이 실제로 가리킬 대상이 하나다. **A8~A13은 6.3.0을 고를 경우의 판정이었으므로 적용되지 않는다** — A3의 "질문 → 반송" 변환 오버레이가 계속 유효하다 |
 | 근거 | ① `dev` 브랜치는 이동하는 타깃이다. BUILD-PLAN §0-A가 gstack을 `--no-team`으로 설치한 것과 같은 이유로 봇에 부적합하다 ② **6.2.0의 실패 모델이 이 명세와 정합한다** — 플랜 결함을 사람에게 올리는 동작이 §6.3 반송과 1:1로 맞고, A3 오버레이가 이미 작성돼 있다 ③ 6.3.0의 "Rulings, not stalls" 철학은 게이트 ①의 설계 의도와 반대 방향이다 (A9) |
 | 대가 | 6.3.0의 headless 친화 변경을 포기한다. A3 변환 오버레이가 계속 필요하다 (이미 있으므로 추가 비용 0) |
 | 적용 | `~/.claude/settings.json` — `"superpowers-dev@superpowers-marketplace": false`. `bootstrap.sh check`에 **중복 이름 플러그인 탐지**를 추가한다 |
@@ -333,6 +363,62 @@ argues from the spec, so the spec travels with it; executors read both]
 | 적용 | `controller/worktree.ts` (신규) · `bin/builder` · `overlay/CLAUDE.builder.md` |
 
 ---
+
+### A14. 기획 라우팅 교체 — `/office-hours` → `superpowers:brainstorming` (2026-09-03)
+
+**명세 §3.3 원문**: *"신규 기획 요청은 `/office-hours`로 라우팅 (superpowers brainstorming 사용 안 함)"*
+**명세 P6 근거**: 두 플러그인이 같은 트리거를 자기 기획 스킬로 가져가는 충돌 방지.
+
+사용자 판단 (2026-09-03): *"프로덕트를 처음부터 만드는 거라기보다는 기획적인 차원을 더 보는 게
+맞는 거 같아서 office-hours, plan-ceo-review는 제외하고 gstack/plan-design-review랑
+superpowers/brainstorming 이걸 넣는 게 더 도움이 될 거 같아."*
+
+| | 결정 |
+|---|---|
+| **채택** | 기획 진입점을 `superpowers:brainstorming`으로 바꾼다. `/office-hours`·`/plan-ceo-review`를 라우팅에서 뺀다. `/plan-design-review`를 넣는다 |
+| 근거 | ① `/office-hours`는 **0에서 제품을 발굴하는** 소크라테스 문답이다. 이 팀의 작업은 "이미 있는 아이디어를 설계로"에 가깝다 ② brainstorming의 **경로 분류**(spike / bounded / architectural)가 그 형태와 맞고, 매번 같은 무게의 기획 의식을 강요하지 않는다 ③ brainstorming은 **접근안 2~3개를 트레이드오프와 함께** 내므로 `plan-ceo-review`의 도전 층을 부분적으로 흡수한다 |
+| **대가** | **스코프·전제를 정면으로 도전하는 전용 층이 사라진다.** brainstorming의 질문은 "무엇을 만들까"에 집중하고, ceo-review처럼 "이걸 왜 만드나 / 안 만들면 안 되나"를 밀어붙이지 않는다. 되돌리려면 CLAUDE.md의 해당 행 하나만 복구하면 된다 |
+| **부수 효과 — 방향이 뒤집힌다** | B2의 `materialize`는 **gstack 명명 → 계약 경로** 방향이었다. brainstorming은 `docs/plans/<slug>/design-doc.md`에 **직접 쓰므로** 그 방향이 필요 없어진다. 대신 **역방향이 필요해진다**: `/plan-eng-review`가 설계문서를 `~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md`로 **glob 탐색**하므로(B1 — 하드코딩), 계약 경로의 `design-doc.md`를 gstack 명명으로 **내보내야** 그 스킬이 자기 입력을 찾는다. `controller/materialize.ts`에 `--export` 방향을 추가해야 한다 (미구현) |
+| 미구현으로 인한 현재 상태 | **`/plan-eng-review`를 쓰려면 손으로 복사해야 한다.** `cp docs/plans/<slug>/design-doc.md docs/gstack/$(whoami)-<slug>-design-$(date +%Y%m%d%H%M%S).md`. 선행 조건으로 `bin/setup-paths.sh`가 그 레포에서 한 번 돌아야 한다 (심링크). 자동화 전까지 이 단계가 사람 개입 지점이다 |
+| ⚠️ **양방향 위험 — 자동화 시 반드시 막을 것** | export 와 materialize 는 **서로 반대 방향**이고, 사이에 편집이 끼면 덮어쓴다: `export`(design-doc → gstack) → **design-doc.md 편집** → `materialize`(gstack 최신 → design-doc) 하면 **편집이 사라진다.** materialize 는 `ls -t`로 최신 파일을 고르는데, 그 최신 파일이 편집 이전의 export 사본이기 때문이다. `--export` 구현 시 방향을 하나 고르게 강제하거나(양쪽 해시 비교 후 최신이 아닌 쪽으로 덮어쓰기를 거부), 최소한 덮어쓰기 전 diff 를 보여야 한다 |
+| 주의 | **`## Skill routing` 헤딩 문자열은 그대로 유지한다** (B3). gstack이 자기 블록을 삽입하지 않도록 막는 유일한 장치이고, 판정이 헤딩 존재 여부뿐이므로 내용은 자유롭게 바꿔도 된다 |
+| 실측 | `/plan-design-review`는 `allowed-tools`에 `Edit`·`AskUserQuestion`을 갖고 **플랜을 직접 고친다** (*"then fixes the plan to get there"*). 게이트 ① **앞**이고 대화형이므로 하드룰 #2와 충돌하지 않는다 — 승인 전 + 사람이 결정하는 자리다 (feature/plan-preflight 설계 §6.4와 같은 논리) |
+| 적용 | `CLAUDE.md` — dispatcher 규칙 · 라우팅 테이블 · "쓰지 않는 스킬" 표 |
+
+### A15. 핀할 수 없는 스킬이 파이프라인에 들어온다 — `qa-planning` (2026-09-03)
+
+세션 **도중에** `qa-planning`이 사용 가능해졌다. 시작 시점 스킬 목록에는 없었다.
+
+실측:
+
+| 확인 | 결과 |
+|---|---|
+| 로컬 디스크(`~/.claude`, `~/Documents`) | **없음** |
+| `anthropics/skills` 공식 레포의 스킬 목록 | **없음** (webapp-testing은 있다) |
+| `SearchSkills` 카탈로그 | 결과 0건 |
+| 출처 | **사용자가 claude.ai에 등록한 스킬**이 이 세션에 동기화된 것 |
+
+| | 결정 |
+|---|---|
+| **채택** | claude.ai 등록 스킬은 **`versions.lock`이 기록할 수 없다.** 파일이 없으므로 sha도 버전도 없다. 이 스킬에 의존하는 파이프라인 구간은 **재현성 계약 밖**이다 |
+| 근거 | A7과 같은 종류의 문제다. 그때는 플러그인 2개가 같은 이름을 선언해 versions.lock의 대상이 모호해졌고, 여기서는 대상 자체가 파일로 존재하지 않는다 |
+| 대응 | 봇 호스트에서 돌려야 하는 스킬은 **레포에 vendoring한다** (`.claude/skills/<name>/`, git 추적). claude.ai 등록본은 사람이 대화형으로 쓸 때만 의존한다 |
+| 미결 | `qa-planning`의 산출물 `QA_PLAN.md`는 경로가 지정돼 있지 않다 → B2와 같은 정규화 문제. 배치(기획 단계 vs 게이트 ② 전)도 미정. `docs/plans/feature-plan-preflight/design-doc.md` §1.1.1 참조 |
+| 적용 | ✅ 구현됨 (2026-09-03) — `config/vendored-skills.json`(매니페스트) · `controller/vendored.ts`(검증, 테스트 14개) · `bootstrap.sh check_vendored_skills` |
+
+**vendoring 계약** — 등재된 스킬은 업스트림과 **바이트 단위로 같아야 한다.**
+해시는 **git blob sha1**이라 `git hash-object <파일>`로 사람이 직접 확인할 수 있고,
+GitHub 트리 API 값과 그대로 대조된다. 해시가 어긋나면 둘 중 하나다 — 누가 사본을 고쳤거나
+(= 몰래 fork했거나, 명세 P4 위반), 업스트림을 올리고 매니페스트를 갱신하지 않았거나.
+드리프트 탐지는 실측으로 확인했다 (파일 한 줄 추가 → `exit 1` + 변경 파일 지목 → 되돌리니 통과).
+
+**첫 등재: `webapp-testing`** (`anthropics/skills` sha `5304866`, 6개 파일).
+실측에서 드러난 함정 하나 — **Python playwright에는 `1.58.2`가 없다.** Node는 1.58.2,
+Python은 1.58.0이 최신이다. 다행히 두 버전 다 **chromium 리비전 1208**을 쓰므로
+(`microsoft/playwright` `browsers.json` 실측) gstack의 node playwright와 브라우저를 공유하고,
+설치해도 공유 캐시에 리비전이 늘지 않았다. **버전을 안 맞추면 2026-07-30 `bootstrap repair`가
+고쳐야 했던 상태(1208 vs 1228 불일치)가 재발한다.**
+
 
 ## C. 남은 미결 (사용자 입력 대기)
 

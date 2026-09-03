@@ -1,0 +1,1033 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
+import { parseTasks } from "./contract";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, parsePreviousResult, planSha256, type PreflightRaw } from "./preflight";
+// PreflightRaw 를 함께 import 하라 — 아래 raw() 헬퍼가 그 타입을 쓴다.
+// tsconfig 의 include 가 controller/**/*.ts 이고 noUnusedLocals: true 라
+// 테스트 파일도 타입체크 대상이다 (2026-09-03 봇 지적).
+
+const PLAN = [
+  "### Task 1: 목록",
+  "",
+  "**Tags:** verification=deterministic validation=invisible",
+  "",
+  "**Files:**",
+  "- Create: `src/list.ts`",
+  "",
+  "**Interfaces:**",
+  "- Produces: `listAll(): Item[]`",
+  "",
+  "### Task 2: 필터",
+  "",
+  "**Tags:** verification=deterministic validation=invisible",
+  "",
+  "**Files:**",
+  "- Create: `src/filter.ts`",
+  "",
+  "**Interfaces:**",
+  "- Consumes: `listAll(): Item[]` from Task 1",
+  "- Consumes: `Config` from Task 1",
+  "- Produces: `filter(xs: Item[]): Item[]`",
+  "",
+  "### Task 3: 메타 없음",
+  "",
+  "**Tags:** verification=deterministic validation=invisible",
+  "",
+  "본문만 있다",
+].join("\n");
+
+describe("buildRelationGraph", () => {
+  const g = buildRelationGraph(parseTasks(PLAN));
+
+  test("모든 태스크가 nodes 에 들어간다 — 메타 없는 태스크도", () => {
+    expect([...g.nodes.keys()]).toEqual(["1", "2", "3"]);
+    expect(g.nodes.get("3")).toEqual({ consumes: [], produces: [] });
+  });
+
+  test("order 가 등장 순서를 보존한다", () => {
+    expect(g.order).toEqual(["1", "2", "3"]);
+  });
+
+  test("Consumes 항목마다 relation 이 하나씩", () => {
+    expect(g.relations).toHaveLength(2);
+    expect(g.relations[0]).toEqual({
+      consumer: "2", symbol: "listAll(): Item[]", declaredFrom: "1",
+    });
+  });
+
+  test("relations 개수가 전체 Consumes 총계와 같다 (커버리지 분모)", () => {
+    const total = parseTasks(PLAN)
+      .map((t) => t.body.split("\n").filter((l) => /^\s*-\s+Consumes\s*:/i.test(l)).length)
+      .reduce((a, b) => a + b, 0);
+    expect(g.relations).toHaveLength(total);
+  });
+
+  test("태스크가 없으면 빈 그래프, 예외 없음", () => {
+    const empty = buildRelationGraph([]);
+    expect(empty.nodes.size).toBe(0);
+    expect(empty.relations).toEqual([]);
+    expect(empty.order).toEqual([]);
+  });
+});
+
+const planOf = (...blocks: string[]) => blocks.join("\n\n");
+const task = (n: number, ifaces: string[]) =>
+  [
+    `### Task ${n}: T${n}`,
+    "",
+    "**Tags:** verification=deterministic validation=invisible",
+    "",
+    "**Files:**",
+    `- Create: \`src/t${n}.ts\``,
+    "",
+    "**Interfaces:**",
+    ...ifaces,
+  ].join("\n");
+const graphOf = (text: string) => buildRelationGraph(parseTasks(text));
+
+describe("danglingRefs", () => {
+  test("출처가 그 심볼을 생산하지 않으면 dangling_ref", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Produces: `alpha()`"]),
+      task(2, ["- Consumes: `beta()` from Task 1"]),
+    ));
+    const d = danglingRefs(g);
+    expect(d).toHaveLength(1);
+    expect(d[0].kind).toBe("dangling_ref");
+    expect(d[0].task_ids).toEqual(["2", "1"]);
+    expect(d[0].relation).toBe("beta()");
+    expect(d[0].stage).toBe(1);
+  });
+
+  test("출처 태스크가 아예 없으면 dangling_ref", () => {
+    const g = graphOf(planOf(task(1, ["- Consumes: `x` from Task 9"])));
+    expect(danglingRefs(g).map((x) => x.kind)).toEqual(["dangling_ref"]);
+  });
+
+  test("정상 연결은 결함이 아니다", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Produces: `alpha()`"]),
+      task(2, ["- Consumes: `alpha()` from Task 1"]),
+    ));
+    expect(danglingRefs(g)).toEqual([]);
+  });
+});
+
+describe("orderViolations", () => {
+  test("앞 태스크가 뒤 태스크의 산출을 소비하면 order_violation", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Consumes: `late()` from Task 2"]),
+      task(2, ["- Produces: `late()`"]),
+    ));
+    const d = orderViolations(g);
+    expect(d).toHaveLength(1);
+    expect(d[0].kind).toBe("order_violation");
+    expect(d[0].stage).toBe(1);
+  });
+
+  test("순서 위반은 dangling 과 중복 보고되지 않는다", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Consumes: `late()` from Task 2"]),
+      task(2, ["- Produces: `late()`"]),
+    ));
+    expect(danglingRefs(g)).toEqual([]);
+    expect(stage1Defects(g)).toHaveLength(1);
+  });
+});
+
+describe("signatureCandidates", () => {
+  test("서명이 다르면 stage 2 후보로 넘긴다 — 확정하지 않는다", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Produces: `f(): string[]`"]),
+      task(2, ["- Consumes: `f(): Keyword[]` from Task 1"]),
+    ));
+    const d = signatureCandidates(g);
+    expect(d).toHaveLength(1);
+    expect(d[0].kind).toBe("signature_mismatch");
+    expect(d[0].stage).toBe(2);
+  });
+
+  test("타입을 이름으로 소비하면 후보가 아니다 — 서명을 주장하지 않았다", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Produces: `interface Foo { a: string }`"]),
+      task(2, ["- Consumes: `Foo` from Task 1"]),
+    ));
+    expect(signatureCandidates(g)).toEqual([]);
+  });
+
+  test("그래도 실제 불일치는 여전히 후보가 된다 — 위 규칙이 삼키지 않는다", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Produces: `f(): string[]`"]),
+      task(2, ["- Consumes: `f(): Keyword[]` from Task 1"]),
+    ));
+    expect(signatureCandidates(g)).toHaveLength(1);
+  });
+
+  test("서명이 같으면 후보가 없다", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Produces: `f(): string[]`"]),
+      task(2, ["- Consumes: `f(): string[]` from Task 1"]),
+    ));
+    expect(signatureCandidates(g)).toEqual([]);
+  });
+});
+
+describe("symbolName 을 통한 선언 키워드 처리", () => {
+  test("interface 선언을 소비하면 결함이 아니다", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Produces: `interface Coverage { declared: number }`"]),
+      task(2, ["- Consumes: `Coverage` from Task 1"]),
+    ));
+    expect(danglingRefs(g)).toEqual([]);
+  });
+
+  test("type 선언도 연결된다", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Produces: `type Verdict = \"CLEAN\" | \"REJECTED\"`"]),
+      task(2, ["- Consumes: `Verdict` from Task 1"]),
+    ));
+    expect(danglingRefs(g)).toEqual([]);
+  });
+
+  test("export interface 도 연결된다", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Produces: `export interface Pair { a: string }`"]),
+      task(2, ["- Consumes: `Pair` from Task 1"]),
+    ));
+    expect(danglingRefs(g)).toEqual([]);
+  });
+
+  test("키워드 없는 함수 서명은 그대로 연결된다", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Produces: `baz(): void`"]),
+      task(2, ["- Consumes: `baz(): void` from Task 1"]),
+    ));
+    expect(danglingRefs(g)).toEqual([]);
+  });
+});
+
+describe("stage1Defects", () => {
+  test("모든 결함의 id 가 서로 다르고 task_ids 가 2개 이상", () => {
+    const g = graphOf(planOf(
+      task(1, ["- Consumes: `late()` from Task 3", "- Produces: `alpha()`"]),
+      task(2, ["- Consumes: `beta()` from Task 1"]),
+      task(3, ["- Produces: `late()`"]),
+    ));
+    const d = stage1Defects(g);
+    expect(new Set(d.map((x) => x.id)).size).toBe(d.length);
+    for (const x of d) {
+      expect(x.task_ids.length).toBeGreaterThanOrEqual(2);
+      expect(x.relation).toBeTruthy();
+    }
+  });
+
+  test("관계가 없으면 빈 배열", () => {
+    expect(stage1Defects(graphOf(planOf(task(1, ["- Produces: `a()`"]))))).toEqual([]);
+  });
+});
+
+const fileTask = (n: number, lines: string[]) =>
+  [
+    `### Task ${n}: T${n}`,
+    "",
+    "**Tags:** verification=deterministic validation=invisible",
+    "",
+    "**Files:**",
+    ...lines,
+    "",
+    "**Interfaces:**",
+    `- Produces: \`p${n}()\``,
+  ].join("\n");
+
+describe("overlappingPairs", () => {
+  test("같은 파일을 건드리는 짝만 나온다", () => {
+    const p = overlappingPairs(parseTasks(planOf(
+      fileTask(1, ["- Create: `src/a.ts`"]),
+      fileTask(2, ["- Modify: `src/a.ts`", "- Create: `src/b.ts`"]),
+      fileTask(3, ["- Create: `src/c.ts`"]),
+    )));
+    expect(p).toHaveLength(1);
+    expect(p[0]).toEqual({ a: "1", b: "2", sharedFiles: ["src/a.ts"] });
+  });
+
+  test("겹치지 않으면 짝이 없다", () => {
+    const p = overlappingPairs(parseTasks(planOf(
+      fileTask(1, ["- Create: `x.ts`"]),
+      fileTask(2, ["- Create: `y.ts`"]),
+    )));
+    expect(p).toEqual([]);
+  });
+
+  test("한 방향만 — 3×7 과 7×3 이 중복되지 않는다", () => {
+    const p = overlappingPairs(parseTasks(planOf(
+      fileTask(1, ["- Create: `s.ts`"]),
+      fileTask(2, ["- Modify: `s.ts`"]),
+    )));
+    expect(p).toHaveLength(1);
+  });
+
+  test("태스크 1개면 짝 0개, 예외 없음 (E1)", () => {
+    expect(overlappingPairs(parseTasks(fileTask(1, ["- Create: `a.ts`"])))).toEqual([]);
+  });
+
+  test("태스크 0개면 짝 0개, 예외 없음", () => {
+    expect(overlappingPairs([])).toEqual([]);
+  });
+
+  test("Test 파일 공유는 짝이 아니다", () => {
+    const p = overlappingPairs(parseTasks(planOf(
+      fileTask(1, ["- Create: `a.ts`", "- Test: `shared.test.ts`"]),
+      fileTask(2, ["- Create: `b.ts`", "- Test: `shared.test.ts`"]),
+    )));
+    expect(p).toEqual([]);
+  });
+});
+
+describe("relationCoverage", () => {
+  const g = graphOf(planOf(
+    task(1, ["- Produces: `a()`"]),
+    task(2, ["- Consumes: `a()` from Task 1", "- Produces: `b()`"]),
+    task(3, ["- Consumes: `b()` from Task 2"]),
+  ));
+
+  test("declared 가 relations 개수와 같다", () => {
+    expect(relationCoverage(g, [], []).declared).toBe(g.relations.length);
+  });
+
+  test("1단계는 선언된 관계를 전부 본다 (D25)", () => {
+    const c = relationCoverage(g, [], []);
+    expect(c.examined_stage1).toBe(c.declared);
+  });
+
+  test("실패한 단위가 not_examined 에 들어간다", () => {
+    expect(relationCoverage(g, ["pair:1x2"], ["pair:2x3"]).not_examined).toEqual(["pair:2x3"]);
+  });
+
+  test("not_examined 는 비어도 배열로 존재한다", () => {
+    expect(relationCoverage(g, [], []).not_examined).toEqual([]);
+  });
+
+  test("관계 0개면 declared 0, 예외 없음", () => {
+    const empty = buildRelationGraph([]);
+    expect(relationCoverage(empty, [], []).declared).toBe(0);
+  });
+});
+
+describe("preflightVerdict", () => {
+  const clean = { declared: 3, examined_stage1: 3, examined_stage2: 3, not_examined: [] };
+
+  test("결함 0 + 미검사 0 이면 CLEAN", () => {
+    expect(preflightVerdict([], clean)).toBe("CLEAN");
+  });
+
+  test("결함이 있으면 REJECTED", () => {
+    const d = [{ id: "x", kind: "dangling_ref", task_ids: ["1", "2"], plan_text: "", conflict: "", stage: 1 }] as any;
+    expect(preflightVerdict(d, clean)).toBe("REJECTED");
+  });
+
+  test("결함 0 이라도 미검사가 있으면 REJECTED — 안 본 것을 통과로 쓰지 않는다", () => {
+    const gap = { ...clean, not_examined: ["pair:2x3"] };
+    expect(preflightVerdict([], gap)).toBe("REJECTED");
+  });
+});
+
+const SHA = "a".repeat(64);
+const validDefect = {
+  id: "d1", kind: "dangling_ref", task_ids: ["2", "1"],
+  relation: "x()", plan_text: "- Consumes: `x()` from Task 1",
+  conflict: "없는 심볼", stage: 1,
+};
+const validRaw = (over: Record<string, unknown> = {}) => JSON.stringify({
+  schema: 1,
+  plan_sha256: SHA,
+  stage1: { relations_declared: 2, defects: [validDefect] },
+  stage2: { units_examined: ["pair:1x2"], units_failed: [], defects: [] },
+  ...over,
+});
+
+describe("checkPreflightRaw", () => {
+  test("유효하면 ok 이고 data 가 채워진다", () => {
+    const r = checkPreflightRaw(validRaw(), SHA);
+    expect(r.ok).toBe(true);
+    expect(r.data?.stage1.defects).toHaveLength(1);
+  });
+
+  test("JSON 이 깨지면 ok:false", () => {
+    const r = checkPreflightRaw("{ not json", SHA);
+    expect(r.ok).toBe(false);
+    expect(r.violations.length).toBeGreaterThan(0);
+  });
+
+  test("schema 가 1이 아니면 ok:false", () => {
+    expect(checkPreflightRaw(validRaw({ schema: 2 }), SHA).ok).toBe(false);
+  });
+
+  test("plan_sha256 불일치면 ok:false (검사 도중 플랜이 바뀜)", () => {
+    expect(checkPreflightRaw(validRaw(), "b".repeat(64)).ok).toBe(false);
+  });
+
+  test("task_ids 가 1개면 ok:false", () => {
+    const bad = validRaw({
+      stage1: { relations_declared: 1, defects: [{ ...validDefect, task_ids: ["1"] }] },
+    });
+    expect(checkPreflightRaw(bad, SHA).ok).toBe(false);
+  });
+
+  test("kind 가 없으면 ok:false", () => {
+    const { kind, ...noKind } = validDefect;
+    const bad = validRaw({ stage1: { relations_declared: 1, defects: [noKind] } });
+    expect(checkPreflightRaw(bad, SHA).ok).toBe(false);
+  });
+
+  test("units_failed 가 없으면 ok:false", () => {
+    const bad = validRaw({ stage2: { units_examined: [], defects: [] } });
+    expect(checkPreflightRaw(bad, SHA).ok).toBe(false);
+  });
+
+  test("defects 빈 배열은 유효하다 — 결함 없음과 검증 실패는 다르다", () => {
+    const ok = validRaw({ stage1: { relations_declared: 0, defects: [] } });
+    expect(checkPreflightRaw(ok, SHA).ok).toBe(true);
+  });
+
+  test("critic 은 선택 필드다", () => {
+    expect(checkPreflightRaw(validRaw(), SHA).ok).toBe(true);
+  });
+
+  // ── task_ids 원소 타입 · patch 검증 (2026-09-03 최종 리뷰 I3) ───────────
+  //
+  // patch 는 이 경계를 넘어 `--apply` 에서 **plan.md 를 실제로 고친다.**
+  // 여기서 통과시키면 파일을 쓰는 코드가 검증되지 않은 AI 산출을 그대로 믿는다.
+
+  const withDefect = (over: Record<string, unknown>) =>
+    validRaw({ stage1: { relations_declared: 1, defects: [{ ...validDefect, ...over }] } });
+  const patch = { op: "replace", task_id: "2", anchor: "- Consumes: `x()` from Task 1", text: "새 줄" };
+
+  test("task_ids 원소가 숫자면 ok:false — 통과시키면 진짜 결함이 clean 으로 기록된다", () => {
+    // 거짓 음성 경로: `[1, 2]` 는 길이 검사를 통과하고, 그 뒤 concernsUnit 의
+    // `d.task_ids.includes("1")` 이 false 가 되어 결함 있는 관계가 `clean` 이 된다.
+    // 안 본 것을 통과로 쓰는 것과 같은 종류의 실패다 (설계 §7.4).
+    expect(checkPreflightRaw(withDefect({ task_ids: [1, 2] }), SHA).ok).toBe(false);
+  });
+
+  test("유효한 patch 는 통과한다 — patch 자체를 막는 검사가 아니다", () => {
+    expect(checkPreflightRaw(withDefect({ patch }), SHA).ok).toBe(true);
+  });
+
+  test("patch.anchor 가 없으면 ok:false — --apply 도중 TypeError 로 죽는다", () => {
+    const { anchor, ...noAnchor } = patch;
+    expect(checkPreflightRaw(withDefect({ patch: noAnchor }), SHA).ok).toBe(false);
+  });
+
+  test("patch.anchor 가 빈 문자열이면 ok:false — 모든 빈 줄에 매치된다", () => {
+    expect(checkPreflightRaw(withDefect({ patch: { ...patch, anchor: "   " } }), SHA).ok).toBe(false);
+  });
+
+  test("patch.op 이 다른 문자열이면 ok:false — 조용히 insert_after 로 동작한다", () => {
+    expect(checkPreflightRaw(withDefect({ patch: { ...patch, op: "delete" } }), SHA).ok).toBe(false);
+  });
+
+  test("patch.text 가 문자열이 아니면 ok:false — 강제 변환된 값이 plan.md 에 들어간다 (D14)", () => {
+    expect(checkPreflightRaw(withDefect({ patch: { ...patch, text: 42 } }), SHA).ok).toBe(false);
+  });
+
+  test("patch.text 가 빈 문자열은 유효하다 — 빈 줄로 교체하는 것은 정당하다", () => {
+    expect(checkPreflightRaw(withDefect({ patch: { ...patch, text: "" } }), SHA).ok).toBe(true);
+  });
+
+  test("patch.task_id 가 없으면 ok:false — 앵커 검색 범위를 정할 수 없다 (D24)", () => {
+    const { task_id, ...noTaskId } = patch;
+    expect(checkPreflightRaw(withDefect({ patch: noTaskId }), SHA).ok).toBe(false);
+  });
+
+  test("patch 가 객체가 아니면 ok:false", () => {
+    expect(checkPreflightRaw(withDefect({ patch: "고쳐라" }), SHA).ok).toBe(false);
+  });
+
+  test("위반 메시지의 rule 이 항목에 맞다 — task_ids 는 D27, patch 는 D28 (M2)", () => {
+    const tupleV = checkPreflightRaw(withDefect({ task_ids: ["1"] }), SHA).violations;
+    expect(tupleV.some((v) => v.rule === "D27")).toBe(true);
+    const patchV = checkPreflightRaw(withDefect({ patch: { ...patch, op: "delete" } }), SHA).violations;
+    expect(patchV.some((v) => v.rule === "D28" && v.message.includes("patch.op"))).toBe(true);
+    expect(patchV.some((v) => v.rule === "D27")).toBe(false);
+  });
+});
+
+describe("assembleResult", () => {
+  const g = graphOf(planOf(
+    task(1, ["- Produces: `a()`"]),
+    task(2, ["- Consumes: `a()` from Task 1"]),
+  ));
+  const d = (id: string, stage: 1 | 2) => ({
+    id, kind: "dangling_ref" as const, task_ids: ["2", "1"] as [string, string],
+    relation: "a()", plan_text: "", conflict: "", stage,
+  });
+  const base = {
+    branch: "feature/x",
+    planSha256: "a".repeat(64),
+    graph: g,
+    pairs: [],
+    previousApplied: [],
+    now: "2026-09-03T00:00:00Z",
+  };
+  const raw = (over: Partial<PreflightRaw> = {}): PreflightRaw => ({
+    schema: 1,
+    plan_sha256: "a".repeat(64),
+    stage1: { relations_declared: 1, defects: [] },
+    stage2: { units_examined: [], units_failed: [], defects: [] },
+    ...over,
+  });
+
+  test("세 곳의 결함이 하나로 합쳐진다", () => {
+    const r = assembleResult({ ...base, raw: raw({
+      stage1: { relations_declared: 1, defects: [d("s1", 1)] },
+      stage2: { units_examined: [], units_failed: [], defects: [d("s2", 2)] },
+      critic: { additional_defects: [d("cr", 2)] },
+    }) });
+    expect(r.defects.map((x) => x.id).sort()).toEqual(["cr", "s1", "s2"]);
+    // bullet 6: 결함이 있으면 verdict 는 preflightVerdict 규칙대로 REJECTED 다.
+    expect(r.verdict).toBe("REJECTED");
+  });
+
+  test("같은 id 는 한 번만", () => {
+    const r = assembleResult({ ...base, raw: raw({
+      stage1: { relations_declared: 1, defects: [d("dup", 1)] },
+      stage2: { units_examined: [], units_failed: [], defects: [d("dup", 2)] },
+    }) });
+    expect(r.defects).toHaveLength(1);
+    // 첫 등장(=stage1)이 남아야 한다 — concat 순서를 뒤집으면 이 assertion 이 깨진다.
+    expect(r.defects[0].stage).toBe(1);
+  });
+
+  test("verdict 가 CLEAN 도 낼 수 있다 — REJECTED 로 하드코딩되면 이 테스트가 잡는다", () => {
+    expect(assembleResult({ ...base, raw: raw() }).verdict).toBe("CLEAN");
+  });
+
+  test("관계 두 개 중 결함이 있는 것만 defect 로 표시된다 — 합집합이 아니라 개별 결함 기준", () => {
+    const gMulti = graphOf(planOf(
+      task(1, ["- Produces: `a()`"]),
+      task(3, ["- Produces: `b()`"]),
+      task(2, ["- Consumes: `a()` from Task 1", "- Consumes: `b()` from Task 3"]),
+    ));
+    const r = assembleResult({ ...base, graph: gMulti, raw: raw({
+      stage1: { relations_declared: 2, defects: [d("bad-a", 1)] },
+    }) });
+    const rels = r.examined.filter((u) => u.kind === "relation");
+    expect(rels.find((u) => u.task_ids.includes("1"))?.result).toBe("defect");
+    expect(rels.find((u) => u.task_ids.includes("3"))?.result).toBe("clean");
+  });
+
+  test("짝 판정은 하나의 결함이 양쪽을 지목하는지로 정해진다 — 두 독립 결함의 합집합이 아니다", () => {
+    const covering = {
+      id: "cov", kind: "dangling_ref" as const, task_ids: ["A", "B"] as [string, string],
+      relation: "z()", plan_text: "", conflict: "", stage: 1 as const,
+    };
+    const defectX = {
+      id: "dx", kind: "dangling_ref" as const, task_ids: ["C", "X"] as [string, string],
+      relation: "x()", plan_text: "", conflict: "", stage: 1 as const,
+    };
+    const defectY = {
+      id: "dy", kind: "dangling_ref" as const, task_ids: ["D", "Y"] as [string, string],
+      relation: "y()", plan_text: "", conflict: "", stage: 1 as const,
+    };
+    const r = assembleResult({ ...base,
+      pairs: [
+        { a: "A", b: "B", sharedFiles: ["ab.ts"] },
+        { a: "C", b: "D", sharedFiles: ["cd.ts"] },
+      ],
+      raw: raw({ stage1: { relations_declared: 1, defects: [covering, defectX, defectY] } }),
+    });
+    const pairUnits = r.examined.filter((u) => u.kind === "pair");
+    // A,B 는 하나의 결함(covering)이 양쪽을 다 지목한다 — defect.
+    expect(pairUnits.find((u) => u.task_ids.join(",") === "A,B")?.result).toBe("defect");
+    // C,D 는 서로 무관한 결함 둘(dx, dy)이 한쪽씩만 지목한다 — 합집합으로 보면 오판, clean 이어야 한다.
+    expect(pairUnits.find((u) => u.task_ids.join(",") === "C,D")?.result).toBe("clean");
+  });
+
+  test("previousApplied 가 살아남는다 (D29)", () => {
+    const prev = [{ defect_id: "old", at: "2026-09-01T00:00:00Z", sha256_before: "x", sha256_after: "y" }];
+    const r = assembleResult({ ...base, previousApplied: prev, raw: raw() });
+    expect(r.applied).toEqual(prev);
+  });
+
+  test("previousApplied 가 비면 applied 도 빈 배열", () => {
+    expect(assembleResult({ ...base, raw: raw() }).applied).toEqual([]);
+  });
+
+  test("선언된 관계 전부가 examined 에 들어간다", () => {
+    const r = assembleResult({ ...base, raw: raw() });
+    expect(r.examined.filter((u) => u.kind === "relation")).toHaveLength(g.relations.length);
+  });
+
+  test("scope 가 범위를 명시한다", () => {
+    expect(assembleResult({ ...base, raw: raw() }).scope).toBe("interface-graph+file-overlap");
+  });
+
+  test("units_failed 가 not_examined 로 전달된다", () => {
+    const r = assembleResult({ ...base, raw: raw({
+      stage2: { units_examined: [], units_failed: ["pair:1x2"], defects: [] },
+    }) });
+    expect(r.relations.not_examined).toEqual(["pair:1x2"]);
+    expect(r.verdict).toBe("REJECTED");
+  });
+});
+
+const TWO_TASKS = planOf(
+  [
+    "### Task 1: 저장",
+    "",
+    "**Tags:** verification=deterministic validation=invisible",
+    "",
+    "**Files:**",
+    "- Create: `src/store.ts`",
+    "",
+    "**Interfaces:**",
+    "- Produces: `save(): void`",
+    "",
+    "**테스트로 증명할 것:**",
+    "- [ ] 공통 문구",
+  ].join("\n"),
+  [
+    "### Task 2: 표시",
+    "",
+    "**Tags:** verification=deterministic validation=invisible",
+    "",
+    "**Files:**",
+    "- Create: `src/view.ts`",
+    "",
+    "**Interfaces:**",
+    "- Consumes: `save(): void` from Task 1",
+    "",
+    "**테스트로 증명할 것:**",
+    "- [ ] 공통 문구",
+  ].join("\n"),
+);
+
+describe("findFixSites", () => {
+  test("대상 태스크 본문에서만 찾는다 — 다른 태스크의 같은 줄은 세지 않는다", () => {
+    const p = { op: "insert_after" as const, task_id: "2", anchor: "- [ ] 공통 문구", text: "- [ ] 새 케이스" };
+    expect(findFixSites(TWO_TASKS, p)).toHaveLength(1);
+  });
+
+  test("없으면 빈 배열", () => {
+    const p = { op: "insert_after" as const, task_id: "2", anchor: "없는 줄", text: "x" };
+    expect(findFixSites(TWO_TASKS, p)).toEqual([]);
+  });
+});
+
+describe("applyPatch", () => {
+  const anchor = "- Consumes: `save(): void` from Task 1";
+
+  test("insert_after 는 앵커 다음 줄에 넣고 텍스트가 바이트 그대로다", () => {
+    const text = "- Consumes: `Config` from Task 1";
+    const r = applyPatch(TWO_TASKS, { op: "insert_after", task_id: "2", anchor, text });
+    expect(r.status).toBe("applied");
+    if (r.status !== "applied") return;
+    const lines = r.text.split("\n");
+    const i = lines.indexOf(anchor);
+    expect(lines[i + 1]).toBe(text);
+  });
+
+  test("replace 는 앵커 줄을 바꾼다", () => {
+    const text = "- Consumes: `save(): Promise<void>` from Task 1";
+    const r = applyPatch(TWO_TASKS, { op: "replace", task_id: "2", anchor, text });
+    expect(r.status).toBe("applied");
+    if (r.status !== "applied") return;
+    expect(r.text).toContain(text);
+    expect(r.text).not.toContain(anchor);
+  });
+
+  test("앵커가 없으면 not_found 다 — 부분 적용이 타입 수준에서 불가능하다 (D16)", () => {
+    const r = applyPatch(TWO_TASKS, { op: "replace", task_id: "2", anchor: "없음", text: "x" });
+    expect(r.status).toBe("not_found");
+    // `not_found` 분기에는 `text` 필드가 없다 — 부분 적용이 타입으로 막힌다.
+    expect("text" in r).toBe(false);
+    // 주의: `expect(TWO_TASKS).toBe(before)` 같은 단언을 넣지 마라. 문자열은 불변이므로
+    // 어떤 구현에서도 통과하는 항진명제다 (2026-09-03 봇 지적).
+  });
+
+  test("같은 태스크에 앵커가 2번이면 ambiguous, 원본 불변 (D22)", () => {
+    const dup = planOf(
+      [
+        "### Task 1: 중복",
+        "",
+        "**Tags:** verification=deterministic validation=invisible",
+        "",
+        "**Files:**",
+        "- Create: `a.ts`",
+        "",
+        "**Interfaces:**",
+        "- Produces: `f()`",
+        "",
+        "**테스트로 증명할 것:**",
+        "- [ ] 같은 줄",
+        "- [ ] 같은 줄",
+      ].join("\n"),
+    );
+    const r = applyPatch(dup, { op: "insert_after", task_id: "1", anchor: "- [ ] 같은 줄", text: "x" });
+    expect(r.status).toBe("ambiguous");
+    if (r.status !== "ambiguous") return;
+    expect(r.sites).toHaveLength(2);
+  });
+
+  test("task_id 가 없으면 not_found", () => {
+    const r = applyPatch(TWO_TASKS, { op: "replace", task_id: "9", anchor, text: "x" });
+    expect(r.status).toBe("not_found");
+  });
+
+  test("ambiguous 에 siteIndex 를 주면 그 위치에만 적용된다", () => {
+    const dup = planOf(
+      [
+        "### Task 1: 중복",
+        "",
+        "**Tags:** verification=deterministic validation=invisible",
+        "",
+        "**Files:**",
+        "- Create: `a.ts`",
+        "",
+        "**Interfaces:**",
+        "- Produces: `f()`",
+        "",
+        "**테스트로 증명할 것:**",
+        "- [ ] 같은 줄",
+        "- [ ] 같은 줄",
+      ].join("\n"),
+    );
+    const sites = findFixSites(dup, { op: "insert_after", task_id: "1", anchor: "- [ ] 같은 줄", text: "x" });
+    const r = applyPatch(dup, { op: "insert_after", task_id: "1", anchor: "- [ ] 같은 줄", text: "x" }, sites[1]);
+    expect(r.status).toBe("applied");
+    if (r.status !== "applied") return;
+    const lines = r.text.split("\n");
+    expect(lines[sites[1] + 1]).toBe("x");
+  });
+
+  test("펜스 안의 열-0 가짜 Task 헤딩에 범위 탐지가 속지 않는다 — 그 뒤 앵커도 본문 범위 안이다", () => {
+    // overlay/writing-plans-tagging.md 처럼 태스크 본문이 예시로 펜스 블록에
+    // `### Task N: ...` 를 열 0부터 담을 수 있다. 펜스를 무시하고 원본 줄만 보면
+    // 그 가짜 헤딩에서 범위(end)가 끊겨, 그 뒤에 오는 진짜 앵커를 놓친다.
+    const withFakeHeadingInFence = planOf(
+      [
+        "### Task 1: 실제",
+        "",
+        "**Tags:** verification=deterministic validation=invisible",
+        "",
+        "**Files:**",
+        "- Create: `a.ts`",
+        "",
+        "**Interfaces:**",
+        "- Produces: `f()`",
+        "",
+        "예시 태그 형식:",
+        "```",
+        "### Task 3: 가짜 헤딩",
+        "```",
+        "",
+        "**테스트로 증명할 것:**",
+        "- [ ] 진짜 앵커",
+      ].join("\n"),
+    );
+    const p = { op: "insert_after" as const, task_id: "1", anchor: "- [ ] 진짜 앵커", text: "x" };
+    const r = applyPatch(withFakeHeadingInFence, p);
+    expect(r.status).toBe("applied");
+  });
+
+  test("task_id 가 숫자가 아니면(정규식 특수문자 포함) 예외를 던지지 않고 not_found 다", () => {
+    expect(() =>
+      applyPatch(TWO_TASKS, { op: "replace", task_id: "(", anchor, text: "x" }),
+    ).not.toThrow();
+    const r = applyPatch(TWO_TASKS, { op: "replace", task_id: "(", anchor, text: "x" });
+    expect(r.status).toBe("not_found");
+  });
+});
+
+describe("gateDecision (설계 D10)", () => {
+  const SHA = "a".repeat(64);
+  const prev = (verdict: "CLEAN" | "REJECTED", sha = SHA) =>
+    ({ verdict, plan_sha256: sha } as any);
+
+  test("plan.md 가 없으면 skip — 오류가 아니다 (E4)", () => {
+    const r = gateDecision({ planExists: false, planSha256: "", previous: null, contractOk: true });
+    expect(r.action).toBe("skip");
+    expect(r.reason).toBeTruthy();
+  });
+
+  test("계약 검증 실패면 skip — 형식이 먼저다", () => {
+    expect(gateDecision({ planExists: true, planSha256: SHA, previous: null, contractOk: false }).action)
+      .toBe("skip");
+  });
+
+  test("이전 결과가 없으면 run", () => {
+    const r = gateDecision({ planExists: true, planSha256: SHA, previous: null, contractOk: true });
+    expect(r.action).toBe("run");
+    expect(r.reason).toBeTruthy();
+  });
+
+  test("해시가 다르면 run", () => {
+    expect(gateDecision({
+      planExists: true, planSha256: SHA, previous: prev("CLEAN", "b".repeat(64)), contractOk: true,
+    }).action).toBe("run");
+  });
+
+  test("해시 같고 CLEAN 이면 cached", () => {
+    const r = gateDecision({
+      planExists: true, planSha256: SHA, previous: prev("CLEAN"), contractOk: true,
+    });
+    expect(r.action).toBe("cached");
+    expect(r.reason).toBeTruthy();
+  });
+
+  test("해시 같지만 REJECTED 면 run — 결함이 캐시를 타지 않는다 (D10)", () => {
+    expect(gateDecision({
+      planExists: true, planSha256: SHA, previous: prev("REJECTED"), contractOk: true,
+    }).action).toBe("run");
+  });
+});
+
+describe("워크플로우 스크립트 (Task 12)", () => {
+  const src = readFileSync("workflows/plan-preflight.js", "utf8");
+
+  test("모든 agent() 호출에 model 이 명시돼 있다 (하드룰 #3)", () => {
+    // **주석을 먼저 벗긴다.** 이 스크립트는 주석이 본문보다 길고 주석 안에
+    // `agent()` 가 등장한다 — 벗기지 않으면 calls 가 과대 집계돼 테스트가
+    // 구현과 무관하게 깨진다 (2026-09-03 봇이 실측: calls 6 vs models 5).
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    const calls = (code.match(/\bagent\(/g) ?? []).length;
+    const models = (code.match(/\bmodel\s*:/g) ?? []).length;
+    expect(calls).toBeGreaterThan(0);
+    expect(models).toBeGreaterThanOrEqual(calls);
+  });
+
+  test("meta 블록이 있다", () => {
+    expect(src).toContain("export const meta");
+  });
+
+  // 아래 둘은 **프롬프트 회귀 방어**다. 이 스크립트에는 기계 검사가 하나도 없어서
+  // (파일을 읽을 수 없으니 단위 테스트가 실행할 수도 없다) 프롬프트가 조용히
+  // 망가지면 산출이 checkPreflightRaw 에서 통째로 거부된다 — 그때는 이미 에이전트
+  // 수십 개가 돈 뒤다. 문서-문자열 검사는 이 파일이 이미 받아들이는 형태다
+  // (위의 하드룰 #3 모델 개수 검사).
+
+  test("kind 를 리터럴로 지시한다 — 스키마 enum 과 같은 문자열이어야 한다", () => {
+    // 프롬프트가 kind 를 안 못박으면 에이전트가 "signature-mismatch" 같은 변형을
+    // 내고 checkDefectShape 의 KINDS 검사에서 전부 탈락한다.
+    expect(src).toContain('"signature_mismatch"');
+    expect(src).toContain('"undeclared_conflict"');
+  });
+
+  test("task_ids 를 결함 생성 프롬프트 3곳 모두가 못박는다", () => {
+    // sig · pair · critic — 세 프롬프트 전부. task_ids 를 에이전트 재량에 맡기면
+    // 1개만 오거나 숫자로 와서 관계 단위 판정(concernsUnit)이 무너진다.
+    const pinned = (src.match(/task_ids 는/g) ?? []).length;
+    expect(pinned).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("워크플로우 산출 형식 왕복", () => {
+  const SHA = "a".repeat(64);
+  const asWorkflowWrites = {
+    schema: 1,
+    plan_sha256: SHA,
+    stage1: { relations_declared: 2, defects: [] },
+    stage2: { units_examined: ["pair:1x2"], units_failed: [], defects: [] },
+    critic: { additional_defects: [] },
+  };
+
+  test("스크립트가 쓰는 형식이 checkPreflightRaw 를 통과한다", () => {
+    expect(checkPreflightRaw(JSON.stringify(asWorkflowWrites), SHA).ok).toBe(true);
+  });
+
+  test("units_failed 가 있으면 REJECTED 로 이어진다", () => {
+    const withFail = {
+      ...asWorkflowWrites,
+      stage2: { ...asWorkflowWrites.stage2, units_failed: ["pair:1x2"] },
+    };
+    const checked = checkPreflightRaw(JSON.stringify(withFail), SHA);
+    expect(checked.ok).toBe(true);
+    const g = graphOf(planOf(task(1, ["- Produces: `a()`"]), task(2, ["- Consumes: `a()` from Task 1"])));
+    const r = assembleResult({
+      branch: "feature/x", planSha256: SHA, raw: checked.data!, graph: g,
+      pairs: [], previousApplied: [], now: "2026-09-03T00:00:00Z",
+    });
+    expect(r.relations.not_examined).toEqual(["pair:1x2"]);
+    expect(r.verdict).toBe("REJECTED");
+  });
+});
+
+describe("훅과 스킬 배선 (Task 13)", () => {
+  test("훅이 PostToolUse 다 — 쓰기를 막지 않는다 (설계 D23)", () => {
+    const s = JSON.parse(readFileSync(".claude/settings.json", "utf8"));
+    expect(s.hooks?.PostToolUse).toBeDefined();
+    expect(s.hooks?.PreToolUse).toBeUndefined();
+    expect(JSON.stringify(s.hooks.PostToolUse)).toContain("--gate");
+  });
+
+  /**
+   * 2026-09-03 6회전 최종 리뷰가 확정한 결함의 회귀 가드.
+   *
+   * 플랜은 훅이 `$CLAUDE_TOOL_INPUT` 을 읽으라고 지시했는데 그 변수는 훅 계약에
+   * 없다. PostToolUse 는 도구 페이로드를 **stdin 의 JSON** 으로 준다. 그러면
+   * `echo "" | grep -q ...` 가 절대 매치되지 않고 grep 의 exit 1 은 `if` 가 삼킨다 —
+   * **출력 0, 오류 0, 영구히.** 훅이 있는데 아무 일도 안 하는 상태였다.
+   *
+   * 어떤 테스트도 훅의 발화 자체에는 도달할 수 없다. 그래서 그 대신 **결함의
+   * 지문**을 단언한다 — 없는 변수를 다시 쓰면 여기서 깨진다.
+   */
+  test("훅이 없는 환경변수를 읽지 않는다 — stdin 을 읽는다", () => {
+    const s = JSON.parse(readFileSync(".claude/settings.json", "utf8"));
+    const cmd: string = s.hooks.PostToolUse[0].hooks[0].command;
+    expect(cmd).not.toContain("CLAUDE_TOOL_INPUT");
+    // grep 이 파일 인자 없이 불려야 stdin 을 읽는다.
+    expect(cmd).toMatch(/grep -q '[^']+'\s*;/);
+    // 경로는 cwd 에 의존하지 않는다 (훅의 cwd 는 보장되지 않는다).
+    expect(cmd).toContain("$CLAUDE_PROJECT_DIR/bin/preflight");
+  });
+
+  test("스킬이 BLOCKED(exit 4)를 REJECTED(exit 1)와 구분한다 — 하드룰 #4", () => {
+    const md = readFileSync(".claude/skills/preflight/SKILL.md", "utf8");
+    expect(md).toContain("exit 4");
+    expect(md).toContain("BLOCKED");
+    // "결함이 있다" 가 아니라 "검사가 실패했다" 로 안내해야 한다.
+    expect(md).toMatch(/계획서(의 결함이 아니라|를 고치라고 제안하지 마라)/);
+  });
+
+  test("스킬이 네 모드를 순서대로 지시한다", () => {
+    const md = readFileSync(".claude/skills/preflight/SKILL.md", "utf8");
+    const order = ["--plan", "Workflow", "--record", "--apply"];
+    let cursor = -1;
+    for (const token of order) {
+      const at = md.indexOf(token, cursor + 1);
+      expect(at).toBeGreaterThan(cursor);
+      cursor = at;
+    }
+  });
+
+  test("스킬에 일괄 승인 금지가 명시돼 있다 (D13)", () => {
+    const md = readFileSync(".claude/skills/preflight/SKILL.md", "utf8");
+    expect(md).toContain("일괄");
+  });
+});
+
+// `result` 를 **모듈 스코프**에 둔다 — 아래 두 번째 describe 가 이것을 쓰므로
+// describe 콜백 안에 두면 TS2304 + 런타임 ReferenceError 다.
+// ⚠️ `const SHA` 를 다시 선언하지 않는다 — 이미 위(Task 8 Step 1)에서 모듈
+// 스코프에 `const SHA = "a".repeat(64)` 가 선언돼 있다. 그대로 재사용한다.
+const result = (over: Record<string, unknown> = {}) => JSON.stringify({
+  schema: 1, branch: "feature/x", plan_sha256: SHA, scope: "interface-graph+file-overlap",
+  verdict: "CLEAN", relations: { declared: 1, examined_stage1: 1, examined_stage2: 1, not_examined: [] },
+  examined: [], defects: [], applied: [], ...over,
+});
+
+describe("checkPreflightGate (설계 D26)", () => {
+
+  test("파일이 없으면 REJECTED", () => {
+    const r = checkPreflightGate(null, SHA);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("REJECTED");
+    expect(r.violations[0].message).toContain("사전 검사");
+  });
+
+  test("해시가 다르면 REJECTED", () => {
+    const r = checkPreflightGate(result(), "b".repeat(64));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("REJECTED");
+  });
+
+  test("verdict REJECTED 면 REJECTED", () => {
+    const r = checkPreflightGate(result({ verdict: "REJECTED", defects: [{ id: "d1" }] }), SHA);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("REJECTED");
+    // "1" 만 보면 "1건"·"1이 아닙니다" 같은 다른 문구에도 우연히 걸린다.
+    // 결함 개수를 사람에게 알려주는 실체 문구를 단언한다.
+    expect(r.violations.some((v) => v.message.includes("결함 1건"))).toBe(true);
+  });
+
+  test("JSON 이 깨지면 BLOCKED — REJECTED 가 아니다 (하드룰 #4)", () => {
+    const r = checkPreflightGate("{ broken", SHA);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("BLOCKED");
+  });
+
+  test("schema 가 1이 아니면 BLOCKED", () => {
+    const r = checkPreflightGate(result({ schema: 99 }), SHA);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("BLOCKED");
+  });
+
+  test("CLEAN + 해시 일치면 통과", () => {
+    expect(checkPreflightGate(result(), SHA).ok).toBe(true);
+  });
+});
+
+describe("parsePreviousResult — 깨진 preflight.json 을 방어적으로 읽는다 (하드룰 #4)", () => {
+  test("파일이 없으면 none — 오류가 아니다", () => {
+    expect(parsePreviousResult(null)).toEqual({ status: "none" });
+  });
+
+  test("정상 결과는 ok 이고 본문이 그대로 실린다", () => {
+    const r = parsePreviousResult(result());
+    expect(r.status).toBe("ok");
+    if (r.status !== "ok") return;
+    expect(r.result.verdict).toBe("CLEAN");
+  });
+
+  test("JSON 이 깨져도 던지지 않는다 — broken 이다", () => {
+    // 이전 구현은 CLI 최상위에서 이 파싱을 감싸지 않아, 파일이 한 글자만 깨져도
+    // 네 모드 전부가 스택 트레이스로 죽었다 (--plan 은 이 값을 쓰지도 않는다).
+    let r: ReturnType<typeof parsePreviousResult> | null = null;
+    expect(() => { r = parsePreviousResult("{ broken"); }).not.toThrow();
+    expect(r!.status).toBe("broken");
+  });
+
+  test("none 과 broken 은 다른 상태다 — 깨진 파일을 '검사 안 함'으로 강등하지 않는다", () => {
+    // 강등하면 gateDecision(previous: null) 이 run 을 내고, 판정 불가(BLOCKED)가
+    // 평범한 재검사로 위조된다.
+    expect(parsePreviousResult("{ broken").status).not.toBe("none");
+  });
+
+  test("형태가 틀리면 broken — schema · applied · defects (--apply 가 신뢰하는 최소한)", () => {
+    expect(parsePreviousResult(result({ schema: 99 })).status).toBe("broken");
+    expect(parsePreviousResult(result({ applied: "없음" })).status).toBe("broken");
+    expect(parsePreviousResult(result({ defects: null })).status).toBe("broken");
+    expect(parsePreviousResult("[1,2,3]").status).toBe("broken");
+    expect(parsePreviousResult("null").status).toBe("broken");
+  });
+
+  test("broken 에는 사람이 읽을 사유가 붙는다", () => {
+    const r = parsePreviousResult("{ broken");
+    if (r.status !== "broken") throw new Error("broken 이어야 한다");
+    expect(r.reason).toBeTruthy();
+  });
+});
+
+describe("planSha256 — 게이트 양끝이 같은 계산을 쓴다 (M11)", () => {
+  test("같은 입력에 같은 출력, 64자 hex", () => {
+    expect(planSha256("plan")).toBe(planSha256("plan"));
+    expect(planSha256("plan")).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("한 글자만 달라도 값이 달라진다 — 게이트가 감지하는 것이 이것이다", () => {
+    expect(planSha256("plan")).not.toBe(planSha256("plaN"));
+  });
+
+  test("UTF-8 로 인코딩한다 — 한글이 들어간 플랜에서도 양끝이 일치한다", () => {
+    // 두 호출자가 다른 인코딩을 쓰면 게이트가 항상-불일치로 조용히 무너진다.
+    expect(planSha256("계획")).toBe(
+      createHash("sha256").update("계획", "utf8").digest("hex"),
+    );
+  });
+});
+
+// runBuilder 의 게이트 실행 테스트는 **controller/builder.test.ts** 에 있다.
+// 여기 있던 "runBuilder — 게이트 미통과 시 세션을 띄우지 않는다" 두 개는
+// runBuilder 를 import 조차 하지 않고 checkPreflightGate 를 직접 불렀다 —
+// 위 `checkPreflightGate (설계 D26)` describe 와 똑같은 것을 두 번 단언했을 뿐,
+// builder.ts 의 게이트 블록을 통째로 지워도 통과했다. 게이트가 `dryRun` 조기
+// 반환보다 앞에 있으므로 `runBuilder({ dryRun: true })` 로 실제 실행을 관찰할
+// 수 있고, 그 테스트가 builder.test.ts 에 있다 (2026-09-03 최종 리뷰 I8).

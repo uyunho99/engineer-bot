@@ -15,7 +15,12 @@ export type Severity = "error" | "warn";
 
 export interface Violation {
   severity: Severity;
-  file: "design-doc.md" | "plan.md" | "build-result.json";
+  file:
+    | "design-doc.md"
+    | "plan.md"
+    | "build-result.json"
+    | "preflight.json"      // 사전 검사 결과 (설계 D7)
+    | "preflight-raw.json"; // 워크플로우 원본 (설계 D28)
   /** 명세/AMENDMENTS의 근거 조항 */
   rule: string;
   message: string;
@@ -32,7 +37,7 @@ const err = (v: Omit<Violation, "severity">): Violation => ({ severity: "error",
 const warn = (v: Omit<Violation, "severity">): Violation => ({ severity: "warn", ...v });
 
 /** 코드 펜스 안의 내용은 문서 구조가 아니다 — 헤딩 오탐을 막는다. */
-function stripFences(text: string): string {
+export function stripFences(text: string): string {
   const out: string[] = [];
   let inFence = false;
   for (const line of text.split("\n")) {
@@ -157,6 +162,93 @@ export function parseTasks(planText: string): ParsedTask[] {
   }
   flush(lines.length);
   return tasks;
+}
+
+// ─── 태스크 메타 섹션 파싱 (설계 D6) ─────────────────────────────
+//
+// 형식은 overlay/writing-plans-tagging.md 가 정의한 것이다. 새로 만들지 않는다.
+//
+//   **Files:**
+//   - Create: `src/a.ts`
+//   - Test:   `src/a.test.ts`
+//
+//   **Interfaces:**
+//   - Consumes: `PersonaSeed` from Task 2
+//   - Produces: `expand(seed: PersonaSeed): string[]`
+//
+// 주의: 여기서 나온 경로는 **아직 존재하지 않는 파일**이 대부분이다 (계획서다).
+// 존재 확인으로 걸러내면 신규 파일이 전부 사라진다 (설계 D21).
+
+export interface TaskFiles {
+  create: string[];
+  modify: string[];
+  test: string[];
+}
+
+export interface ConsumeRef {
+  symbol: string;
+  /** `from Task N` 의 N. 절이 없으면 null */
+  fromTask: string | null;
+}
+
+export interface TaskInterfaces {
+  consumes: ConsumeRef[];
+  produces: string[];
+}
+
+/** `**Name:**` 헤딩 다음의 `- ` 항목들을 다음 `**` 헤딩 전까지 모은다. */
+function metaSection(body: string, name: string): string[] {
+  const lines = stripFences(body).split("\n");
+  const head = new RegExp(`^\\s*\\*\\*${name}:\\*\\*\\s*$`);
+  const anyHead = /^\s*\*\*[^*]+:\*\*/;
+  const items: string[] = [];
+  let inside = false;
+  for (const line of lines) {
+    if (head.test(line)) {
+      inside = true;
+      continue;
+    }
+    if (!inside) continue;
+    if (anyHead.test(line)) break;
+    const m = /^\s*-\s+(.*\S)\s*$/.exec(line);
+    if (m) items.push(m[1]);
+  }
+  return items;
+}
+
+const unbacktick = (s: string) => s.replace(/^`|`$/g, "").trim();
+
+const dedupe = (xs: string[]) => [...new Set(xs)];
+
+export function parseFiles(body: string): TaskFiles {
+  const out: TaskFiles = { create: [], modify: [], test: [] };
+  for (const item of metaSection(body, "Files")) {
+    const m = /^(Create|Modify|Test)\s*:\s*(.+)$/i.exec(item);
+    if (!m) continue;
+    const key = m[1].toLowerCase() as keyof TaskFiles;
+    out[key].push(unbacktick(m[2]));
+  }
+  out.create = dedupe(out.create);
+  out.modify = dedupe(out.modify);
+  out.test = dedupe(out.test);
+  return out;
+}
+
+export function parseInterfaces(body: string): TaskInterfaces {
+  const consumes: ConsumeRef[] = [];
+  const produces: string[] = [];
+  for (const item of metaSection(body, "Interfaces")) {
+    const c = /^Consumes\s*:\s*(.+)$/i.exec(item);
+    if (c) {
+      const from = /\bfrom\s+Task\s+(\d+)/i.exec(c[1]);
+      const symbol = unbacktick(c[1].replace(/\bfrom\s+Task\s+\d+.*$/i, "").trim());
+      consumes.push({ symbol, fromTask: from ? from[1] : null });
+      continue;
+    }
+    const p = /^Produces\s*:\s*(.+)$/i.exec(item);
+    if (p) produces.push(unbacktick(p[1]));
+  }
+  return { consumes, produces };
 }
 
 /**
@@ -309,6 +401,34 @@ export function checkPlan(planText: string): Violation[] {
         }),
       );
     }
+
+    // ── Files / Interfaces 필수 (설계 D6) ───────────────────────
+    //
+    // Interfaces 가 1단계 기계 검사의 유일한 입력이다. 없으면 preflight 가
+    // 관계 그래프를 만들 수 없고, 검사기가 조용히 아무것도 하지 않는다.
+    const files = parseFiles(t.body);
+    if (files.create.length + files.modify.length === 0) {
+      v.push(
+        err({
+          file: "plan.md",
+          rule: "§4.2",
+          taskId: t.id,
+          message: `Task ${t.id}: **Files:** 에 Create 또는 Modify 항목이 없습니다 (Test 만으로는 부족)`,
+        }),
+      );
+    }
+
+    const ifaces = parseInterfaces(t.body);
+    if (ifaces.consumes.length + ifaces.produces.length === 0) {
+      v.push(
+        err({
+          file: "plan.md",
+          rule: "§4.2",
+          taskId: t.id,
+          message: `Task ${t.id}: **Interfaces:** 에 Consumes 또는 Produces 항목이 없습니다 — 1단계 관계 검사의 입력입니다`,
+        }),
+      );
+    }
   }
 
   const generative = tasks.filter((t) => t.verification === "generative").length;
@@ -323,6 +443,52 @@ export function checkPlan(planText: string): Violation[] {
   }
 
   return v;
+}
+
+// ─── 결함 타입 (설계 D20 · D24 · D27) ────────────────────────────
+//
+// 두 타입은 다른 것을 뜻한다. 공통 조상을 두지 않는다.
+//   BuildDefect      빌드 중 반송 — 태스크 하나의 문제여도 된다
+//   PreflightDefect  사전 검사   — 본질적으로 태스크 간 관계다
+// 공유해야 하는 것은 **표현**이고, 타입이 아니었다.
+
+export interface BuildDefect {
+  task_id: string;
+  plan_text: string;
+  conflict: string;
+  suggested_fix?: string;
+}
+
+/** 사람이 승인한 수정을 기계가 그대로 적용하기 위한 패치 (설계 D24) */
+export interface FixPatch {
+  op: "insert_after" | "replace";
+  /** 어느 태스크 본문 안인지. anchor 는 이 범위에서만 찾는다 */
+  task_id: string;
+  /** 그 태스크 본문에서 찾을 기준 문자열 */
+  anchor: string;
+  /** 넣거나 바꿀 내용. 바이트 그대로 들어간다 (설계 D14) */
+  text: string;
+}
+
+export type DefectKind =
+  | "dangling_ref"
+  | "order_violation"
+  | "signature_mismatch"
+  | "undeclared_conflict";
+
+export interface PreflightDefect {
+  /** `--apply` 의 인자 */
+  id: string;
+  kind: DefectKind;
+  /** 최소 2개. 튜플 타입이 컴파일 시점에 관계를 강제한다 (설계 D27) */
+  task_ids: [string, string, ...string[]];
+  /** 어느 심볼·인터페이스 때문인지. 1단계 결함은 필수다 */
+  relation?: string;
+  plan_text: string;
+  conflict: string;
+  patch?: FixPatch;
+  /** 1 = 기계가 확정 · 2 = AI 가 판단 (사람이 신뢰도를 구분할 수 있게) */
+  stage: 1 | 2;
 }
 
 // ─── build-result.json (AMENDMENTS A6) ────────────────────────
@@ -343,7 +509,7 @@ export interface BuildResult {
   screenshots?: string[];
   concerns?: Array<{ task_id: string; note: string }>;
   verification_gaps?: Array<{ task_id: string; reason: string }>;
-  defects?: Array<{ task_id: string; plan_text: string; conflict: string; suggested_fix?: string }>;
+  defects?: BuildDefect[];
   blocked?: { task_id: string; reason: string; attempts?: string[] };
 }
 

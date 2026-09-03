@@ -20,9 +20,14 @@ planner-bot · builder-bot 하네스 레포. 명세는 [planner-builder-bot-spec
 
 ```
 IF   docs/plans/<branch-slug>/design-doc.md 존재
-THEN superpowers:brainstorming 발화 금지 → superpowers:writing-plans 직행
-ELSE 신규 기획 요청 → /office-hours   (superpowers:brainstorming 사용 안 함)
+THEN 기획 스킬 발화 금지 → superpowers:writing-plans 직행
+ELSE 신규 기획 요청 → superpowers:brainstorming   (/office-hours 사용 안 함)
 ```
+
+> **2026-09-03 변경** — 원 명세 §3.3은 반대였다 (`/office-hours`로 보내고 brainstorming 금지).
+> 근거와 대가는 [AMENDMENTS.md](AMENDMENTS.md) A14. 요약: 이 팀의 실제 작업이 "0에서 제품을
+> 발굴"이 아니라 "이미 있는 아이디어를 설계로" 쪽이고, brainstorming의 **경로 분류
+> (spike/bounded/architectural)** 와 **접근안 2~3개 제시**가 그 형태에 맞는다.
 
 브랜치 슬러그는 현재 브랜치의 `/`를 `-`로 바꾼 값이다 (`feature/foo` → `feature-foo`).
 확인: `bun controller/paths.ts` 또는 `bin/paths`.
@@ -31,10 +36,11 @@ ELSE 신규 기획 요청 → /office-hours   (superpowers:brainstorming 사용 
 
 | 요청 | 스킬 | 비고 |
 |---|---|---|
-| 신규 기능 기획 시작 | `/office-hours` | superpowers:brainstorming 대신 |
-| 스코프·전제 도전 | `/plan-ceo-review` | |
+| 신규 기능 기획 시작 | `superpowers:brainstorming` | 산출을 `docs/plans/<slug>/design-doc.md`에 직접 쓴다 (materialize 불필요). 필수 섹션은 명세 §4.2 |
+| 설계 차원 검토 | `/plan-design-review` | UI/UX가 있는 플랜용. 0~10 평가 후 **플랜을 직접 고친다** — 게이트 ① 앞이고 대화형이므로 하드룰 #2와 충돌하지 않는다 |
 | 아키텍처 검토 | `/plan-eng-review` | 입력 = gstack glob 탐색. `bin/setup-paths.sh` 선행 필요 |
 | 태스크 분해 | `superpowers:writing-plans` | **[2축 태깅 오버레이](overlay/writing-plans-tagging.md) 필수 적용** |
+| 계획서 모순 검사 | `/preflight` | 게이트 ① **앞**에 돈다. 통과하지 않은 플랜은 `bin/builder`가 거부한다 (설계 D26) |
 | 플랜 실행 | `superpowers:subagent-driven-development` | builder-bot 전용. [오버레이](overlay/CLAUDE.builder.md) |
 | 버그·에러 조사 | `superpowers:systematic-debugging` | |
 | PR 생성 | `superpowers:finishing-a-development-branch` | **머지 금지 · discard 금지** |
@@ -43,7 +49,8 @@ ELSE 신규 기획 요청 → /office-hours   (superpowers:brainstorming 사용 
 
 | 스킬 | 이유 |
 |---|---|
-| `superpowers:brainstorming` | `/office-hours`가 기획 담당 (명세 §3.3) |
+| `/office-hours` | 0에서 제품을 발굴하는 소크라테스 문답. 이 팀의 실제 작업 형태와 안 맞는다 (2026-09-03 · A14) |
+| `/plan-ceo-review` | 스코프·전제 도전 층을 brainstorming의 질문·접근안 제시가 흡수한다 (2026-09-03 · A14). **아쉬우면 이 행만 되돌리면 된다** |
 | `/ship`, `/land-and-deploy` | 봇은 머지·배포하지 않는다 (명세 §8) |
 | `/qa`, `/design-review` | 명세 §7 Phase 2로 연기 |
 | `/autoplan` | 라우팅 소유권 충돌 — 개별 스킬을 명시 호출한다 |
