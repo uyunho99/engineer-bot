@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import {
   checkBuildResult,
@@ -527,3 +528,94 @@ describe("contractPaths — preflight 경로 (설계 D7 · D28)", () => {
 // 타입이 관계를 강제하는지는 typecheck 로 관찰한다 (설계 D27).
 // 아래를 주석 해제하면 `bun run typecheck` 가 실패해야 한다:
 //   const bad: PreflightDefect["task_ids"] = ["only-one"];
+
+describe("오버레이가 자기 계약을 지킨다 (Task 14)", () => {
+  const overlay = readFileSync("overlay/writing-plans-tagging.md", "utf8");
+
+  /** 오버레이의 ```` 로 감싼 markdown 예시 블록을 뽑는다 */
+  function exampleBlock(src: string): string {
+    const m = /````markdown\n([\s\S]*?)\n````/.exec(src);
+    if (!m) throw new Error("오버레이에서 markdown 예시 블록을 찾지 못했습니다");
+    return m[1];
+  }
+
+  /**
+   * 예시 블록을 **완전한 플랜으로 감싼다.**
+   *
+   * `checkPlan` 은 플랜 전체 불변식도 검사한다 — `## Global Constraints` 존재와
+   * `Task 1..N` 번호 연속성. 태스크 조각 하나만 넣으면 그 셋이 원리적으로 실패하고,
+   * 오버레이 예시는 `Consumes: PersonaSeed from Task 2` 를 시연하려고 **의도적으로
+   * Task 3** 이므로 번호를 고칠 수도 없다.
+   *
+   * 이 테스트가 증명하려는 것은 "예시가 **태스크 단위** 계약을 지키는가" 다.
+   * 그래서 플랜 단위 요건은 자리표시로 채우고 예시를 Task 3 자리에 그대로 놓는다.
+   *
+   * (2026-09-03 봇이 3회전에서 이 테스트를 "통과 불가"로 판정해 반송했다.
+   *  실측 error 3건 — Global Constraints 1 · 번호 2. 봇 판정이 옳았다.)
+   */
+  function planAround(example: string): string {
+    const stub = (n: number, produces: string) =>
+      [
+        `### Task ${n}: 자리표시`,
+        "",
+        "**Tags:** verification=deterministic validation=invisible",
+        "",
+        "**Files:**",
+        `- Create: \`src/stub${n}.ts\``,
+        "",
+        "**Interfaces:**",
+        `- Produces: \`${produces}\``,
+        "",
+        "**테스트로 증명할 것:**",
+        "- [ ] 자리표시 — 관찰 가능한 행동 하나",
+      ].join("\n");
+    return [
+      "# 감싼 플랜",
+      "",
+      "## Global Constraints",
+      "",
+      "- 자리표시 제약 하나",
+      "",
+      stub(1, "bootstrap(): void"),
+      "",
+      // 예시의 Task 3 이 `PersonaSeed from Task 2` 를 소비하므로 Task 2 가 그것을 생산해야 한다
+      stub(2, "PersonaSeed"),
+      "",
+      example,
+    ].join("\n");
+  }
+
+  test("예시 블록이 태스크 단위 계약을 지킨다", () => {
+    const errors = checkPlan(planAround(exampleBlock(overlay)))
+      .filter((v) => v.severity === "error");
+    expect(errors).toEqual([]);
+  });
+
+  test("감싸지 않으면 플랜 단위 요건 때문에 실패한다 — 왜 감싸는지의 증거", () => {
+    const bare = ["## 태스크", "", exampleBlock(overlay)].join("\n");
+    const errors = checkPlan(bare).filter((v) => v.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some((v) => v.message.includes("Global Constraints"))).toBe(true);
+  });
+
+  test("Interfaces 가 필수임을 본문이 말한다", () => {
+    expect(/\*\*Interfaces:\*\*[\s\S]{0,400}필수/.test(overlay)).toBe(true);
+  });
+
+  test("self-review 체크리스트에 Interfaces 항목이 있다", () => {
+    const list = overlay.slice(overlay.indexOf("Self-Review"));
+    expect(list).toContain("Interfaces");
+  });
+});
+
+describe("CLAUDE.md 라우팅 (AMENDMENTS B3)", () => {
+  const claudeMd = readFileSync("CLAUDE.md", "utf8");
+
+  test("## Skill routing 헤딩이 정확히 한 번 — gstack 삽입 방어", () => {
+    expect(claudeMd.split("\n").filter((l) => l === "## Skill routing")).toHaveLength(1);
+  });
+
+  test("라우팅 테이블에 /preflight 행이 있다", () => {
+    expect(claudeMd).toContain("/preflight");
+  });
+});

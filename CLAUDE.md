@@ -40,6 +40,7 @@ ELSE 신규 기획 요청 → superpowers:brainstorming   (/office-hours 사용 
 | 설계 차원 검토 | `/plan-design-review` | UI/UX가 있는 플랜용. 0~10 평가 후 **플랜을 직접 고친다** — 게이트 ① 앞이고 대화형이므로 하드룰 #2와 충돌하지 않는다 |
 | 아키텍처 검토 | `/plan-eng-review` | 입력 = gstack glob 탐색. `bin/setup-paths.sh` 선행 필요 |
 | 태스크 분해 | `superpowers:writing-plans` | **[2축 태깅 오버레이](overlay/writing-plans-tagging.md) 필수 적용** |
+| 계획서 모순 검사 | `/preflight` | 게이트 ① **앞**에 돈다. 통과하지 않은 플랜은 `bin/builder`가 거부한다 (설계 D26) |
 | 플랜 실행 | `superpowers:subagent-driven-development` | builder-bot 전용. [오버레이](overlay/CLAUDE.builder.md) |
 | 버그·에러 조사 | `superpowers:systematic-debugging` | |
 | PR 생성 | `superpowers:finishing-a-development-branch` | **머지 금지 · discard 금지** |
