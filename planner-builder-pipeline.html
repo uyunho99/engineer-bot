@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>planner-bot · builder-bot — SDD 파이프라인</title>
+<style>
+  :root{
+    /* planner zone: daylight paper */
+    --paper:#F3F5F7;
+    --paper-card:#FFFFFF;
+    --ink:#1C2830;
+    --ink-soft:#5A6B76;
+    --line:#D6DDE2;
+    /* builder zone: headless terminal */
+    --slate:#10161D;
+    --slate-card:#171F28;
+    --slate-line:#2A3542;
+    --phosphor:#E8A33D;
+    --phosphor-dim:#9A7433;
+    --term-text:#C9D4DC;
+    --term-soft:#7C8B97;
+    /* provenance */
+    --gstack:#4F5DD3;
+    --superp:#0F8A7A;
+    --overlay:#B7791F;
+    --gate:#C0392B;
+    --human:#C0392B;
+    --file:#5A6B76;
+    --mono:"SF Mono", ui-monospace, "Cascadia Mono", Consolas, "Nanum Gothic Coding", monospace;
+    --sans:"Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", -apple-system, sans-serif;
+    --spine-x: 44px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} *{transition:none!important;animation:none!important} }
+  body{font-family:var(--sans);background:var(--paper);color:var(--ink);line-height:1.6}
+
+  .wrap{max-width:880px;margin:0 auto;padding:0 24px}
+
+  /* ── header ── */
+  header{padding:56px 0 8px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.22em;color:var(--ink-soft);text-transform:uppercase}
+  h1{font-size:clamp(26px,4.5vw,40px);font-weight:800;letter-spacing:-.02em;line-height:1.2;margin:10px 0 6px}
+  h1 .div{color:var(--ink-soft);font-weight:300;padding:0 .15em}
+  .sub{color:var(--ink-soft);font-size:15px;max-width:56ch}
+  .sub code{font-family:var(--mono);font-size:.88em;background:#E7ECEF;padding:1px 6px;border-radius:4px}
+
+  /* ── legend ── */
+  .legend{display:flex;flex-wrap:wrap;gap:10px 18px;margin:26px 0 0;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--paper-card)}
+  .legend .item{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-soft)}
+  .dot{width:10px;height:10px;border-radius:3px;flex:none}
+  .dot.g{background:var(--gstack)} .dot.s{background:var(--superp)} .dot.o{background:var(--overlay)} .dot.h{background:var(--gate)}
+
+  /* ── zone shells ── */
+  .zone{position:relative;padding:34px 0 10px}
+  .zone-label{position:sticky;top:0;z-index:5;display:flex;align-items:baseline;gap:12px;padding:12px 0 12px;backdrop-filter:blur(6px)}
+  .zone.planner .zone-label{background:linear-gradient(rgba(243,245,247,.94),rgba(243,245,247,.86))}
+  .zone-label .tag{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;padding:4px 10px;border-radius:99px}
+  .zone.planner .tag{background:#E3E9ED;color:#3D5260}
+  .zone-label b{font-size:17px;letter-spacing:-.01em}
+  .zone-label span.mode{font-size:12.5px;color:var(--ink-soft)}
+
+  /* ── spine ── */
+  .rail{position:relative;padding-left:calc(var(--spine-x) + 34px)}
+  .rail::before{content:"";position:absolute;left:var(--spine-x);top:0;bottom:0;width:2px;background:var(--line)}
+  .zone.builder .rail::before{background:var(--slate-line)}
+
+  /* ── stage card ── */
+  .stage{position:relative;margin:0 0 26px}
+  .stage::before{ /* node on spine */
+    content:attr(data-n);
+    position:absolute;left:calc(-34px - var(--spine-x) + var(--spine-x) - 13px);
+    left:calc(-1 * (34px + 13px) + 0px);
+    top:14px;width:28px;height:28px;border-radius:50%;
+    background:var(--paper);border:2px solid var(--ink);color:var(--ink);
+    font-family:var(--mono);font-size:12px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .zone.builder .stage::before{background:var(--slate);border-color:var(--phosphor);color:var(--phosphor)}
+  .card{background:var(--paper-card);border:1px solid var(--line);border-radius:14px;padding:18px 20px 16px;box-shadow:0 1px 2px rgba(28,40,48,.05);transition:transform .18s ease, box-shadow .18s ease}
+  .card:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(28,40,48,.08)}
+  .card h3{font-size:16.5px;font-weight:750;letter-spacing:-.01em;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+  .card h3 .skill{font-family:var(--mono);font-size:13px;font-weight:600}
+  .card p.desc{font-size:13.5px;color:var(--ink-soft);margin-top:6px}
+
+  .badge{font-family:var(--mono);font-size:10px;letter-spacing:.08em;font-weight:700;padding:3px 8px;border-radius:99px;text-transform:uppercase;color:#fff;flex:none}
+  .badge.g{background:var(--gstack)} .badge.s{background:var(--superp)} .badge.o{background:var(--overlay)} .badge.h{background:var(--gate)}
+
+  .subskills{margin-top:12px;display:grid;gap:6px}
+  .subskills .row{display:flex;gap:10px;align-items:baseline;font-size:13px}
+  .subskills .k{font-family:var(--mono);font-size:12px;color:var(--ink);background:#EEF2F4;border:1px solid var(--line);padding:1px 8px;border-radius:6px;white-space:nowrap;flex:none}
+  .subskills .v{color:var(--ink-soft)}
+
+  .files{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px}
+  .file{font-family:var(--mono);font-size:11.5px;color:var(--file);border:1px dashed var(--line);padding:3px 9px;border-radius:6px;background:#FAFBFC}
+  .file b{color:var(--ink);font-weight:600}
+  .file.out{border-style:solid;border-color:#BFD9CE;background:#F0F8F4;color:#2E6B52}
+
+  .bypass{margin-top:12px;font-size:12.5px;color:var(--ink-soft);background:#FBF3F2;border:1px solid #EDD6D3;border-radius:8px;padding:8px 12px}
+  .bypass s{color:#A94438;font-family:var(--mono);font-size:12px}
+
+  .talk{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#3D5260;background:#E3E9ED;border-radius:99px;padding:2px 10px;font-weight:600}
+
+  /* ── gate ── */
+  .gatewrap{padding:6px 0 30px}
+  .gate{position:relative;border:2px dashed var(--gate);border-radius:14px;background:#FCF5F4;padding:18px 22px;display:flex;gap:16px;align-items:flex-start}
+  .zone.builder ~ .gatewrap .gate, .gatewrap.dark .gate{background:#1D1517;border-color:#B0483C}
+  .gate .icon{font-size:22px;line-height:1;flex:none;margin-top:2px}
+  .gate h3{font-size:15.5px;font-weight:800;color:var(--gate);letter-spacing:.01em}
+  .gatewrap.dark .gate h3{color:#E58374}
+  .gate p{font-size:13.5px;color:#7A4A43;margin-top:4px}
+  .gatewrap.dark .gate p{color:#C99B92}
+  .gate .cmd{font-family:var(--mono);font-size:12.5px;background:#fff;border:1px solid #EAD3CF;border-radius:8px;padding:6px 12px;margin-top:10px;display:inline-block;color:#8C3B2F}
+  .gatewrap.dark .gate .cmd{background:#241B1D;border-color:#4A2F2B;color:#E5A192}
+  .gate .rule{font-size:11.5px;font-family:var(--mono);color:#A96257;margin-top:8px;letter-spacing:.04em}
+  .gatewrap.dark .gate .rule{color:#A97C71}
+
+  /* ── builder zone (dark) ── */
+  .zone.builder{background:var(--slate);color:var(--term-text);border-radius:22px;margin:8px -24px 0;padding:34px 24px 20px}
+  .zone.builder .zone-label{background:linear-gradient(rgba(16,22,29,.95),rgba(16,22,29,.88))}
+  .zone.builder .tag{background:#1E2934;color:var(--phosphor)}
+  .zone.builder .zone-label b{color:#F2F6F9}
+  .zone.builder .zone-label span.mode{color:var(--term-soft)}
+  .zone.builder .card{background:var(--slate-card);border-color:var(--slate-line);box-shadow:none}
+  .zone.builder .card:hover{box-shadow:0 8px 24px rgba(0,0,0,.35)}
+  .zone.builder .card h3{color:#F2F6F9}
+  .zone.builder .card p.desc{color:var(--term-soft)}
+  .zone.builder .subskills .k{background:#0F151B;border-color:var(--slate-line);color:var(--term-text)}
+  .zone.builder .subskills .v{color:var(--term-soft)}
+  .zone.builder .file{background:#131A22;border-color:var(--slate-line);color:#93A3AF}
+  .zone.builder .file b{color:#E4ECF1}
+  .zone.builder .file.out{background:#14211C;border-color:#2E5240;color:#7CC7A1}
+
+  /* SDD loop visual */
+  .loop{margin-top:14px;border:1px solid var(--slate-line);border-radius:12px;padding:14px;background:#121922}
+  .loop .title{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--phosphor);text-transform:uppercase;margin-bottom:10px}
+  .loop .steps{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .loop .st{font-size:12.5px;background:#1B242F;border:1px solid var(--slate-line);border-radius:8px;padding:6px 11px;color:var(--term-text)}
+  .loop .st em{font-family:var(--mono);font-style:normal;color:var(--phosphor);font-size:11.5px}
+  .loop .arr{color:var(--phosphor-dim);font-family:var(--mono)}
+  .loop .back{margin-top:8px;font-size:11.5px;color:var(--term-soft);font-family:var(--mono)}
+  .signals{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px}
+  .sig{font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:6px;border:1px solid var(--slate-line)}
+  .sig.done{color:#7CC7A1;border-color:#2E5240}
+  .sig.conc{color:#D9BE6C;border-color:#57492A}
+  .sig.need{color:#8FB6E0;border-color:#2E4257}
+  .sig.blk{color:#E58374;border-color:#57302B}
+
+  /* report packet */
+  .packet{margin-top:14px;font-family:var(--mono);font-size:12.5px;background:#0D1319;border:1px solid var(--slate-line);border-radius:10px;padding:14px 16px;color:#AEBDC8;line-height:1.9;overflow-x:auto}
+  .packet .ok{color:#7CC7A1} .packet .amp{color:var(--phosphor)} .packet .warn{color:#E58374}
+
+  /* after / footer */
+  .after{padding:30px 0 8px}
+  .after .card{border-radius:14px}
+  footer{padding:36px 0 60px;color:var(--ink-soft);font-size:12.5px}
+  footer .principles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:12px}
+  footer .pr{border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:var(--paper-card);font-size:12.5px}
+  footer .pr b{font-family:var(--mono);font-size:11px;color:var(--ink)}
+
+  .connector{height:26px;position:relative}
+  .connector::before{content:"";position:absolute;left:var(--spine-x);top:0;bottom:0;width:2px;background:var(--line)}
+
+  @media (max-width:640px){
+    :root{--spine-x:16px}
+    .rail{padding-left:calc(var(--spine-x) + 26px)}
+    .stage::before{left:calc(-1 * (26px + 13px))}
+    .zone.builder{margin:8px -16px 0;padding:30px 16px 16px}
+    .wrap{padding:0 16px}
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">SDD PIPELINE · SPEC v1.0 · 2026-07</div>
+    <h1>planner-bot <span class="div">/</span> builder-bot</h1>
+    <p class="sub">기능 하나 = Slack 스레드 하나 = <code>feature/&lt;slug&gt;</code> 브랜치 하나.
+    대화형 기획(planner)과 headless 실행(builder)을 두 개의 사람 게이트로 잇는다.</p>
+
+    <div class="legend">
+      <div class="item"><span class="dot g"></span> gstack 스킬 (판단·기획)</div>
+      <div class="item"><span class="dot s"></span> superpowers 스킬 (규율·반복)</div>
+      <div class="item"><span class="dot o"></span> 커스텀 오버레이 (우리가 추가)</div>
+      <div class="item"><span class="dot h"></span> 사람 게이트</div>
+    </div>
+  </header>
+
+  <!-- ═══════════ PLANNER ZONE ═══════════ -->
+  <section class="zone planner">
+    <div class="zone-label">
+      <span class="tag">Planner-bot</span>
+      <b>기획부</b>
+      <span class="mode">대화형 · Slack 스레드 티키타카 · 코드 쓰기 권한 없음 · stateless 재구성</span>
+    </div>
+
+    <div class="rail">
+
+      <div class="stage" data-n="0">
+        <div class="card">
+          <h3>스레드 시작 <span class="badge h">HUMAN</span></h3>
+          <p class="desc">사람이 <b>#dcx-개발</b>에 새 기능 스레드를 연다. planner-bot이 <b>feature/&lt;slug&gt;</b> 브랜치를 생성하고 세션 앵커로 삼는다.</p>
+          <div class="files"><span class="file">branch: <b>feature/&lt;slug&gt;</b></span><span class="file">상태: <b>DRAFTING</b></span></div>
+        </div>
+      </div>
+
+      <div class="stage" data-n="1">
+        <div class="card">
+          <h3><span class="skill">/office-hours</span> <span class="badge g">gstack</span> <span class="talk">↔ 티키타카</span></h3>
+          <p class="desc">소크라테스식 문답으로 아이디어를 디자인 문서로 만든다. 질문은 <b>한 번에 1개</b>씩 스레드에 게시 — 사람의 응답이 다음 질문을 만든다.</p>
+          <div class="subskills">
+            <div class="row"><span class="k">문답 루프</span><span class="v">문제 정의 · 사용자 · 스코프를 질문으로 끌어냄</span></div>
+            <div class="row"><span class="k">문서화</span><span class="v">답변이 쌓일 때마다 design-doc에 반영 (재구성 시 문맥 손실 방지)</span></div>
+          </div>
+          <div class="files"><span class="file out">산출 → <b>design-doc.md</b></span></div>
+        </div>
+      </div>
+
+      <div class="stage" data-n="2">
+        <div class="card">
+          <h3><span class="skill">/plan-ceo-review</span> <span class="badge g">gstack</span> <span class="talk">↔ 필요 시 질문</span></h3>
+          <p class="desc">스코프·전제를 CEO 관점에서 도전한다. "이걸 왜 지금, 이 크기로?" — 브랜치 단위로 design-doc을 찾아 읽는다.</p>
+          <div class="subskills">
+            <div class="row"><span class="k">전제 도전</span><span class="v">숨은 가정 지적, 스코프 축소 제안</span></div>
+            <div class="row"><span class="k">스레드 질문</span><span class="v">사람 확인이 필요한 항목만 게시, 나머지는 자체 진행</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage" data-n="3">
+        <div class="card">
+          <h3><span class="skill">/plan-eng-review</span> <span class="badge g">gstack</span></h3>
+          <p class="desc">아키텍처 검토 층. 이걸 빼면 아키텍처 결정이 태스크 분해기(writing-plans)에 암묵 위임된다 — 그래서 반드시 포함.</p>
+          <div class="subskills">
+            <div class="row"><span class="k">아키텍처</span><span class="v">구조 결정·leverage 체크 → design-doc에 추가 커밋</span></div>
+          </div>
+          <div class="files"><span class="file out">갱신 → <b>design-doc.md</b> (아키텍처 결정 섹션)</span></div>
+        </div>
+      </div>
+
+      <div class="stage" data-n="4">
+        <div class="card">
+          <h3><span class="skill">writing-plans</span> <span class="badge s">superpowers</span> <span class="badge o">+태깅 오버레이</span></h3>
+          <p class="desc">design-doc을 입력으로 <b>2~5분 태스크</b>로 분해. headless로 돌고, 결과 요약만 스레드에 게시해 승인을 기다린다.</p>
+          <div class="subskills">
+            <div class="row"><span class="k">태스크 분해</span><span class="v">superpowers 원본 — 파일 경로·완료 정의 포함</span></div>
+            <div class="row"><span class="k">2축 태깅</span><span class="v">오버레이 — <b>deterministic/generative</b> × <b>visible/invisible</b>, 에이전트가 수행 (사람 개입 없음)</span></div>
+            <div class="row"><span class="k">자체 반려</span><span class="v">invisible 태스크에 "테스트로 증명할 것" 목록이 없으면 self-review에서 반려</span></div>
+          </div>
+          <div class="bypass">
+            디스패처 규칙: design-doc.md가 존재하면 <s>brainstorming</s> 스킬 발화 금지 → writing-plans 직행. <b>기획 중복 방지의 핵심.</b>
+          </div>
+          <div class="files"><span class="file out">산출 → <b>plan.md</b> (태그 포함)</span><span class="file">상태: <b>PLAN_READY</b></span></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ═══════════ GATE 1 ═══════════ -->
+  <div class="gatewrap">
+    <div class="gate">
+      <div class="icon">⛔</div>
+      <div>
+        <h3>게이트 ① — 플랜 승인 <span class="badge h" style="margin-left:6px">HUMAN</span></h3>
+        <p>자동 트리거 금지. 사람의 명시 발화만이 builder-bot을 기동한다. SDD는 시작하면 멈추지 않으므로, 여기가 마지막 안전장치.</p>
+        <div class="cmd">@builder-bot 이 플랜으로 빌드해 &nbsp;· feature/&lt;slug&gt;</div>
+        <div class="rule">PLAN_READY 72h 무응답 → 리마인드 1회 → STALE (자동 진행 없음)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ BUILDER ZONE ═══════════ -->
+  <section class="zone builder">
+    <div class="zone-label">
+      <span class="tag">Builder-bot</span>
+      <b>개발부</b>
+      <span class="mode">headless · 자유 발화 없음(정형 보고·BLOCKED만) · 소스 쓰기는 feature 브랜치 한정</span>
+    </div>
+
+    <div class="rail">
+
+      <div class="stage" data-n="5">
+        <div class="card">
+          <h3>계약 스키마 체크 <span class="badge o">오버레이</span></h3>
+          <p class="desc">기동 시 design-doc.md · plan.md의 필수 섹션을 검사. 누락이면 <b>빌드 시작 전</b> REJECTED — planner 스레드로 반송.</p>
+          <div class="files"><span class="file">입력: <b>docs/plans/&lt;branch&gt;/</b> (파일이 단일 진실 — Slack으로 문서 전달 금지)</span></div>
+        </div>
+      </div>
+
+      <div class="stage" data-n="6">
+        <div class="card">
+          <h3><span class="skill">subagent-driven-development</span> <span class="badge s">superpowers</span></h3>
+          <p class="desc">컨트롤러는 조정만, 코딩 안 함. 태스크마다 <b>fresh subagent</b>를 띄우고 풀텍스트 + 누적 Discoveries를 주입한다.</p>
+
+          <div class="loop">
+            <div class="title">태스크 루프 × N</div>
+            <div class="steps">
+              <span class="st"><em>dispatch</em> fresh subagent</span><span class="arr">→</span>
+              <span class="st"><em>TDD</em> 실패 테스트 먼저 (Iron Law)</span><span class="arr">→</span>
+              <span class="st"><em>self-review</em> + Spec Self-Review 체크리스트</span><span class="arr">→</span>
+              <span class="st"><em>commit</em></span>
+            </div>
+            <div class="back">↩ self-review 실패 → 같은 subagent 수정·재검 (3회 초과 시 BLOCKED) · 별도 리뷰어 서브에이전트 없음 (v5.0.6에서 제거된 구조)</div>
+          </div>
+
+          <div class="subskills" style="margin-top:14px">
+            <div class="row"><span class="k">test-driven-development</span><span class="v">superpowers — deterministic 태그: red → green → refactor 강제</span></div>
+            <div class="row"><span class="k">골든셋 검증</span><span class="v">오버레이 — generative 태그: 구조·범위·금지어 assert. 골든셋 부재 시 DONE_WITH_CONCERNS 폴백</span></div>
+            <div class="row"><span class="k">모델 선택</span><span class="v">기계적 수정=저비용 · 멀티파일=표준 · 아키텍처/리뷰=최상위</span></div>
+          </div>
+
+          <div class="signals">
+            <span class="sig done">DONE → 다음 태스크</span>
+            <span class="sig conc">DONE_WITH_CONCERNS → 진행+기록</span>
+            <span class="sig need">NEEDS_CONTEXT → 보강 후 1회 재디스패치</span>
+            <span class="sig blk">BLOCKED → 사람 에스컬레이션</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage" data-n="7">
+        <div class="card">
+          <h3>Project Discoveries 누적 <span class="badge s">superpowers</span> <span class="badge o">+승격 오버레이</span></h3>
+          <p class="desc">subagent가 발견한 함정·패턴을 <b>discoveries.md</b>에 쌓고, 다음 subagent마다 주입 — fresh의 맹점을 보완하는 세션 내 학습.</p>
+          <div class="subskills">
+            <div class="row"><span class="k">세션 내</span><span class="v">superpowers 원본 — 누적 → 주입</span></div>
+            <div class="row"><span class="k">세션 종료 시</span><span class="v">오버레이 — 반복 가능 항목만 product-brain :discoveries에 <b>draft</b> 착지</span></div>
+          </div>
+          <div class="files"><span class="file out">누적 → <b>discoveries.md</b></span><span class="file">draft → <b>product-brain :discoveries</b></span></div>
+        </div>
+      </div>
+
+      <div class="stage" data-n="8">
+        <div class="card">
+          <h3>완료 시퀀스 — PR · 프리뷰 · 보고 <span class="badge o">오버레이</span></h3>
+          <p class="desc">전 태스크 통과 시에만 도달. PR을 만들되 <b>머지 권한 자체가 없다.</b> PR이 Vercel 프리뷰 배포를 트리거한다.</p>
+          <div class="packet">
+✅ <span class="ok">빌드 완료</span> — feature/&lt;slug&gt;<br>
+🔗 PR: github.com/…/pull/N &nbsp;&nbsp;🌐 <span class="amp">데모: &lt;vercel-preview-url&gt;</span><br>
+🖼 스크린샷 N장 (visible 태스크) &nbsp;&nbsp;🧪 테스트: M/M pass<br>
+<span class="warn">⚠ concerns:</span> (있으면) &nbsp;&nbsp;👉 데모 확인 후 직접 머지해주세요. 저는 머지하지 않습니다.
+          </div>
+          <div class="subskills" style="margin-top:12px">
+            <div class="row"><span class="k">invisible-only</span><span class="v">데모 URL 대신 테스트 케이스 목록·결과를 전면에 — "보이는 건 데모로, 안 보이는 건 테스트로"</span></div>
+            <div class="row"><span class="k">/qa (Phase 2)</span><span class="v">gstack — 에이전트 브라우저 QA. 로컬 브라우저·쿠키 전제라 서버 손질 후 도입</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ═══════════ GATE 2 ═══════════ -->
+  <div class="gatewrap dark" style="margin-top:14px">
+    <div class="gate">
+      <div class="icon">⛔</div>
+      <div>
+        <h3>게이트 ② — 데모 확인 · 머지 <span class="badge h" style="margin-left:6px">HUMAN</span></h3>
+        <p>사람이 Vercel 데모를 클릭해 보고(validation) 테스트 결과를 확인한(verification) 뒤 직접 머지한다. 코드를 읽을 사람이 없는 팀에서 이 둘이 유일한 검증 축.</p>
+        <div class="rule">self-merge 금지 — builder-bot에 머지 권한 미부여 · 프로덕션 배포도 사람</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ AFTER ═══════════ -->
+  <section class="after">
+    <div class="rail" style="padding-left:0">
+      <div class="card">
+        <h3>사후 — Discoveries 승격 리뷰 <span class="badge h">HUMAN</span> <span class="badge o">오버레이</span></h3>
+        <p class="desc"><b>윤호(CTO) · 매주 금요일 15분.</b> product-brain의 draft 중 "2회 이상 등장했거나 태스크를 확실히 망가뜨리는 것"만 published로 승격 → CLAUDE.md rule 반영. 일회성은 폐기. 실패가 Harness로 굳는 유일한 경로.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="eyebrow">관통 원칙</div>
+    <div class="principles">
+      <div class="pr"><b>P1</b> · 분리 기준 = 상호작용 모드 (대화형 vs headless)</div>
+      <div class="pr"><b>P3</b> · 사람 게이트 2개 — 플랜 승인 · PR 머지</div>
+      <div class="pr"><b>P4·P5</b> · fork 없음, 오버레이 · 인라인 self-review (최신 superpowers)</div>
+      <div class="pr"><b>P7</b> · 파일이 단일 진실 — 세션은 소모품 (stateless)</div>
+    </div>
+  </footer>
+
+</div>
+
+</body>
+</html>

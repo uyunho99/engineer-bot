@@ -1,0 +1,32 @@
+{
+  "$comment": [
+    "builder-bot 권한 (명세 §8). --settings 로 headless 세션에 주입한다.",
+    "프롬프트의 금지 지시(overlay/CLAUDE.builder.md)는 설득이고, 이 파일이 강제다.",
+    "둘 다 필요하다 — 모델이 왜 안 되는지 알아야 우회를 시도하지 않는다.",
+    "",
+    "이 파일만으로 §8이 완성되지는 않는다. GitHub 자격증명 분리(BUILD-PLAN I5)와",
+    "main 브랜치 보호 규칙이 나머지 두 층이다 (AMENDMENTS §0.2)."
+  ],
+  "permissions": {
+    "deny": [
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr close:*)",
+      "Bash(gh api:*--method DELETE*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push:*:main)",
+      "Bash(git push:*:master)",
+      "Bash(git clean:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git branch -D:*)",
+      "Bash(vercel --prod:*)",
+      "Bash(vercel deploy --prod:*)",
+      "Bash(npm publish:*)",
+      "Bash(rm -rf:*)",
+      "Edit(docs/plans/**/plan.md)",
+      "Write(docs/plans/**/plan.md)",
+      "Edit(docs/plans/**/design-doc.md)",
+      "Write(docs/plans/**/design-doc.md)"
+    ]
+  }
+}

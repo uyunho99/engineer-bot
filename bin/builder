@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# builder-bot 기동 (명세 §5). 유일한 입력은 브랜치명이다 (§5.1).
+#
+#   bin/builder feature/persona-list            # 실제 빌드
+#   bin/builder feature/persona-list --dry-run  # 계약 검증까지만
+#
+# 환경변수 — .env.example 참조
+#   TARGET_REPO         제품 레포 경로 (기본: 현재 디렉터리)
+#   BUILDER_TIMEOUT_MS  세션 타임아웃 (기본 4시간)
+#   BUILDER_MODEL       SDD 컨트롤러 세션 모델
+#   PREVIEW_URL         Vercel 프리뷰 URL (보고 패킷에 실림)
+set -uo pipefail
+
+HARNESS="$(cd "$(dirname "$0")/.." && pwd)"
+BRANCH="${1:-}"
+
+if [ -z "$BRANCH" ]; then
+  echo "usage: bin/builder <branch> [--dry-run]" >&2
+  exit 2
+fi
+
+REPO="${TARGET_REPO:-$(pwd)}"
+
+# 승인된 브랜치가 체크아웃돼 있는지 — 다른 브랜치를 빌드하면 안 된다
+CURRENT="$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
+if [ "$CURRENT" != "$BRANCH" ]; then
+  echo "⛔ 현재 브랜치가 $CURRENT 입니다. 승인된 브랜치는 $BRANCH 입니다." >&2
+  echo "   체크아웃하거나 worktree를 만든 뒤 다시 실행하세요." >&2
+  exit 1
+fi
+
+case "$CURRENT" in
+  main|master)
+    echo "⛔ $CURRENT 에서는 빌드하지 않습니다 (명세 §8)." >&2
+    exit 1
+    ;;
+esac
+
+exec bun "$HARNESS/controller/builder.ts" "$@"

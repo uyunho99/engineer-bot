@@ -1,0 +1,24 @@
+# 환경 · 자격증명
+.env
+*.local
+
+# 상태 저장소 (BUILD-PLAN I4) — 봇 런타임 상태는 레포에 넣지 않는다
+state.sqlite
+state.sqlite-shm
+state.sqlite-wal
+
+# gstack 프로젝트 로컬 설정
+.gstack/
+
+# SDD 워크스페이스 (제품 레포에서 생기지만 방어적으로)
+.superpowers/
+
+# macOS
+.DS_Store
+
+# 스크래치
+/tmp/
+*.log
+
+# 의존성
+node_modules/
