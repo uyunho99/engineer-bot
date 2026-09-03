@@ -501,8 +501,16 @@ describe("checkPlan — Files/Interfaces 필수 (설계 D6)", () => {
     expect(v.filter((x) => /Files|Interfaces/.test(x.message))).toEqual([]);
   });
 
-  test("위반 메시지에 태스크 번호가 들어간다", () => {
-    const v = errorsOf(task("**Interfaces:**\n- Produces: `f(): void`"));
-    expect(v.some((x) => x.message.includes("1"))).toBe(true);
+  test("위반 메시지에 태스크 번호가 들어간다 — taskId 필드로도 노출된다", () => {
+    // Files/Interfaces 둘 다 비운다 — 두 위반 모두에서 확인한다.
+    const v = errorsOf(task(""));
+    const filesViolation = v.find((x) => x.message.includes("Files"));
+    const ifacesViolation = v.find((x) => x.message.includes("Interfaces"));
+    expect(filesViolation?.message.includes("1")).toBe(true);
+    expect(ifacesViolation?.message.includes("1")).toBe(true);
+    // 메시지 문자열 파싱이 아니라 구조화된 taskId 필드로 태스크를 식별할 수 있어야 한다
+    // (하드룰 #4: 자유 텍스트 파싱 금지).
+    expect(filesViolation?.taskId).toBe("1");
+    expect(ifacesViolation?.taskId).toBe("1");
   });
 });

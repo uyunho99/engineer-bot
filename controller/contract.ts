@@ -407,6 +407,7 @@ export function checkPlan(planText: string): Violation[] {
         err({
           file: "plan.md",
           rule: "§4.2",
+          taskId: t.id,
           message: `Task ${t.id}: **Files:** 에 Create 또는 Modify 항목이 없습니다 (Test 만으로는 부족)`,
         }),
       );
@@ -418,6 +419,7 @@ export function checkPlan(planText: string): Violation[] {
         err({
           file: "plan.md",
           rule: "§4.2",
+          taskId: t.id,
           message: `Task ${t.id}: **Interfaces:** 에 Consumes 또는 Produces 항목이 없습니다 — 1단계 관계 검사의 입력입니다`,
         }),
       );
