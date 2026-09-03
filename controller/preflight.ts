@@ -19,10 +19,26 @@
 
 // ConsumeRef 를 import 하지 마라 — 이 파일은 `ifaces.consumes` 의 원소 타입을
 // 추론에 맡기고 이름으로 붙들지 않는다. noUnusedLocals: true 에 걸린다 (TS6196).
+import { createHash } from "node:crypto";
 import type { ParsedTask, TaskInterfaces } from "./contract";
 import { parseInterfaces, parseFiles, stripFences } from "./contract";
 import type { PreflightDefect, FixPatch } from "./contract";
 import type { CheckResult, Violation } from "./contract";
+
+/**
+ * plan.md 의 지문. **게이트 전체가 이 값의 비교 하나로 이루어진다** (설계 D26).
+ *
+ * `preflight-cli.ts`(검사 결과를 쓸 때)와 `builder.ts`(게이트에서 읽을 때)가
+ * 같은 계산을 해야 한다. 두 곳에 각자 `createHash` 를 두면 한쪽만 바뀌어도
+ * (인코딩·정규화·알고리즘) 게이트가 조용히 항상-불일치로 무너진다 —
+ * 그래서 계산은 여기 한 곳에만 있다.
+ *
+ * `node:crypto` 는 이 파일의 "I/O 없음" 원칙을 깨지 않는다. 파일도 시계도
+ * 네트워크도 건드리지 않는 순수 계산이고, 같은 입력에 같은 출력을 준다.
+ */
+export function planSha256(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
 
 /** 하나의 선언된 의존. 커버리지의 단위다 (설계 D25) */
 export interface Relation {
@@ -262,10 +278,23 @@ const KINDS = new Set([
   "dangling_ref", "order_violation", "signature_mismatch", "undeclared_conflict",
 ]);
 
+/**
+ * 결함 하나의 형태를 검증한다.
+ *
+ * **`patch` 까지 검증한다.** 이 값은 AI 가 만들어 파일 경계를 두 번 건너온 뒤
+ * (`preflight-raw.json` → `--record` → `preflight.json` → `--apply`)
+ * `applyPatch` 를 통해 **plan.md 를 실제로 고친다.** 여기서 안 막으면:
+ *   anchor 누락 → `--apply` 도중 `patch.anchor.trim()` 이 TypeError
+ *   op 오타     → 조용히 insert_after 로 동작 (replace 를 기대했는데 줄이 늘어난다)
+ *   text 비문자열 → 강제 변환된 값이 plan.md 에 들어가 D14(바이트 그대로)가 깨진다
+ *
+ * `rule` 은 항목마다 다르다 (사람이 근거 조항을 찾을 수 있어야 한다):
+ * D27 은 **task_ids 튜플** 결정이고, 나머지 형태 검증은 D28(워크플로우 산출 계약)이다.
+ */
 function checkDefectShape(d: unknown, where: string, v: Violation[]): void {
   const o = d as Record<string, unknown>;
-  const bad = (m: string) =>
-    v.push({ severity: "error", file: "preflight-raw.json", rule: "D27", message: `${where}: ${m}` });
+  const bad = (m: string, rule = "D28") =>
+    v.push({ severity: "error", file: "preflight-raw.json", rule, message: `${where}: ${m}` });
   // `v.push()` 는 number 를 반환하므로 `return bad(...)` 는 `: void` 선언과
   // 충돌한다 (TS2322). 조기 반환은 두 줄로 쓴다.
   if (!o || typeof o !== "object") {
@@ -275,11 +304,35 @@ function checkDefectShape(d: unknown, where: string, v: Violation[]): void {
   if (typeof o.id !== "string" || !o.id) bad("id 가 없습니다");
   if (typeof o.kind !== "string" || !KINDS.has(o.kind)) bad(`kind 가 유효하지 않습니다: ${String(o.kind)}`);
   if (!Array.isArray(o.task_ids) || o.task_ids.length < 2) {
-    bad("task_ids 가 2개 미만입니다 — 사전 검사 결함은 관계입니다");
+    bad("task_ids 가 2개 미만입니다 — 사전 검사 결함은 관계입니다", "D27");
+  } else if (o.task_ids.some((t) => typeof t !== "string")) {
+    // 원소 타입까지 봐야 한다. `[1, 2]` 는 길이 검사를 통과하지만 그 뒤
+    // `concernsUnit` 의 `d.task_ids.includes("1")` 이 false 가 되어 **진짜 결함이
+    // 있는 관계가 `clean` 으로 기록된다** — 거짓 음성이고, 이 기능에서 가장
+    // 위험한 방향이다 (안 본 것을 통과로 쓰는 것과 같은 실패).
+    bad("task_ids 의 원소가 문자열이 아닙니다 — 태스크 번호는 문자열로 적습니다", "D27");
   }
   if (typeof o.plan_text !== "string") bad("plan_text 가 없습니다");
   if (typeof o.conflict !== "string") bad("conflict 가 없습니다");
   if (o.stage !== 1 && o.stage !== 2) bad("stage 가 1 또는 2 가 아닙니다");
+
+  // patch 는 선택 필드다 — 없는 것은 정상이고, **있으면** plan.md 를 고칠 권한을
+  // 갖는다. 그래서 있을 때만, 그러나 빠짐없이 본다 (설계 D24).
+  if (o.patch === undefined) return;
+  const p = o.patch as Record<string, unknown>;
+  if (!p || typeof p !== "object" || Array.isArray(p)) {
+    bad("patch 가 객체가 아닙니다");
+    return;
+  }
+  if (p.op !== "insert_after" && p.op !== "replace") {
+    bad(`patch.op 이 insert_after 도 replace 도 아닙니다: ${String(p.op)}`);
+  }
+  if (typeof p.task_id !== "string" || !p.task_id) bad("patch.task_id 가 없습니다");
+  // anchor 는 `findFixSites` 가 `.trim()` 을 부르는 값이다. 빈 문자열도 거부한다 —
+  // 빈 앵커는 태스크 본문의 모든 빈 줄에 매치돼 ambiguous 아니면 오적용이 된다.
+  if (typeof p.anchor !== "string" || !p.anchor.trim()) bad("patch.anchor 가 없거나 비어 있습니다");
+  // text 는 빈 문자열이 정당하다 (빈 줄로 교체). 타입만 본다.
+  if (typeof p.text !== "string") bad("patch.text 가 문자열이 아닙니다");
 }
 
 /**
@@ -499,6 +552,50 @@ export function findFixSites(planText: string, patch: FixPatch): number[] {
 
 // ─── 게이트 ① 판정 (설계 D10 · D23) ────────────────────────────────────
 
+/**
+ * 직전 `preflight.json` 을 읽어낸 결과. **세 갈래가 전부 다르다** (하드룰 #4).
+ *
+ * `none` 과 `broken` 을 섞으면 안 된다. `gateDecision` 은 `previous: null` 을
+ * "아직 검사 안 함 → run" 으로 옳게 처리하므로, 깨진 파일을 null 로 넘기면
+ * **깨진 게이트 산출물이 조용히 평범한 재검사로 바뀐다.** 그건 판정할 수 없는
+ * 상태(BLOCKED)를 판정한 상태로 위조하는 것이다.
+ */
+export type PreviousResult =
+  | { status: "none" }
+  | { status: "ok"; result: PreflightResult }
+  | { status: "broken"; reason: string };
+
+/**
+ * `preflight.json` 본문을 방어적으로 해석한다 (하드룰 #4).
+ *
+ * **던지지 않는다.** 이전 구현은 CLI 최상위에서 `JSON.parse` 를 감싸지 않고
+ * 불렀고, 그 자리가 모드 분기보다 앞이라 파일이 한 글자만 깨져도 네 모드
+ * 전부가 스택 트레이스로 죽었다 — `--record` 는 자기 `BLOCKED:` 메시지에
+ * 닿지도 못하고, `--gate` 는 설계 D23 이 요구하는 exit 0 을 어겼다.
+ *
+ * 형태 검증은 `--apply` 가 신뢰하는 최소한만 본다: `applied` 와 `defects` 는
+ * 배열이어야 한다 (`[...previous.applied]` 와 `previous.defects.find(...)` 가
+ * 그것을 전제로 한다). `PreflightResult` 타입은 그대로다 — 이건 런타임 방어다.
+ */
+export function parsePreviousResult(raw: string | null): PreviousResult {
+  if (raw === null) return { status: "none" };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    return { status: "broken", reason: `JSON 파싱 실패: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { status: "broken", reason: "최상위가 객체가 아닙니다" };
+  }
+  const o = parsed as Partial<PreflightResult>;
+  if (o.schema !== 1) return { status: "broken", reason: `schema 가 1이 아닙니다: ${String(o.schema)}` };
+  if (!Array.isArray(o.applied)) return { status: "broken", reason: "applied 가 배열이 아닙니다" };
+  if (!Array.isArray(o.defects)) return { status: "broken", reason: "defects 가 배열이 아닙니다" };
+  return { status: "ok", result: parsed as PreflightResult };
+}
+
 export interface GateInput {
   planExists: boolean;
   planSha256: string;
@@ -564,19 +661,30 @@ export function checkPreflightGate(raw: string | null, planSha256: string): Gate
     };
   }
 
+  // BLOCKED 사유에도 **다음 행동**이 붙어야 한다. REJECTED 형제들은 전부
+  // "다시 검사하세요"/"/preflight 를 실행하세요" 로 끝나는데 BLOCKED 만
+  // 진단으로 끝나면, 사람은 문서를 고치려 들었다가(그건 REJECTED 의 처방이다)
+  // 아무 변화가 없는 것을 보게 된다.
+  const REDO = "preflight.json 을 지우고 /preflight 를 다시 실행하세요";
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (e) {
     return {
       ok: false, outcome: "BLOCKED",
-      violations: v(`preflight.json JSON 파싱 실패: ${e instanceof Error ? e.message : String(e)}`),
+      violations: v(
+        `preflight.json JSON 파싱 실패: ${e instanceof Error ? e.message : String(e)} — ${REDO}`,
+      ),
     };
   }
 
   const o = parsed as Partial<PreflightResult>;
   if (o?.schema !== 1) {
-    return { ok: false, outcome: "BLOCKED", violations: v(`preflight.json schema 가 1이 아닙니다: ${String(o?.schema)}`) };
+    return {
+      ok: false, outcome: "BLOCKED",
+      violations: v(`preflight.json schema 가 1이 아닙니다: ${String(o?.schema)} — ${REDO}`),
+    };
   }
   if (o.plan_sha256 !== planSha256) {
     return {

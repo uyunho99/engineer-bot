@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
-import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, type PreflightRaw } from "./preflight";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, parsePreviousResult, planSha256, type PreflightRaw } from "./preflight";
 // PreflightRaw 를 함께 import 하라 — 아래 raw() 헬퍼가 그 타입을 쓴다.
 // tsconfig 의 include 가 controller/**/*.ts 이고 noUnusedLocals: true 라
 // 테스트 파일도 타입체크 대상이다 (2026-09-03 봇 지적).
@@ -392,6 +393,64 @@ describe("checkPreflightRaw", () => {
   test("critic 은 선택 필드다", () => {
     expect(checkPreflightRaw(validRaw(), SHA).ok).toBe(true);
   });
+
+  // ── task_ids 원소 타입 · patch 검증 (2026-09-03 최종 리뷰 I3) ───────────
+  //
+  // patch 는 이 경계를 넘어 `--apply` 에서 **plan.md 를 실제로 고친다.**
+  // 여기서 통과시키면 파일을 쓰는 코드가 검증되지 않은 AI 산출을 그대로 믿는다.
+
+  const withDefect = (over: Record<string, unknown>) =>
+    validRaw({ stage1: { relations_declared: 1, defects: [{ ...validDefect, ...over }] } });
+  const patch = { op: "replace", task_id: "2", anchor: "- Consumes: `x()` from Task 1", text: "새 줄" };
+
+  test("task_ids 원소가 숫자면 ok:false — 통과시키면 진짜 결함이 clean 으로 기록된다", () => {
+    // 거짓 음성 경로: `[1, 2]` 는 길이 검사를 통과하고, 그 뒤 concernsUnit 의
+    // `d.task_ids.includes("1")` 이 false 가 되어 결함 있는 관계가 `clean` 이 된다.
+    // 안 본 것을 통과로 쓰는 것과 같은 종류의 실패다 (설계 §7.4).
+    expect(checkPreflightRaw(withDefect({ task_ids: [1, 2] }), SHA).ok).toBe(false);
+  });
+
+  test("유효한 patch 는 통과한다 — patch 자체를 막는 검사가 아니다", () => {
+    expect(checkPreflightRaw(withDefect({ patch }), SHA).ok).toBe(true);
+  });
+
+  test("patch.anchor 가 없으면 ok:false — --apply 도중 TypeError 로 죽는다", () => {
+    const { anchor, ...noAnchor } = patch;
+    expect(checkPreflightRaw(withDefect({ patch: noAnchor }), SHA).ok).toBe(false);
+  });
+
+  test("patch.anchor 가 빈 문자열이면 ok:false — 모든 빈 줄에 매치된다", () => {
+    expect(checkPreflightRaw(withDefect({ patch: { ...patch, anchor: "   " } }), SHA).ok).toBe(false);
+  });
+
+  test("patch.op 이 다른 문자열이면 ok:false — 조용히 insert_after 로 동작한다", () => {
+    expect(checkPreflightRaw(withDefect({ patch: { ...patch, op: "delete" } }), SHA).ok).toBe(false);
+  });
+
+  test("patch.text 가 문자열이 아니면 ok:false — 강제 변환된 값이 plan.md 에 들어간다 (D14)", () => {
+    expect(checkPreflightRaw(withDefect({ patch: { ...patch, text: 42 } }), SHA).ok).toBe(false);
+  });
+
+  test("patch.text 가 빈 문자열은 유효하다 — 빈 줄로 교체하는 것은 정당하다", () => {
+    expect(checkPreflightRaw(withDefect({ patch: { ...patch, text: "" } }), SHA).ok).toBe(true);
+  });
+
+  test("patch.task_id 가 없으면 ok:false — 앵커 검색 범위를 정할 수 없다 (D24)", () => {
+    const { task_id, ...noTaskId } = patch;
+    expect(checkPreflightRaw(withDefect({ patch: noTaskId }), SHA).ok).toBe(false);
+  });
+
+  test("patch 가 객체가 아니면 ok:false", () => {
+    expect(checkPreflightRaw(withDefect({ patch: "고쳐라" }), SHA).ok).toBe(false);
+  });
+
+  test("위반 메시지의 rule 이 항목에 맞다 — task_ids 는 D27, patch 는 D28 (M2)", () => {
+    const tupleV = checkPreflightRaw(withDefect({ task_ids: ["1"] }), SHA).violations;
+    expect(tupleV.some((v) => v.rule === "D27")).toBe(true);
+    const patchV = checkPreflightRaw(withDefect({ patch: { ...patch, op: "delete" } }), SHA).violations;
+    expect(patchV.some((v) => v.rule === "D28" && v.message.includes("patch.op"))).toBe(true);
+    expect(patchV.some((v) => v.rule === "D27")).toBe(false);
+  });
 });
 
 describe("assembleResult", () => {
@@ -743,6 +802,26 @@ describe("워크플로우 스크립트 (Task 12)", () => {
   test("meta 블록이 있다", () => {
     expect(src).toContain("export const meta");
   });
+
+  // 아래 둘은 **프롬프트 회귀 방어**다. 이 스크립트에는 기계 검사가 하나도 없어서
+  // (파일을 읽을 수 없으니 단위 테스트가 실행할 수도 없다) 프롬프트가 조용히
+  // 망가지면 산출이 checkPreflightRaw 에서 통째로 거부된다 — 그때는 이미 에이전트
+  // 수십 개가 돈 뒤다. 문서-문자열 검사는 이 파일이 이미 받아들이는 형태다
+  // (위의 하드룰 #3 모델 개수 검사).
+
+  test("kind 를 리터럴로 지시한다 — 스키마 enum 과 같은 문자열이어야 한다", () => {
+    // 프롬프트가 kind 를 안 못박으면 에이전트가 "signature-mismatch" 같은 변형을
+    // 내고 checkDefectShape 의 KINDS 검사에서 전부 탈락한다.
+    expect(src).toContain('"signature_mismatch"');
+    expect(src).toContain('"undeclared_conflict"');
+  });
+
+  test("task_ids 를 결함 생성 프롬프트 3곳 모두가 못박는다", () => {
+    // sig · pair · critic — 세 프롬프트 전부. task_ids 를 에이전트 재량에 맡기면
+    // 1개만 오거나 숫자로 와서 관계 단위 판정(concernsUnit)이 무너진다.
+    const pinned = (src.match(/task_ids 는/g) ?? []).length;
+    expect(pinned).toBeGreaterThanOrEqual(3);
+  });
 });
 
 describe("워크플로우 산출 형식 왕복", () => {
@@ -833,7 +912,9 @@ describe("checkPreflightGate (설계 D26)", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.outcome).toBe("REJECTED");
-    expect(r.violations.some((v) => v.message.includes("1"))).toBe(true);
+    // "1" 만 보면 "1건"·"1이 아닙니다" 같은 다른 문구에도 우연히 걸린다.
+    // 결함 개수를 사람에게 알려주는 실체 문구를 단언한다.
+    expect(r.violations.some((v) => v.message.includes("결함 1건"))).toBe(true);
   });
 
   test("JSON 이 깨지면 BLOCKED — REJECTED 가 아니다 (하드룰 #4)", () => {
@@ -855,22 +936,69 @@ describe("checkPreflightGate (설계 D26)", () => {
   });
 });
 
-// 요건 7번 — runBuilder 가 게이트 미통과 시 claude 를 띄우지 않는다.
-// 프로세스를 띄우지 않았음을 직접 단언할 수 없으므로, **그 앞의 관문이 막는 것**을
-// 단언한다 (Task 11 의 9번 요건과 같은 논리). runBuilder 는 spawn 전에
-// checkPreflightGate 를 부르고, ok:false 면 즉시 반환한다.
-describe("runBuilder — 게이트 미통과 시 세션을 띄우지 않는다", () => {
-  test("게이트가 REJECTED 면 spawn 전에 반환할 판정을 낸다", () => {
-    const gate = checkPreflightGate(null, "a".repeat(64));
-    expect(gate.ok).toBe(false);
-    if (gate.ok) return;
-    // 이 판정이 runBuilder 의 조기 반환 조건이다 — outcome 이 REJECTED/BLOCKED 면
-    // Bun.spawn 에 도달하지 않는다.
-    expect(["REJECTED", "BLOCKED"]).toContain(gate.outcome);
+describe("parsePreviousResult — 깨진 preflight.json 을 방어적으로 읽는다 (하드룰 #4)", () => {
+  test("파일이 없으면 none — 오류가 아니다", () => {
+    expect(parsePreviousResult(null)).toEqual({ status: "none" });
   });
 
-  test("게이트가 통과면 판정이 세션 기동을 막지 않는다", () => {
-    const ok = checkPreflightGate(result(), SHA);
-    expect(ok.ok).toBe(true);
+  test("정상 결과는 ok 이고 본문이 그대로 실린다", () => {
+    const r = parsePreviousResult(result());
+    expect(r.status).toBe("ok");
+    if (r.status !== "ok") return;
+    expect(r.result.verdict).toBe("CLEAN");
+  });
+
+  test("JSON 이 깨져도 던지지 않는다 — broken 이다", () => {
+    // 이전 구현은 CLI 최상위에서 이 파싱을 감싸지 않아, 파일이 한 글자만 깨져도
+    // 네 모드 전부가 스택 트레이스로 죽었다 (--plan 은 이 값을 쓰지도 않는다).
+    let r: ReturnType<typeof parsePreviousResult> | null = null;
+    expect(() => { r = parsePreviousResult("{ broken"); }).not.toThrow();
+    expect(r!.status).toBe("broken");
+  });
+
+  test("none 과 broken 은 다른 상태다 — 깨진 파일을 '검사 안 함'으로 강등하지 않는다", () => {
+    // 강등하면 gateDecision(previous: null) 이 run 을 내고, 판정 불가(BLOCKED)가
+    // 평범한 재검사로 위조된다.
+    expect(parsePreviousResult("{ broken").status).not.toBe("none");
+  });
+
+  test("형태가 틀리면 broken — schema · applied · defects (--apply 가 신뢰하는 최소한)", () => {
+    expect(parsePreviousResult(result({ schema: 99 })).status).toBe("broken");
+    expect(parsePreviousResult(result({ applied: "없음" })).status).toBe("broken");
+    expect(parsePreviousResult(result({ defects: null })).status).toBe("broken");
+    expect(parsePreviousResult("[1,2,3]").status).toBe("broken");
+    expect(parsePreviousResult("null").status).toBe("broken");
+  });
+
+  test("broken 에는 사람이 읽을 사유가 붙는다", () => {
+    const r = parsePreviousResult("{ broken");
+    if (r.status !== "broken") throw new Error("broken 이어야 한다");
+    expect(r.reason).toBeTruthy();
   });
 });
+
+describe("planSha256 — 게이트 양끝이 같은 계산을 쓴다 (M11)", () => {
+  test("같은 입력에 같은 출력, 64자 hex", () => {
+    expect(planSha256("plan")).toBe(planSha256("plan"));
+    expect(planSha256("plan")).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("한 글자만 달라도 값이 달라진다 — 게이트가 감지하는 것이 이것이다", () => {
+    expect(planSha256("plan")).not.toBe(planSha256("plaN"));
+  });
+
+  test("UTF-8 로 인코딩한다 — 한글이 들어간 플랜에서도 양끝이 일치한다", () => {
+    // 두 호출자가 다른 인코딩을 쓰면 게이트가 항상-불일치로 조용히 무너진다.
+    expect(planSha256("계획")).toBe(
+      createHash("sha256").update("계획", "utf8").digest("hex"),
+    );
+  });
+});
+
+// runBuilder 의 게이트 실행 테스트는 **controller/builder.test.ts** 에 있다.
+// 여기 있던 "runBuilder — 게이트 미통과 시 세션을 띄우지 않는다" 두 개는
+// runBuilder 를 import 조차 하지 않고 checkPreflightGate 를 직접 불렀다 —
+// 위 `checkPreflightGate (설계 D26)` describe 와 똑같은 것을 두 번 단언했을 뿐,
+// builder.ts 의 게이트 블록을 통째로 지워도 통과했다. 게이트가 `dryRun` 조기
+// 반환보다 앞에 있으므로 `runBuilder({ dryRun: true })` 로 실제 실행을 관찰할
+// 수 있고, 그 테스트가 builder.test.ts 에 있다 (2026-09-03 최종 리뷰 I8).

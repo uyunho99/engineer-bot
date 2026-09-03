@@ -9,6 +9,7 @@ import {
   parseFiles,
   parseInterfaces,
   parseTasks,
+  type PreflightDefect,
 } from "./contract";
 import { contractPaths } from "./paths";
 
@@ -525,9 +526,17 @@ describe("contractPaths — preflight 경로 (설계 D7 · D28)", () => {
   });
 });
 
-// 타입이 관계를 강제하는지는 typecheck 로 관찰한다 (설계 D27).
-// 아래를 주석 해제하면 `bun run typecheck` 가 실패해야 한다:
-//   const bad: PreflightDefect["task_ids"] = ["only-one"];
+// 타입이 관계를 강제하는지는 typecheck 가 관찰한다 (설계 D27).
+//
+// 이전에는 "주석을 해제하면 실패해야 한다"는 **사람에게 보내는 지시**였다.
+// 아무도 해제하지 않으므로 아무것도 증명하지 못했고, 해제해도 `PreflightDefect`
+// 가 import 되지 않아 TS2304(다른 이유)로 실패했다.
+//
+// `@ts-expect-error` 는 방향이 반대라서 강하다: 오류가 **사라지면** 빌드가 깨진다.
+// 즉 누군가 task_ids 를 `string[]` 로 되돌리는 회귀를 `bun run typecheck` 가 잡는다.
+// @ts-expect-error task_ids 는 최소 2개짜리 튜플이다 — 1개는 대입될 수 없다 (D27)
+const badTaskIds: PreflightDefect["task_ids"] = ["only-one"];
+void badTaskIds; // noUnusedLocals 충족. 런타임에서는 아무 일도 하지 않는다
 
 describe("오버레이가 자기 계약을 지킨다 (Task 14)", () => {
   const overlay = readFileSync("overlay/writing-plans-tagging.md", "utf8");
@@ -616,7 +625,12 @@ describe("오버레이가 자기 계약을 지킨다 (Task 14)", () => {
     // 해도 통과하는 검사는 실제 체크리스트 항목 존재를 증명하지 못한다.
     // 어떤 줄이 체크박스(`- [ ]`)로 시작하면서 `**Interfaces:**` 를
     // 언급하는지까지 확인한다.
-    const list = overlay.slice(overlay.indexOf("Self-Review"));
+    // -1 가드를 형제 테스트(Interfaces 헤딩)와 같이 둔다. 없으면 헤딩이
+    // 사라진 순간 `slice(-1)` 이 마지막 한 글자를 훑고 **조용히 false** 를 내
+    // "체크리스트 항목이 없다"로 보고한다 — 그건 이 테스트가 죽은 것이다.
+    const at = overlay.indexOf("Self-Review");
+    expect(at).not.toBe(-1);
+    const list = overlay.slice(at);
     const hasInterfacesChecklistItem = list
       .split("\n")
       .some((line) => line.trimStart().startsWith("- [ ]") && line.includes("**Interfaces:**"));

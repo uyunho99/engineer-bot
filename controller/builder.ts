@@ -24,6 +24,10 @@ import {
   type ParsedTask,
 } from "./contract";
 import { contractPaths } from "./paths";
+// 정적 import 다. 순환 참조가 없고(preflight.ts 는 contract.ts 만 본다) 이 레포의
+// 다른 모든 모듈이 최상단에서 import 한다 — 함수 안의 동적 import 는 게이트가
+// "특별한 곁가지"처럼 보이게 만들 뿐 얻는 것이 없었다.
+import { checkPreflightGate, planSha256 } from "./preflight";
 
 const HARNESS_ROOT = new URL("..", import.meta.url).pathname;
 
@@ -222,9 +226,9 @@ export async function runBuilder(opts: BuilderOptions): Promise<BuilderOutcome> 
 
   // ── 1-B. 사전 검사 게이트 (설계 D26) ────────────────────────────
   // 계약(형식)이 통과해도 사전 검사를 통과하지 않은 플랜은 빌드하지 않는다.
-  const { checkPreflightGate } = await import("./preflight");
-  const { createHash } = await import("node:crypto");
-  const planSha = createHash("sha256").update(planText, "utf8").digest("hex");
+  // 해시는 preflight-cli.ts 의 `--record` 가 쓴 값과 **같은 함수**로 계산해야 한다.
+  // 게이트 전체가 이 비교 하나이므로 두 곳이 각자 계산하면 드리프트가 곧 무력화다 (M11).
+  const planSha = planSha256(planText);
   let preflightRawText: string | null = null;
   try {
     preflightRawText = await readFile(p.preflight, "utf8");
@@ -389,8 +393,14 @@ if (import.meta.main) {
     model: process.env.BUILDER_MODEL,
   });
 
-  const { formatContractRejection, formatPacket } = await import("./report");
-  if (outcome.contractViolations) {
+  const { formatContractBlocked, formatContractRejection, formatPacket } = await import("./report");
+  // **outcome 을 먼저 본다.** `contractViolations` 는 REJECTED 와 BLOCKED 양쪽에서
+  // 채워진다 (게이트 미통과 시 위반 목록이 사유다). 그것을 먼저 분기하면 BLOCKED 가
+  // "↩️ REJECTED" 로 출력돼, 이 브랜치가 지키려는 구분이 사람이 읽는 유일한 자리에서
+  // 무너진다 — 판정 불가를 "문서를 고쳐라"로 읽게 만든다.
+  if (outcome.outcome === "BLOCKED" && outcome.contractViolations) {
+    console.log(formatContractBlocked(branch, outcome.contractViolations));
+  } else if (outcome.contractViolations) {
     console.log(formatContractRejection(branch, outcome.contractViolations));
   } else if (outcome.result) {
     console.log(

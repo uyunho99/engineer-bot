@@ -1,5 +1,11 @@
-import { describe, expect, test } from "bun:test";
-import { buildClaudeArgs, isStaleReport, mergeSettings, resolveSuperpowersDir } from "./builder";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, describe, expect, test } from "bun:test";
+import { buildClaudeArgs, isStaleReport, mergeSettings, resolveSuperpowersDir, runBuilder } from "./builder";
+import { checkDesignDoc, checkPlan } from "./contract";
+import { contractPaths } from "./paths";
 
 /**
  * argv 구성 회귀 테스트.
@@ -194,5 +200,163 @@ describe("isStaleReport — 낡은 보고를 이번 결론으로 쓰지 않는�
     const written = new Date("2026-09-03T17:36:25+09:00").getTime();
     const spawned = new Date("2026-09-03T17:45:00+09:00").getTime();
     expect(isStaleReport(written, spawned)).toBe(true);
+  });
+});
+
+// ─── 사전 검사 게이트 — **runBuilder 를 실제로 부른다** (설계 D26) ─────────
+//
+// 이 브랜치의 최종 리뷰가 지적한 결함: 기존 게이트 테스트 두 개는
+// `checkPreflightGate` 를 직접 부르고 그 반환값을 단언했다. `runBuilder` 를
+// import 조차 하지 않았으므로 **builder.ts 의 게이트 블록을 통째로 지워도
+// 243개가 전부 통과했다.** 그 테스트의 변명("spawn 을 관찰할 수 없다")은
+// 이미 낡았다 — 게이트는 `dryRun` 조기 반환보다 **앞**에 있으므로
+// `runBuilder({ dryRun: true })` 는 진짜 게이트를 통과시키면서 Bun.spawn 에
+// 닿지 않는다. 그래서 여기서는 프로세스를 띄우지 않고도 게이트를 실행한다.
+
+const FIXTURE_BRANCH = "feature/gate-fixture";
+
+const FIXTURE_DESIGN = [
+  "# 게이트 픽스처",
+  "",
+  "## 문제 정의",
+  "게이트가 실제로 실행되는지 관찰할 픽스처가 없었다.",
+  "",
+  "## 전제",
+  "- 이 문서는 테스트 픽스처다 — 제품 기능이 아니다",
+  "",
+  "## 스코프 / 비스코프",
+  "- 스코프: runBuilder 게이트 분기",
+  "- 비스코프: 세션 기동, 보고 수확",
+  "",
+  "## 제약",
+  "- 임시 디렉터리 밖을 건드리지 않는다",
+  "",
+  "## 수용 기준",
+  "- 게이트 미통과 시 세션이 기동되지 않는다",
+  "",
+  "## 아키텍처 결정",
+  "- dryRun 을 게이트 뒤에 둬서 게이트만 실행 가능하게 한다",
+].join("\n");
+
+// **이 브랜치가 추가한 계약 요건을 전부 만족해야 한다** — Tags · Files(Create) ·
+// Interfaces(Consumes/Produces) · 테스트로 증명할 것 · Global Constraints ·
+// 번호 연속. 아래 첫 테스트가 그것을 checkPlan 으로 증명한다 (픽스처가 틀리면
+// 게이트 테스트가 엉뚱한 이유로 실패한다).
+const FIXTURE_PLAN = [
+  "# 게이트 픽스처 Implementation Plan",
+  "",
+  "**Goal:** runBuilder 의 사전 검사 게이트를 실행으로 관찰한다",
+  "",
+  "## Global Constraints",
+  "",
+  "- 이 플랜은 테스트 픽스처다 — 빌드되지 않는다",
+  "",
+  "---",
+  "",
+  "### Task 1: 저장",
+  "",
+  "**Tags:** verification=deterministic validation=invisible",
+  "",
+  "**Files:**",
+  "- Create: `src/store.ts`",
+  "",
+  "**Interfaces:**",
+  "- Produces: `save(v: string): void`",
+  "",
+  "**테스트로 증명할 것:**",
+  "- [ ] 저장한 값을 다시 읽으면 같다",
+  "",
+  "### Task 2: 표시",
+  "",
+  "**Tags:** verification=deterministic validation=invisible",
+  "",
+  "**Files:**",
+  "- Create: `src/view.ts`",
+  "",
+  "**Interfaces:**",
+  "- Consumes: `save(v: string): void` from Task 1",
+  "- Produces: `render(): string`",
+  "",
+  "**테스트로 증명할 것:**",
+  "- [ ] 저장된 값이 없으면 빈 문자열",
+].join("\n");
+
+/** preflight.json 의 CLEAN 결과 한 벌 */
+const cleanResult = (sha: string) => JSON.stringify({
+  schema: 1,
+  branch: FIXTURE_BRANCH,
+  plan_sha256: sha,
+  scope: "interface-graph+file-overlap",
+  verdict: "CLEAN",
+  relations: { declared: 1, examined_stage1: 1, examined_stage2: 1, not_examined: [] },
+  examined: [],
+  defects: [],
+  applied: [],
+});
+
+describe("runBuilder — 사전 검사 게이트를 실행으로 관찰한다 (D26)", () => {
+  const root = mkdtempSync(join(tmpdir(), "engineer-bot-gate-"));
+  // 경로는 contractPaths 로만 만든다 — 하드코딩하면 계약 경로의 단일 진실이 깨진다.
+  const p = contractPaths(root, FIXTURE_BRANCH);
+  mkdirSync(p.planDir, { recursive: true });
+  writeFileSync(p.designDoc, FIXTURE_DESIGN, "utf8");
+  writeFileSync(p.plan, FIXTURE_PLAN, "utf8");
+
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  const setPreflight = (body: string | null) => {
+    if (body === null) rmSync(p.preflight, { force: true });
+    else writeFileSync(p.preflight, body, "utf8");
+  };
+  // dryRun:true — 게이트는 통과시키되 세션은 띄우지 않는다.
+  const run = () => runBuilder({ repoRoot: root, branch: FIXTURE_BRANCH, dryRun: true });
+  const planSha = createHash("sha256").update(FIXTURE_PLAN, "utf8").digest("hex");
+
+  test("픽스처가 계약 검증을 통과한다 — 아래가 엉뚱한 이유로 실패하지 않게", () => {
+    expect(checkDesignDoc(FIXTURE_DESIGN).filter((v) => v.severity === "error")).toEqual([]);
+    expect(checkPlan(FIXTURE_PLAN).filter((v) => v.severity === "error")).toEqual([]);
+  });
+
+  test("preflight.json 이 없으면 REJECTED — 게이트 블록을 지우면 이 테스트가 깨진다", async () => {
+    setPreflight(null);
+    const o = await run();
+    expect(o.outcome).toBe("REJECTED");
+    expect(`${o.reason ?? ""}\n${o.contractViolations ?? ""}`).toContain("사전 검사");
+  });
+
+  test("CLEAN + 해시 일치면 SUCCESS — 전부 거부하는 게이트가 아니다", async () => {
+    setPreflight(cleanResult(planSha));
+    const o = await run();
+    expect(o.outcome).toBe("SUCCESS");
+    expect(o.contractViolations).toBeUndefined();
+  });
+
+  test("CLEAN 이지만 해시가 다르면 REJECTED — 해시를 plan.md 에서 다시 계산한다", async () => {
+    setPreflight(cleanResult("b".repeat(64)));
+    const o = await run();
+    expect(o.outcome).toBe("REJECTED");
+  });
+
+  test("preflight.json 이 깨진 JSON 이면 BLOCKED — REJECTED 가 아니다 (하드룰 #4)", async () => {
+    setPreflight("{ broken");
+    const o = await run();
+    expect(o.outcome).toBe("BLOCKED");
+  });
+});
+
+describe("builder.settings.json — 게이트 산출물도 세션이 쓸 수 없다 (I4)", () => {
+  const deny: string[] = JSON.parse(
+    readFileSync("config/builder.settings.json", "utf8"),
+  ).permissions.deny;
+
+  test("계약 파일 네 개가 Edit·Write 양쪽에서 deny 다", () => {
+    // preflight.json 이 빠져 있으면 세션이 스스로 CLEAN 을 써넣고 **다음 회전**의
+    // 게이트를 통과한다. plan.md 가 deny 라서 해시가 안정적이고, 그래서 위조가
+    // 오히려 쉽다. (심층 방어일 뿐이다 — `Bash(bun:*)` 로 우회 가능. $comment 참조)
+    for (const f of ["plan.md", "design-doc.md", "preflight.json", "preflight-raw.json"]) {
+      for (const tool of ["Edit", "Write"]) {
+        expect(deny).toContain(`${tool}(docs/plans/**/${f})`);
+      }
+    }
   });
 });

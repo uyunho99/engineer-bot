@@ -15,7 +15,18 @@
     "deny 가 allow 를 이긴다. 그래서 아래처럼 넓게 허용하고 위험한 것만 되돌린다.",
     "",
     "이 파일만으로 §8이 완성되지는 않는다. GitHub 자격증명 분리(BUILD-PLAN I5)와",
-    "main 브랜치 보호 규칙이 나머지 두 층이다 (AMENDMENTS §0.2)."
+    "main 브랜치 보호 규칙이 나머지 두 층이다 (AMENDMENTS §0.2).",
+    "",
+    "preflight.json · preflight-raw.json 도 deny 한다 (2026-09-03 최종 리뷰).",
+    "세션은 acceptEdits 로 docs/plans/<slug>/ 안에 자유롭게 쓴다. 사전 검사 게이트는",
+    "그 디렉터리의 preflight.json 을 읽어 판정하므로, 세션이 CLEAN 판정을 직접 써버릴",
+    "수 있었다. 이번 실행은 게이트가 spawn 앞이라 스스로를 풀지 못하지만, **다음",
+    "bin/builder 호출(재시도)** 이 봇이 위조한 게이트를 통과한다. plan.md 가 이미",
+    "deny 라서 위조가 더 쉽다 — 플랜이 안 바뀌니 해시가 안정적이고 세션 안에서 계산된다.",
+    "",
+    "⚠️ 이건 봉인이 아니라 심층 방어 한 겹이다. 위 allow 의 `Bash(bun:*)` 가 넓어서",
+    "경로 기반 deny 는 `bun -e` 한 줄로 전부 우회된다. preflight.json 의 진짜 출처",
+    "증명(서명·하네스 소유 경로 등)은 후속 설계 과제로 남는다."
   ],
   "permissions": {
     "allow": [
@@ -61,7 +72,11 @@
       "Edit(docs/plans/**/plan.md)",
       "Write(docs/plans/**/plan.md)",
       "Edit(docs/plans/**/design-doc.md)",
-      "Write(docs/plans/**/design-doc.md)"
+      "Write(docs/plans/**/design-doc.md)",
+      "Edit(docs/plans/**/preflight.json)",
+      "Write(docs/plans/**/preflight.json)",
+      "Edit(docs/plans/**/preflight-raw.json)",
+      "Write(docs/plans/**/preflight-raw.json)"
     ]
   }
 }
