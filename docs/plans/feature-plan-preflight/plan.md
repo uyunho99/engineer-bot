@@ -14,7 +14,7 @@
 
 - **런타임 핀**: bun `1.3.14` · node `v22.22.3` (`versions.lock`). 새 런타임 의존성을 추가하지 않는다.
 - **테스트 명령**: `bun test`. 전용 테스트 디렉터리를 만들지 않는다 — 이 레포는 `controller/<name>.test.ts` 방식이다.
-- **기존 테스트 107개는 유지된다.** 단 Task 2에서 `contract.test.ts`의 정상 픽스처를 **의도적으로** 수정한다 (새 필수 항목 추가). 그 실패는 회귀가 아니라 계약 변경의 신호다.
+- **기존 테스트는 전부 유지된다.** 기준선은 플랜 승인 시점 실측 **130개**이며, 착수 전 `bun test` 로 다시 확인한다 — 숫자를 외우지 말고 재실측한다. 단 Task 2에서 `contract.test.ts`의 정상 픽스처를 **의도적으로** 수정한다 (새 필수 항목 추가). 그 실패는 회귀가 아니라 계약 변경의 신호다.
 - **하드룰 #4** (CLAUDE.md): *"자유 텍스트 파싱 금지. 경계는 파일 + JSON 스키마다. 파싱 실패는 성공이 아니라 `BLOCKED`다"*
 - **하드룰 #3** (CLAUDE.md): *"서브에이전트 디스패치 시 모델을 항상 명시한다."* 워크플로우 레퍼런스의 "생략이 기본"을 뒤집는다 (D19).
 - **하드룰 #2** (CLAUDE.md): *"플랜은 현장에서 고치지 않는다."* 적용 범위는 게이트 ① **이후**다. 게이트 앞에서 사람이 결함마다 승인한 수정은 허용된다 (전제 A4).
@@ -1547,7 +1547,10 @@ git commit -m "feat(preflight): 워크플로우 산출 스키마 검증 — 실�
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-import { assembleResult } from "./preflight";
+import { assembleResult, type PreflightRaw } from "./preflight";
+// PreflightRaw 를 함께 import 하라 — 아래 raw() 헬퍼가 그 타입을 쓴다.
+// tsconfig 의 include 가 controller/**/*.ts 이고 noUnusedLocals: true 라
+// 테스트 파일도 타입체크 대상이다 (2026-09-03 봇 지적).
 
 describe("assembleResult", () => {
   const g = graphOf(planOf(
@@ -2741,10 +2744,63 @@ describe("오버레이가 자기 계약을 지킨다 (Task 14)", () => {
     return m[1];
   }
 
-  test("예시 블록이 checkPlan 을 통과한다", () => {
-    const plan = ["## 태스크", "", exampleBlock(overlay)].join("\n");
-    const errors = checkPlan(plan).filter((v) => v.severity === "error");
+  /**
+   * 예시 블록을 **완전한 플랜으로 감싼다.**
+   *
+   * `checkPlan` 은 플랜 전체 불변식도 검사한다 — `## Global Constraints` 존재와
+   * `Task 1..N` 번호 연속성. 태스크 조각 하나만 넣으면 그 셋이 원리적으로 실패하고,
+   * 오버레이 예시는 `Consumes: PersonaSeed from Task 2` 를 시연하려고 **의도적으로
+   * Task 3** 이므로 번호를 고칠 수도 없다.
+   *
+   * 이 테스트가 증명하려는 것은 "예시가 **태스크 단위** 계약을 지키는가" 다.
+   * 그래서 플랜 단위 요건은 자리표시로 채우고 예시를 Task 3 자리에 그대로 놓는다.
+   *
+   * (2026-09-03 봇이 3회전에서 이 테스트를 "통과 불가"로 판정해 반송했다.
+   *  실측 error 3건 — Global Constraints 1 · 번호 2. 봇 판정이 옳았다.)
+   */
+  function planAround(example: string): string {
+    const stub = (n: number, produces: string) =>
+      [
+        `### Task ${n}: 자리표시`,
+        "",
+        "**Tags:** verification=deterministic validation=invisible",
+        "",
+        "**Files:**",
+        `- Create: \`src/stub${n}.ts\``,
+        "",
+        "**Interfaces:**",
+        `- Produces: \`${produces}\``,
+        "",
+        "**테스트로 증명할 것:**",
+        "- [ ] 자리표시 — 관찰 가능한 행동 하나",
+      ].join("\n");
+    return [
+      "# 감싼 플랜",
+      "",
+      "## Global Constraints",
+      "",
+      "- 자리표시 제약 하나",
+      "",
+      stub(1, "bootstrap(): void"),
+      "",
+      // 예시의 Task 3 이 `PersonaSeed from Task 2` 를 소비하므로 Task 2 가 그것을 생산해야 한다
+      stub(2, "PersonaSeed"),
+      "",
+      example,
+    ].join("\n");
+  }
+
+  test("예시 블록이 태스크 단위 계약을 지킨다", () => {
+    const errors = checkPlan(planAround(exampleBlock(overlay)))
+      .filter((v) => v.severity === "error");
     expect(errors).toEqual([]);
+  });
+
+  test("감싸지 않으면 플랜 단위 요건 때문에 실패한다 — 왜 감싸는지의 증거", () => {
+    const bare = ["## 태스크", "", exampleBlock(overlay)].join("\n");
+    const errors = checkPlan(bare).filter((v) => v.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some((v) => v.message.includes("Global Constraints"))).toBe(true);
   });
 
   test("Interfaces 가 필수임을 본문이 말한다", () => {
@@ -2807,6 +2863,9 @@ Expected: FAIL — 오버레이 예시 블록에 `Interfaces` 필수 문구가 �
 ```markdown
 - [ ] 모든 태스크에 `**Files:**` 가 있고 `Create` 또는 `Modify` 항목이 하나 이상이다
 - [ ] 모든 태스크에 `**Interfaces:**` 가 있고, `Consumes` 의 심볼이 출처 태스크의 `Produces` 에 글자 그대로 존재한다
+- [ ] `Consumes` 는 **한 줄에 하나**다. 세미콜론·쉼표로 여러 개를 붙이지 않았다 (파서가 뒤쪽을 버린다)
+- [ ] 태스크가 아닌 출처(기존 코드·파일)는 `from Task N` 을 쓰지 않았다 — 심볼 의존만 `from` 을 쓴다
+- [ ] **문서 전체를 검사하는 함수에 문서 조각을 먹이는 테스트가 없다.** `checkPlan` 처럼 플랜 전체 불변식(Global Constraints · Task 1..N 연속)을 보는 함수에 태스크 조각을 넣고 `toEqual([])` 를 기대하면 원리적으로 실패한다. 조각을 완전한 플랜으로 **감싸거나**, 기대를 "관심 있는 위반의 유무"로 쓴다 (2026-09-03 봇이 3회전에서 반송한 결함)
 ```
 
 `CLAUDE.md` 의 단계별 스킬 테이블에 `writing-plans` 행 **다음**에 추가:
@@ -2917,6 +2976,26 @@ describe("checkPreflightGate (설계 D26)", () => {
 
   test("CLEAN + 해시 일치면 통과", () => {
     expect(checkPreflightGate(result(), SHA).ok).toBe(true);
+  });
+});
+
+// 요건 7번 — runBuilder 가 게이트 미통과 시 claude 를 띄우지 않는다.
+// 프로세스를 띄우지 않았음을 직접 단언할 수 없으므로, **그 앞의 관문이 막는 것**을
+// 단언한다 (Task 11 의 9번 요건과 같은 논리). runBuilder 는 spawn 전에
+// checkPreflightGate 를 부르고, ok:false 면 즉시 반환한다.
+describe("runBuilder — 게이트 미통과 시 세션을 띄우지 않는다", () => {
+  test("게이트가 REJECTED 면 spawn 전에 반환할 판정을 낸다", () => {
+    const gate = checkPreflightGate(null, "a".repeat(64));
+    expect(gate.ok).toBe(false);
+    if (gate.ok) return;
+    // 이 판정이 runBuilder 의 조기 반환 조건이다 — outcome 이 REJECTED/BLOCKED 면
+    // Bun.spawn 에 도달하지 않는다.
+    expect(["REJECTED", "BLOCKED"]).toContain(gate.outcome);
+  });
+
+  test("게이트가 통과면 판정이 세션 기동을 막지 않는다", () => {
+    const ok = checkPreflightGate(result(), SHA);
+    expect(ok.ok).toBe(true);
   });
 });
 ```
