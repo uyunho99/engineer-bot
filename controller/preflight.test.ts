@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
-import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs } from "./preflight";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict } from "./preflight";
 
 const PLAN = [
   "### Task 1: 목록",
@@ -276,5 +276,53 @@ describe("overlappingPairs", () => {
       fileTask(2, ["- Create: `b.ts`", "- Test: `shared.test.ts`"]),
     )));
     expect(p).toEqual([]);
+  });
+});
+
+describe("relationCoverage", () => {
+  const g = graphOf(planOf(
+    task(1, ["- Produces: `a()`"]),
+    task(2, ["- Consumes: `a()` from Task 1", "- Produces: `b()`"]),
+    task(3, ["- Consumes: `b()` from Task 2"]),
+  ));
+
+  test("declared 가 relations 개수와 같다", () => {
+    expect(relationCoverage(g, [], []).declared).toBe(g.relations.length);
+  });
+
+  test("1단계는 선언된 관계를 전부 본다 (D25)", () => {
+    const c = relationCoverage(g, [], []);
+    expect(c.examined_stage1).toBe(c.declared);
+  });
+
+  test("실패한 단위가 not_examined 에 들어간다", () => {
+    expect(relationCoverage(g, ["pair:1x2"], ["pair:2x3"]).not_examined).toEqual(["pair:2x3"]);
+  });
+
+  test("not_examined 는 비어도 배열로 존재한다", () => {
+    expect(relationCoverage(g, [], []).not_examined).toEqual([]);
+  });
+
+  test("관계 0개면 declared 0, 예외 없음", () => {
+    const empty = buildRelationGraph([]);
+    expect(relationCoverage(empty, [], []).declared).toBe(0);
+  });
+});
+
+describe("preflightVerdict", () => {
+  const clean = { declared: 3, examined_stage1: 3, examined_stage2: 3, not_examined: [] };
+
+  test("결함 0 + 미검사 0 이면 CLEAN", () => {
+    expect(preflightVerdict([], clean)).toBe("CLEAN");
+  });
+
+  test("결함이 있으면 REJECTED", () => {
+    const d = [{ id: "x", kind: "dangling_ref", task_ids: ["1", "2"], plan_text: "", conflict: "", stage: 1 }] as any;
+    expect(preflightVerdict(d, clean)).toBe("REJECTED");
+  });
+
+  test("결함 0 이라도 미검사가 있으면 REJECTED — 안 본 것을 통과로 쓰지 않는다", () => {
+    const gap = { ...clean, not_examined: ["pair:2x3"] };
+    expect(preflightVerdict([], gap)).toBe("REJECTED");
   });
 });

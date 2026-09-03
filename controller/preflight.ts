@@ -190,3 +190,48 @@ export function overlappingPairs(tasks: ParsedTask[]): FilePair[] {
   }
   return out;
 }
+
+/**
+ * 커버리지는 **관계** 단위로 센다. 태스크 단위로 세지 않는다 (설계 D25).
+ *
+ * 태스크 전부가 어떤 묶음에 한 번씩 들어가도 묶음 간 관계는 하나도 안 봤을 수 있다.
+ * 태스크 차집합은 그때 빈 배열이 되어 거짓 안심을 준다.
+ *
+ * `examined_stage1 === declared` 가 항상 성립하는 것이 이 필드를 믿을 수 있는
+ * 유일한 이유다 — 1단계는 결정론적이라 빠뜨리지 않는다.
+ */
+export interface RelationCoverage {
+  declared: number;
+  examined_stage1: number;
+  examined_stage2: number;
+  /** 검사 대상으로 뽑혔지만 에이전트가 죽거나 스킵된 단위 */
+  not_examined: string[];
+}
+
+export function relationCoverage(
+  g: RelationGraph,
+  examinedStage2: string[],
+  failed: string[],
+): RelationCoverage {
+  return {
+    declared: g.relations.length,
+    examined_stage1: g.relations.length,
+    examined_stage2: examinedStage2.length,
+    not_examined: [...failed],
+  };
+}
+
+export type Verdict = "CLEAN" | "REJECTED";
+
+/**
+ * 결함이 없어도 **검사하지 못한 단위가 있으면 `REJECTED`** 다.
+ * 안 본 것을 통과로 기록하는 것이 이 기능의 최악 실패다 (설계 §7.4).
+ */
+export function preflightVerdict(
+  defects: PreflightDefect[],
+  coverage: RelationCoverage,
+): Verdict {
+  if (defects.length > 0) return "REJECTED";
+  if (coverage.not_examined.length > 0) return "REJECTED";
+  return "CLEAN";
+}
