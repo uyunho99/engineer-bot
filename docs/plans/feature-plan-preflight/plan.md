@@ -259,7 +259,8 @@ git commit -m "feat(contract): **Files:** / **Interfaces:** 파싱 (설계 D6)"
 - Test: `controller/contract.test.ts`
 
 **Interfaces:**
-- Consumes: `parseFiles(body: string): TaskFiles`, `parseInterfaces(body: string): TaskInterfaces` from Task 1
+- Consumes: `parseFiles(body: string): TaskFiles` from Task 1
+- Consumes: `parseInterfaces(body: string): TaskInterfaces` from Task 1
 - Produces: `checkPlan(planText: string): Violation[]` (기존 함수에 규칙 추가 — 시그니처 불변)
 
 **테스트로 증명할 것:**
@@ -536,7 +537,9 @@ git commit -m "feat(contract): BuildDefect/PreflightDefect/FixPatch 명명 + pre
 - Test: `controller/preflight.test.ts`
 
 **Interfaces:**
-- Consumes: `ParsedTask`, `parseInterfaces(body: string): TaskInterfaces`, `ConsumeRef` from Task 1
+- Consumes: `parseInterfaces(body: string): TaskInterfaces` from Task 1
+- Consumes: `ConsumeRef` from Task 1
+- Consumes: `ParsedTask` (기존 — `controller/contract.ts`)
 - Produces: `buildRelationGraph(tasks: ParsedTask[]): RelationGraph`, `interface RelationGraph { nodes: Map<string, TaskInterfaces>; order: string[]; relations: Relation[] }`, `interface Relation { consumer: string; symbol: string; declaredFrom: string | null }`
 
 **테스트로 증명할 것:**
@@ -710,7 +713,10 @@ git commit -m "feat(preflight): 선언된 관계 그래프 (설계 §6.2 1단계
 - Test: `controller/preflight.test.ts`
 
 **Interfaces:**
-- Consumes: `RelationGraph`, `Relation` from Task 4; `PreflightDefect`, `DefectKind` from Task 3
+- Consumes: `RelationGraph` from Task 4
+- Consumes: `Relation` from Task 4
+- Consumes: `PreflightDefect` from Task 3
+- Consumes: `DefectKind` from Task 3
 - Produces: `danglingRefs(g: RelationGraph): PreflightDefect[]`, `orderViolations(g: RelationGraph): PreflightDefect[]`, `signatureCandidates(g: RelationGraph): PreflightDefect[]`, `stage1Defects(g: RelationGraph): PreflightDefect[]`
 
 **테스트로 증명할 것:**
@@ -1011,7 +1017,8 @@ git commit -m "feat(preflight): 1단계 결함 검출 — 매달린 참조·순�
 - Test: `controller/preflight.test.ts`
 
 **Interfaces:**
-- Consumes: `ParsedTask`, `parseFiles(body: string): TaskFiles` from Task 1
+- Consumes: `parseFiles(body: string): TaskFiles` from Task 1
+- Consumes: `ParsedTask` (기존 — `controller/contract.ts`)
 - Produces: `overlappingPairs(tasks: ParsedTask[]): FilePair[]`, `interface FilePair { a: string; b: string; sharedFiles: string[] }`
 
 **테스트로 증명할 것:**
@@ -1151,7 +1158,9 @@ git commit -m "feat(preflight): 파일 겹침 짝 (2단계 검사 단위)"
 - Test: `controller/preflight.test.ts`
 
 **Interfaces:**
-- Consumes: `RelationGraph`, `Relation` from Task 4; `PreflightDefect` from Task 3
+- Consumes: `RelationGraph` from Task 4
+- Consumes: `Relation` from Task 4
+- Consumes: `PreflightDefect` from Task 3
 - Produces: `relationCoverage(g: RelationGraph, examinedStage2: string[], failed: string[]): RelationCoverage`, `interface RelationCoverage { declared: number; examined_stage1: number; examined_stage2: number; not_examined: string[] }`, `preflightVerdict(defects: PreflightDefect[], coverage: RelationCoverage): Verdict`, `type Verdict = "CLEAN" | "REJECTED"`
 
 **테스트로 증명할 것:**
@@ -1724,7 +1733,9 @@ git commit -m "feat(preflight): 결과 조립 + applied 누적 (설계 D29)"
 - Test: `controller/preflight.test.ts`
 
 **Interfaces:**
-- Consumes: `FixPatch` from Task 3; `ParsedTask`, `parseTasks(planText: string): ParsedTask[]` from `controller/contract.ts`
+- Consumes: `FixPatch` from Task 3
+- Consumes: `ParsedTask` (기존 — `controller/contract.ts`)
+- Consumes: `parseTasks(planText: string): ParsedTask[]` (기존 — `controller/contract.ts`)
 - Produces: `findFixSites(planText: string, patch: FixPatch): number[]`, `applyPatch(planText: string, patch: FixPatch, siteIndex?: number): ApplyOutcome`, `type ApplyOutcome = { status: "applied"; text: string } | { status: "not_found" } | { status: "ambiguous"; sites: number[] }`
 
 **테스트로 증명할 것:**
@@ -1987,8 +1998,7 @@ git commit -m "feat(preflight): 패치 적용 — 태스크 범위 앵커, 0/1/2
 - Consumes: `checkPreflightRaw(raw: string, planSha256: string): CheckResult & { data?: PreflightRaw }` from Task 8
 - Consumes: `assembleResult(input: AssembleInput): PreflightResult` from Task 9
 - Consumes: `applyPatch(planText: string, patch: FixPatch, siteIndex?: number): ApplyOutcome` from Task 10
-- Consumes: `preflight` from Task 3
-- Consumes: `preflightRaw` from Task 3
+- Consumes: `ContractPaths` from Task 3
 - Produces: `gateDecision(input: GateInput): GateOutcome`, `interface GateInput { planExists: boolean; planSha256: string; previous: PreflightResult | null; contractOk: boolean }`, `type GateOutcome = { action: "skip"; reason: string } | { action: "run"; reason: string } | { action: "cached"; reason: string }`, CLI: `bin/preflight <branch> --gate|--plan|--record|--apply <id...>`
 
 > 설계 D12(적용은 검사와 분리된 별도 명령이다)의 구현이다 — `--record` 에서 멈추고,
@@ -2268,190 +2278,7 @@ git commit -m "feat(preflight): bin/preflight CLI 네 모드 + gateDecision (설
 
 ---
 
-### Task 12: builder 게이트 강제 — 통과하지 않은 플랜은 빌드하지 않는다
-
-**Tags:** verification=deterministic validation=invisible
-
-**Files:**
-- Modify: `controller/builder.ts`
-- Modify: `controller/preflight.ts`
-- Test: `controller/preflight.test.ts`
-
-**Interfaces:**
-- Consumes: `PreflightResult` from Task 9; `Violation` from Task 3
-- Produces: `checkPreflightGate(raw: string | null, planSha256: string): GateVerdict`, `type GateVerdict = { ok: true } | { ok: false; outcome: "REJECTED" | "BLOCKED"; violations: Violation[] }`
-
-**테스트로 증명할 것:**
-- [ ] `preflight.json` 이 없으면 `REJECTED` 이고 이유에 "사전 검사"가 들어간다
-- [ ] `plan_sha256` 이 현재 플랜과 다르면 `REJECTED` — 검사 후 플랜이 바뀐 것이다
-- [ ] `verdict: "REJECTED"` 면 `REJECTED` 이고 결함 개수가 이유에 들어간다
-- [ ] JSON 이 깨졌으면 **`BLOCKED`** — `REJECTED` 가 아니다 (하드룰 #4)
-- [ ] `schema` 가 1이 아니면 `BLOCKED`
-- [ ] `verdict: "CLEAN"` + 해시 일치면 `ok: true`
-- [ ] `runBuilder` 가 사전 검사 미통과 시 **`claude` 프로세스를 띄우지 않는다** (`dryRun: false` 인데도 세션이 시작되지 않는다)
-
-- [ ] **Step 1: Write the failing test**
-
-```ts
-import { checkPreflightGate } from "./preflight";
-
-describe("checkPreflightGate (설계 D26)", () => {
-  const SHA = "a".repeat(64);
-  const result = (over: Record<string, unknown> = {}) => JSON.stringify({
-    schema: 1, branch: "feature/x", plan_sha256: SHA, scope: "interface-graph+file-overlap",
-    verdict: "CLEAN", relations: { declared: 1, examined_stage1: 1, examined_stage2: 1, not_examined: [] },
-    examined: [], defects: [], applied: [], ...over,
-  });
-
-  test("파일이 없으면 REJECTED", () => {
-    const r = checkPreflightGate(null, SHA);
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.outcome).toBe("REJECTED");
-    expect(r.violations[0].message).toContain("사전 검사");
-  });
-
-  test("해시가 다르면 REJECTED", () => {
-    const r = checkPreflightGate(result(), "b".repeat(64));
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.outcome).toBe("REJECTED");
-  });
-
-  test("verdict REJECTED 면 REJECTED", () => {
-    const r = checkPreflightGate(result({ verdict: "REJECTED", defects: [{ id: "d1" }] }), SHA);
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.outcome).toBe("REJECTED");
-    expect(r.violations.some((v) => v.message.includes("1"))).toBe(true);
-  });
-
-  test("JSON 이 깨지면 BLOCKED — REJECTED 가 아니다 (하드룰 #4)", () => {
-    const r = checkPreflightGate("{ broken", SHA);
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.outcome).toBe("BLOCKED");
-  });
-
-  test("schema 가 1이 아니면 BLOCKED", () => {
-    const r = checkPreflightGate(result({ schema: 99 }), SHA);
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.outcome).toBe("BLOCKED");
-  });
-
-  test("CLEAN + 해시 일치면 통과", () => {
-    expect(checkPreflightGate(result(), SHA).ok).toBe(true);
-  });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `bun test controller/preflight.test.ts`
-Expected: FAIL — `checkPreflightGate is not a function`
-
-- [ ] **Step 3: Write minimal implementation**
-
-`controller/preflight.ts`:
-
-```ts
-export type GateVerdict =
-  | { ok: true }
-  | { ok: false; outcome: "REJECTED" | "BLOCKED"; violations: Violation[] };
-
-/**
- * 게이트 강제 (설계 D26).
- *
- * **이것이 없으면 이 기능 전체가 강제되지 않는다.** 초안에는 이 함수가 없었고,
- * builder 가 preflight.json 을 읽지 않았다 — 검사를 안 돌려도, REJECTED 가
- * 나와도 빌드가 시작됐다.
- *
- * 게이트 ① 의 의미가 이 함수로 바뀐다:
- *   "사람이 승인한다" → "검사를 통과한 것만 사람이 승인할 수 있다"
- */
-export function checkPreflightGate(raw: string | null, planSha256: string): GateVerdict {
-  const v = (message: string): Violation[] => [
-    { severity: "error", file: "preflight.json", rule: "D26", message },
-  ];
-
-  if (raw === null) {
-    return {
-      ok: false, outcome: "REJECTED",
-      violations: v("사전 검사를 돌리지 않았습니다 — /preflight 를 실행하세요"),
-    };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    return {
-      ok: false, outcome: "BLOCKED",
-      violations: v(`preflight.json JSON 파싱 실패: ${e instanceof Error ? e.message : String(e)}`),
-    };
-  }
-
-  const o = parsed as Partial<PreflightResult>;
-  if (o?.schema !== 1) {
-    return { ok: false, outcome: "BLOCKED", violations: v(`preflight.json schema 가 1이 아닙니다: ${String(o?.schema)}`) };
-  }
-  if (o.plan_sha256 !== planSha256) {
-    return {
-      ok: false, outcome: "REJECTED",
-      violations: v("사전 검사 이후 plan.md 가 바뀌었습니다 — 다시 검사하세요"),
-    };
-  }
-  if (o.verdict !== "CLEAN") {
-    return {
-      ok: false, outcome: "REJECTED",
-      violations: v(`사전 검사가 ${o.verdict} 입니다 — 결함 ${o.defects?.length ?? 0}건`),
-    };
-  }
-  return { ok: true };
-}
-```
-
-`controller/builder.ts` — 계약 검증 직후, `dryRun` 판정 **전에** 삽입:
-
-```ts
-  // ── 1-B. 사전 검사 게이트 (설계 D26) ────────────────────────────
-  // 계약(형식)이 통과해도 사전 검사를 통과하지 않은 플랜은 빌드하지 않는다.
-  const { checkPreflightGate } = await import("./preflight");
-  const { createHash } = await import("node:crypto");
-  const planSha = createHash("sha256").update(planText, "utf8").digest("hex");
-  let preflightRawText: string | null = null;
-  try {
-    preflightRawText = await readFile(p.preflight, "utf8");
-  } catch {
-    preflightRawText = null;
-  }
-  const gate = checkPreflightGate(preflightRawText, planSha);
-  if (!gate.ok) {
-    return done({
-      outcome: gate.outcome,
-      contractViolations: formatViolations(gate.violations),
-      tasks,
-      reason: "사전 검사 게이트 미통과 — 빌드를 시작하지 않았습니다",
-    });
-  }
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `bun run typecheck && bun test`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add controller/preflight.ts controller/builder.ts controller/preflight.test.ts
-git commit -m "feat(builder): 사전 검사 게이트 강제 (설계 D26) — 이것이 없으면 전체가 강제되지 않는다"
-```
-
----
-
-### Task 13: 워크플로우 스크립트 — 2단계 에이전트 팬아웃
+### Task 12: 워크플로우 스크립트 — 2단계 에이전트 팬아웃
 
 **Tags:** verification=deterministic validation=invisible
 
@@ -2460,7 +2287,8 @@ git commit -m "feat(builder): 사전 검사 게이트 강제 (설계 D26) — �
 - Test: `controller/preflight.test.ts` (픽스처 왕복)
 
 **Interfaces:**
-- Consumes: `--plan` 이 내는 args JSON from Task 11; `PreflightRaw` 스키마 from Task 8
+- Consumes: `gateDecision(input: GateInput): GateOutcome` from Task 11
+- Consumes: `PreflightRaw` from Task 8
 - Produces: `workflows/plan-preflight.js` — `docs/plans/<slug>/preflight-raw.json` 을 쓰는 워크플로우 스크립트
 
 **테스트로 증명할 것:**
@@ -2470,14 +2298,14 @@ git commit -m "feat(builder): 사전 검사 게이트 강제 (설계 D26) — �
 
 > **증거의 한계를 명기한다.** 이 파일은 워크플로우 런타임 전역(`agent`/`pipeline`)에 의존해
 > 단위 테스트로 실행할 수 없다 (설계 §6.1). 위 세 항목이 이 태스크에서 얻을 수 있는 관찰의
-> 전부다. 실제 에이전트 동작은 Task 15 의 픽스처 1회 실행에서 관찰한다.
+> 전부다. 실제 에이전트 동작은 Task 14 의 픽스처 1회 실행에서 관찰한다.
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 import { readFileSync } from "node:fs";
 
-describe("워크플로우 스크립트 (Task 13)", () => {
+describe("워크플로우 스크립트 (Task 12)", () => {
   const src = readFileSync("workflows/plan-preflight.js", "utf8");
 
   test("모든 agent() 호출에 model 이 명시돼 있다 (하드룰 #3)", () => {
@@ -2684,7 +2512,7 @@ return {
 
 > 수정 제안이 적용 가능한 형태여야 한다는 설계 D5 는 `PATCH_SCHEMA` 로 강제된다.
 >
-> 워크플로우 반환값을 `rawPath` 에 쓰는 것은 `/preflight` 스킬이 담당한다 (Task 14) —
+> 워크플로우 반환값을 `rawPath` 에 쓰는 것은 `/preflight` 스킬이 담당한다 (Task 13) —
 > 워크플로우 스크립트는 파일을 쓸 수 없다.
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -2701,7 +2529,7 @@ git commit -m "feat(preflight): 2단계 워크플로우 — 후보 판정·미�
 
 ---
 
-### Task 14: `/preflight` 스킬과 훅 배선
+### Task 13: `/preflight` 스킬과 훅 배선
 
 **Tags:** verification=deterministic validation=invisible
 
@@ -2711,7 +2539,13 @@ git commit -m "feat(preflight): 2단계 워크플로우 — 후보 판정·미�
 - Test: `controller/preflight.test.ts`
 
 **Interfaces:**
-- Consumes: `bin/preflight <branch> --gate|--plan|--record|--apply` from Task 11; `workflows/plan-preflight.js` from Task 13
+- Consumes: `gateDecision(input: GateInput): GateOutcome` from Task 11
+
+> **파일 의존은 여기 적지 않는다.** 이 태스크는 `bin/preflight`(Task 11)와
+> `workflows/plan-preflight.js`(Task 12)가 **존재하고 동작할 것**에 의존한다. 그것은
+> 심볼 의존이 아니라 파일 의존이고, `**Interfaces:**`는 심볼만 표현한다 — 파일 경로를
+> 심볼로 적으면 `symbolName("bin/preflight")`가 `"bin"`이 되어 거짓 매달린 참조가 난다.
+> 순서는 플랜의 선형 순서가 강제한다 (설계 §4.2 한계).
 - Produces: `/preflight` 스킬 (검사 → 사람 결정 → 적용 → 재검사 순서를 묶는다), `PostToolUse` 훅 설정
 
 **테스트로 증명할 것:**
@@ -2726,7 +2560,7 @@ git commit -m "feat(preflight): 2단계 워크플로우 — 후보 판정·미�
 ```ts
 import { existsSync, readFileSync } from "node:fs";
 
-describe("훅과 스킬 배선 (Task 14)", () => {
+describe("훅과 스킬 배선 (Task 13)", () => {
   test("훅이 PostToolUse 다 — 쓰기를 막지 않는다 (설계 D23)", () => {
     const s = JSON.parse(readFileSync(".claude/settings.json", "utf8"));
     expect(s.hooks?.PostToolUse).toBeDefined();
@@ -2864,7 +2698,7 @@ git commit -m "feat(preflight): /preflight 스킬 + PostToolUse 훅 (설계 D13�
 
 ---
 
-### Task 15: 오버레이·라우팅 갱신과 픽스처 왕복 검증
+### Task 14: 오버레이·라우팅 갱신과 픽스처 왕복 검증
 
 **Tags:** verification=deterministic validation=invisible
 
@@ -2887,7 +2721,7 @@ git commit -m "feat(preflight): /preflight 스킬 + PostToolUse 훅 (설계 D13�
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-describe("오버레이가 자기 계약을 지킨다 (Task 15)", () => {
+describe("오버레이가 자기 계약을 지킨다 (Task 14)", () => {
   const overlay = readFileSync("overlay/writing-plans-tagging.md", "utf8");
 
   /** 오버레이의 ```` 로 감싼 markdown 예시 블록을 뽑는다 */
@@ -2985,6 +2819,205 @@ git commit -m "feat(overlay): Interfaces 를 필수로 승격 + /preflight 라�
 
 ---
 
+### Task 15: builder 게이트 강제 — 통과하지 않은 플랜은 빌드하지 않는다
+
+**Tags:** verification=deterministic validation=invisible
+
+> **이 태스크가 마지막인 이유 — 재시도가 막히는 것을 피한다.**
+> `bin/builder`는 세션을 띄우기 **전에** 한 번만 게이트를 검사한다. 그래서 이 태스크가
+> 빌드 중간에 커밋돼도 이미 돌고 있는 세션은 영향받지 않는다. 문제는 **재시도**다 —
+> SDD가 타임아웃이나 실패로 중단된 뒤 `bin/builder`를 다시 실행하면, 게이트가 이미
+> 있고 `preflight.json`은 아직 없으므로 `REJECTED`로 막힌다. 마지막에 두면 그 창이 닫힌다.
+>
+> **대가:** Task 1~14는 게이트 없이 빌드된다. 게이트가 실제로 작동하는지는 이 태스크의
+> 단위 테스트로만 관찰되고, 실제 `bin/builder` 경로에서의 동작은 **다음 기능의 1회전**에서
+> 처음 관찰된다 (설계 §7.4 관찰 항목).
+>
+> **부트스트랩:** 이 태스크가 끝나면 `bin/builder`가 `preflight.json`을 요구한다.
+> 이 브랜치를 다시 빌드하려면 먼저 `/preflight`를 한 번 돌려 그 파일을 만들어야 한다.
+
+**Files:**
+- Modify: `controller/builder.ts`
+- Modify: `controller/preflight.ts`
+- Test: `controller/preflight.test.ts`
+
+**Interfaces:**
+- Consumes: `PreflightResult` from Task 9
+- Consumes: `Violation` (기존 — `controller/contract.ts`)
+- Produces: `checkPreflightGate(raw: string | null, planSha256: string): GateVerdict`, `type GateVerdict = { ok: true } | { ok: false; outcome: "REJECTED" | "BLOCKED"; violations: Violation[] }`
+
+**테스트로 증명할 것:**
+- [ ] `preflight.json` 이 없으면 `REJECTED` 이고 이유에 "사전 검사"가 들어간다
+- [ ] `plan_sha256` 이 현재 플랜과 다르면 `REJECTED` — 검사 후 플랜이 바뀐 것이다
+- [ ] `verdict: "REJECTED"` 면 `REJECTED` 이고 결함 개수가 이유에 들어간다
+- [ ] JSON 이 깨졌으면 **`BLOCKED`** — `REJECTED` 가 아니다 (하드룰 #4)
+- [ ] `schema` 가 1이 아니면 `BLOCKED`
+- [ ] `verdict: "CLEAN"` + 해시 일치면 `ok: true`
+- [ ] `runBuilder` 가 사전 검사 미통과 시 **`claude` 프로세스를 띄우지 않는다** (`dryRun: false` 인데도 세션이 시작되지 않는다)
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import { checkPreflightGate } from "./preflight";
+
+describe("checkPreflightGate (설계 D26)", () => {
+  const SHA = "a".repeat(64);
+  const result = (over: Record<string, unknown> = {}) => JSON.stringify({
+    schema: 1, branch: "feature/x", plan_sha256: SHA, scope: "interface-graph+file-overlap",
+    verdict: "CLEAN", relations: { declared: 1, examined_stage1: 1, examined_stage2: 1, not_examined: [] },
+    examined: [], defects: [], applied: [], ...over,
+  });
+
+  test("파일이 없으면 REJECTED", () => {
+    const r = checkPreflightGate(null, SHA);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("REJECTED");
+    expect(r.violations[0].message).toContain("사전 검사");
+  });
+
+  test("해시가 다르면 REJECTED", () => {
+    const r = checkPreflightGate(result(), "b".repeat(64));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("REJECTED");
+  });
+
+  test("verdict REJECTED 면 REJECTED", () => {
+    const r = checkPreflightGate(result({ verdict: "REJECTED", defects: [{ id: "d1" }] }), SHA);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("REJECTED");
+    expect(r.violations.some((v) => v.message.includes("1"))).toBe(true);
+  });
+
+  test("JSON 이 깨지면 BLOCKED — REJECTED 가 아니다 (하드룰 #4)", () => {
+    const r = checkPreflightGate("{ broken", SHA);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("BLOCKED");
+  });
+
+  test("schema 가 1이 아니면 BLOCKED", () => {
+    const r = checkPreflightGate(result({ schema: 99 }), SHA);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.outcome).toBe("BLOCKED");
+  });
+
+  test("CLEAN + 해시 일치면 통과", () => {
+    expect(checkPreflightGate(result(), SHA).ok).toBe(true);
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `bun test controller/preflight.test.ts`
+Expected: FAIL — `checkPreflightGate is not a function`
+
+- [ ] **Step 3: Write minimal implementation**
+
+`controller/preflight.ts`:
+
+```ts
+export type GateVerdict =
+  | { ok: true }
+  | { ok: false; outcome: "REJECTED" | "BLOCKED"; violations: Violation[] };
+
+/**
+ * 게이트 강제 (설계 D26).
+ *
+ * **이것이 없으면 이 기능 전체가 강제되지 않는다.** 초안에는 이 함수가 없었고,
+ * builder 가 preflight.json 을 읽지 않았다 — 검사를 안 돌려도, REJECTED 가
+ * 나와도 빌드가 시작됐다.
+ *
+ * 게이트 ① 의 의미가 이 함수로 바뀐다:
+ *   "사람이 승인한다" → "검사를 통과한 것만 사람이 승인할 수 있다"
+ */
+export function checkPreflightGate(raw: string | null, planSha256: string): GateVerdict {
+  const v = (message: string): Violation[] => [
+    { severity: "error", file: "preflight.json", rule: "D26", message },
+  ];
+
+  if (raw === null) {
+    return {
+      ok: false, outcome: "REJECTED",
+      violations: v("사전 검사를 돌리지 않았습니다 — /preflight 를 실행하세요"),
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    return {
+      ok: false, outcome: "BLOCKED",
+      violations: v(`preflight.json JSON 파싱 실패: ${e instanceof Error ? e.message : String(e)}`),
+    };
+  }
+
+  const o = parsed as Partial<PreflightResult>;
+  if (o?.schema !== 1) {
+    return { ok: false, outcome: "BLOCKED", violations: v(`preflight.json schema 가 1이 아닙니다: ${String(o?.schema)}`) };
+  }
+  if (o.plan_sha256 !== planSha256) {
+    return {
+      ok: false, outcome: "REJECTED",
+      violations: v("사전 검사 이후 plan.md 가 바뀌었습니다 — 다시 검사하세요"),
+    };
+  }
+  if (o.verdict !== "CLEAN") {
+    return {
+      ok: false, outcome: "REJECTED",
+      violations: v(`사전 검사가 ${o.verdict} 입니다 — 결함 ${o.defects?.length ?? 0}건`),
+    };
+  }
+  return { ok: true };
+}
+```
+
+`controller/builder.ts` — 계약 검증 직후, `dryRun` 판정 **전에** 삽입:
+
+```ts
+  // ── 1-B. 사전 검사 게이트 (설계 D26) ────────────────────────────
+  // 계약(형식)이 통과해도 사전 검사를 통과하지 않은 플랜은 빌드하지 않는다.
+  const { checkPreflightGate } = await import("./preflight");
+  const { createHash } = await import("node:crypto");
+  const planSha = createHash("sha256").update(planText, "utf8").digest("hex");
+  let preflightRawText: string | null = null;
+  try {
+    preflightRawText = await readFile(p.preflight, "utf8");
+  } catch {
+    preflightRawText = null;
+  }
+  const gate = checkPreflightGate(preflightRawText, planSha);
+  if (!gate.ok) {
+    return done({
+      outcome: gate.outcome,
+      contractViolations: formatViolations(gate.violations),
+      tasks,
+      reason: "사전 검사 게이트 미통과 — 빌드를 시작하지 않았습니다",
+    });
+  }
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `bun run typecheck && bun test`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add controller/preflight.ts controller/builder.ts controller/preflight.test.ts
+git commit -m "feat(builder): 사전 검사 게이트 강제 (설계 D26) — 이것이 없으면 전체가 강제되지 않는다"
+```
+
+---
+
+---
+
 ## 태그 분포
 
 ```
@@ -2994,7 +3027,7 @@ git commit -m "feat(overlay): Interfaces 를 필수로 승격 + /preflight 라�
 
 `generative` 0건이다 — 이 기능의 모든 코드는 입출력이 확정적이다. AI를 부르는 부분은
 워크플로우 스크립트 하나뿐이고, 그 파일은 판단 로직을 갖지 않으므로(D1) 검증 대상이
-"형식 왕복 + 모델 명시"로 좁혀진다 (Task 13에 한계를 명기했다).
+"형식 왕복 + 모델 명시"로 좁혀진다 (Task 12에 한계를 명기했다).
 
 `visible` 0건이다 — 화면이 없다. 게이트 ②의 데모 경로는 이번 회전에서 검증되지 않고,
 `invisible`-only 보고 패킷 경로가 대신 검증된다 (명세 §5.6).
