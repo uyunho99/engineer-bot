@@ -863,6 +863,35 @@ describe("훅과 스킬 배선 (Task 13)", () => {
     expect(JSON.stringify(s.hooks.PostToolUse)).toContain("--gate");
   });
 
+  /**
+   * 2026-09-03 6회전 최종 리뷰가 확정한 결함의 회귀 가드.
+   *
+   * 플랜은 훅이 `$CLAUDE_TOOL_INPUT` 을 읽으라고 지시했는데 그 변수는 훅 계약에
+   * 없다. PostToolUse 는 도구 페이로드를 **stdin 의 JSON** 으로 준다. 그러면
+   * `echo "" | grep -q ...` 가 절대 매치되지 않고 grep 의 exit 1 은 `if` 가 삼킨다 —
+   * **출력 0, 오류 0, 영구히.** 훅이 있는데 아무 일도 안 하는 상태였다.
+   *
+   * 어떤 테스트도 훅의 발화 자체에는 도달할 수 없다. 그래서 그 대신 **결함의
+   * 지문**을 단언한다 — 없는 변수를 다시 쓰면 여기서 깨진다.
+   */
+  test("훅이 없는 환경변수를 읽지 않는다 — stdin 을 읽는다", () => {
+    const s = JSON.parse(readFileSync(".claude/settings.json", "utf8"));
+    const cmd: string = s.hooks.PostToolUse[0].hooks[0].command;
+    expect(cmd).not.toContain("CLAUDE_TOOL_INPUT");
+    // grep 이 파일 인자 없이 불려야 stdin 을 읽는다.
+    expect(cmd).toMatch(/grep -q '[^']+'\s*;/);
+    // 경로는 cwd 에 의존하지 않는다 (훅의 cwd 는 보장되지 않는다).
+    expect(cmd).toContain("$CLAUDE_PROJECT_DIR/bin/preflight");
+  });
+
+  test("스킬이 BLOCKED(exit 4)를 REJECTED(exit 1)와 구분한다 — 하드룰 #4", () => {
+    const md = readFileSync(".claude/skills/preflight/SKILL.md", "utf8");
+    expect(md).toContain("exit 4");
+    expect(md).toContain("BLOCKED");
+    // "결함이 있다" 가 아니라 "검사가 실패했다" 로 안내해야 한다.
+    expect(md).toMatch(/계획서(의 결함이 아니라|를 고치라고 제안하지 마라)/);
+  });
+
   test("스킬이 네 모드를 순서대로 지시한다", () => {
     const md = readFileSync(".claude/skills/preflight/SKILL.md", "utf8");
     const order = ["--plan", "Workflow", "--record", "--apply"];

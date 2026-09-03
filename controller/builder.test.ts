@@ -3,7 +3,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
-import { buildClaudeArgs, isStaleReport, mergeSettings, resolveSuperpowersDir, runBuilder } from "./builder";
+import {
+  buildClaudeArgs,
+  checkDocIntegrity,
+  isStaleReport,
+  mergeSettings,
+  resolveSuperpowersDir,
+  runBuilder,
+} from "./builder";
 import { checkDesignDoc, checkPlan } from "./contract";
 import { contractPaths } from "./paths";
 
@@ -358,5 +365,50 @@ describe("builder.settings.json — 게이트 산출물도 세션이 쓸 수 없
         expect(deny).toContain(`${tool}(docs/plans/**/${f})`);
       }
     }
+  });
+});
+
+/**
+ * 계약 문서 무결성 (하드룰 #2 의 실제 강제).
+ *
+ * 경로 기반 deny 로는 닫히지 않는다는 것이 6회전 실측이다 — 서브에이전트가
+ * `.claude/**` Write 거부를 `bun -e` 로 우회했다. 세션 밖에서 해시를 비교하는
+ * 이 층만이 세션이 무엇을 실행했는지와 무관하게 변조를 드러낸다.
+ */
+describe("checkDocIntegrity — 봇은 플랜을 현장에서 고치지 않는다", () => {
+  const before = { plan: "# Plan\n\n### Task 1: 무엇\n", designDoc: "# Design\n" };
+
+  test("아무것도 안 바뀌면 위반이 없다", () => {
+    expect(checkDocIntegrity(before, { ...before })).toEqual([]);
+  });
+
+  test("plan.md 가 한 글자만 바뀌어도 잡는다", () => {
+    const v = checkDocIntegrity(before, { ...before, plan: before.plan + " " });
+    expect(v).toHaveLength(1);
+    expect(v[0]!.file).toBe("plan.md");
+    expect(v[0]!.rule).toBe("하드룰 #2");
+    expect(v[0]!.severity).toBe("error");
+  });
+
+  test("design-doc.md 변조도 잡는다", () => {
+    const v = checkDocIntegrity(before, { ...before, designDoc: "# Design 고침\n" });
+    expect(v.map((x: { file: string }) => x.file)).toEqual(["design-doc.md"]);
+  });
+
+  test("둘 다 바뀌면 두 건을 낸다 — 하나로 뭉치지 않는다", () => {
+    const v = checkDocIntegrity(before, { plan: "x", designDoc: "y" });
+    expect(v.map((x: { file: string }) => x.file).sort()).toEqual(["design-doc.md", "plan.md"]);
+  });
+
+  test("파일 삭제도 변조다 — 읽기 실패의 빈 문자열이 불일치를 낸다", () => {
+    // runBuilder 는 읽기 실패를 "" 로 강등한다. 그것이 통과해서는 안 된다.
+    const v = checkDocIntegrity(before, { plan: "", designDoc: before.designDoc });
+    expect(v.map((x: { file: string }) => x.file)).toEqual(["plan.md"]);
+  });
+
+  test("메시지가 사람에게 다음 행동을 준다", () => {
+    const v = checkDocIntegrity(before, { ...before, plan: "고침" });
+    expect(v[0]!.message).toContain("신뢰할 수 없습니다");
+    expect(v[0]!.message).toContain("git diff");
   });
 });

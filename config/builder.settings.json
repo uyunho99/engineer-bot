@@ -24,14 +24,32 @@
     "bin/builder 호출(재시도)** 이 봇이 위조한 게이트를 통과한다. plan.md 가 이미",
     "deny 라서 위조가 더 쉽다 — 플랜이 안 바뀌니 해시가 안정적이고 세션 안에서 계산된다.",
     "",
-    "⚠️ 이건 봉인이 아니라 심층 방어 한 겹이다. 위 allow 의 `Bash(bun:*)` 가 넓어서",
-    "경로 기반 deny 는 `bun -e` 한 줄로 전부 우회된다. preflight.json 의 진짜 출처",
-    "증명(서명·하네스 소유 경로 등)은 후속 설계 과제로 남는다."
+    "════ 2026-09-03 사람의 결정 (6회전 concern #4) ════",
+    "",
+    "`Bash(bun:*)`·`Bash(node:*)` 를 서브커맨드 단위로 좁혔다 — `bun -e`·`node -e` 가",
+    "빠졌다. 6회전에서 서브에이전트가 그것으로 `.claude/**` Write 거부를 우회했다.",
+    "",
+    "그리고 `.claude/**` 를 **명시적으로 열었다.** 봇이 훅·스킬을 고쳐야 하는데 막혀",
+    "있으면 우회할 동기가 생긴다. 정직한 경로를 열어 두는 것이 우회를 막는 것보다 낫다.",
+    "",
+    "⚠️ **좁히기로는 닫히지 않는다 — 이것을 분명히 적어 둔다.** `bun test` 가 실행하는",
+    "테스트 파일도 아무 경로에나 쓸 수 있다. 세션에 코드 실행이 허용되는 한 경로 기반",
+    "deny 는 원리적으로 강제가 아니다. 아래 deny 목록은 **실수를 막고 악의를 막지 못한다.**",
+    "",
+    "그래서 진짜 강제를 세션 **밖**에 뒀다 — `controller/builder.ts` 의",
+    "`checkDocIntegrity()` 가 spawn 전후로 plan.md·design-doc.md 의 sha256 을 비교해",
+    "변조를 BLOCKED 로 낸다. 세션이 무엇을 실행했는지와 무관하게 관찰된다.",
+    "이것이 하드룰 #2 를 설득이 아니라 관찰로 만드는 유일한 층이다."
   ],
   "permissions": {
     "allow": [
-      "Bash(bun:*)",
-      "Bash(node:*)",
+      "Bash(bun test:*)",
+      "Bash(bun run:*)",
+      "Bash(bun install:*)",
+      "Bash(bun controller/:*)",
+      "Bash(bun bin/:*)",
+      "Bash(bun x tsc:*)",
+      "Bash(node --version:*)",
       "Bash(which:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
@@ -52,7 +70,9 @@
       "Bash(gh pr view:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr diff:*)",
-      "Bash(gh repo view:*)"
+      "Bash(gh repo view:*)",
+      "Write(.claude/**)",
+      "Edit(.claude/**)"
     ],
     "deny": [
       "Bash(gh pr merge:*)",

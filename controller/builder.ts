@@ -22,6 +22,7 @@ import {
   parseTasks,
   type BuildResult,
   type ParsedTask,
+  type Violation,
 } from "./contract";
 import { contractPaths } from "./paths";
 // 정적 import 다. 순환 참조가 없고(preflight.ts 는 contract.ts 만 본다) 이 레포의
@@ -174,6 +175,45 @@ export function isStaleReport(mtimeMs: number, spawnedAtMs: number): boolean {
   return mtimeMs < spawnedAtMs;
 }
 
+/**
+ * 세션이 계약 문서를 고쳤는지 판정한다 — **하드룰 #2 의 유일한 실제 강제**.
+ *
+ * `config/builder.settings.json` 의 `Edit/Write(docs/plans/**\/plan.md)` deny 는
+ * 심층 방어 한 겹일 뿐이다. 세션에 코드 실행이 허용되는 한 경로 기반 deny 는
+ * **원리적으로** 우회된다 — 2026-09-03 6회전에서 서브에이전트가 `.claude/**` Write
+ * 거부를 `bun -e` + `fs.writeFileSync` 로 우회했다. `bun -e` 를 좁혀도 `bun test` 가
+ * 실행하는 테스트 파일이 아무 경로에나 쓸 수 있으므로 좁히기로는 닫히지 않는다.
+ *
+ * 그래서 강제를 세션 **밖**에 둔다. spawn 전 해시와 종료 후 해시를 비교하면 세션이
+ * 무엇을 실행했는지와 무관하게 변조가 드러난다. 이것이 "봇은 플랜을 현장에서 고치지
+ * 않는다"를 설득이 아니라 관찰로 만드는 유일한 층이다.
+ *
+ * 변조는 `REJECTED` 가 아니라 `BLOCKED` 다 — 플랜의 결함이 아니라 하네스 계약 위반이고,
+ * 사람이 봐야 할 것은 "플랜을 고치라"가 아니라 "이 회전의 결과를 믿지 마라"다.
+ */
+export function checkDocIntegrity(
+  before: { plan: string; designDoc: string },
+  after: { plan: string; designDoc: string },
+): Violation[] {
+  const out: Violation[] = [];
+  const pairs = [
+    { file: "plan.md" as const, key: "plan" as const },
+    { file: "design-doc.md" as const, key: "designDoc" as const },
+  ];
+  for (const { file, key } of pairs) {
+    if (planSha256(before[key]) === planSha256(after[key])) continue;
+    out.push({
+      severity: "error",
+      file,
+      rule: "하드룰 #2",
+      message:
+        `세션이 ${file} 을 변조했습니다 — 봇은 플랜을 현장에서 고치지 않습니다. ` +
+        `이 회전의 결과를 신뢰할 수 없습니다 (git diff 로 확인하고 되돌리십시오)`,
+    });
+  }
+  return out;
+}
+
 /** 컨트롤러가 직접 결론을 써야 하는 경우 (세션이 보고를 남기지 못했을 때) */
 async function writeFallbackResult(
   path: string,
@@ -319,6 +359,38 @@ export async function runBuilder(opts: BuilderOptions): Promise<BuilderOutcome> 
     else if (sessionStdout) parts.push(`stdout:\n${sessionStdout.slice(-2000)}`);
     return parts.length ? `\n\n--- 세션 출력 ---\n${parts.join("\n\n")}` : "";
   };
+
+  // ── 3-B. 계약 문서 무결성 (하드룰 #2 의 실제 강제) ──────────────
+  // 보고를 수확하기 **전**에 본다. 변조된 회전의 보고는 읽지 않는다 —
+  // 세션이 플랜을 자기 구현에 맞게 고친 뒤 SUCCESS 를 보고할 수 있다.
+  let planAfter = "";
+  let designAfter = "";
+  try {
+    planAfter = await readFile(p.plan, "utf8");
+  } catch {
+    /* 삭제도 변조다 — 빈 문자열이 해시 불일치를 낸다 */
+  }
+  try {
+    designAfter = await readFile(p.designDoc, "utf8");
+  } catch {
+    /* 동일 */
+  }
+  const tamper = checkDocIntegrity(
+    { plan: planText, designDoc: designDoc },
+    { plan: planAfter, designDoc: designAfter },
+  );
+  if (tamper.length > 0) {
+    const reason =
+      "계약 문서 무결성 검사 실패 — 세션이 플랜/설계 문서를 변조했습니다" + diag();
+    await writeFallbackResult(p.buildResult, opts.branch, reason);
+    return done({
+      outcome: "BLOCKED",
+      contractViolations: formatViolations(tamper),
+      reason,
+      exitCode,
+      tasks,
+    });
+  }
 
   // ── 4. 외부 보고 수확 (A6) ───────────────────────────────────
   let raw: string | null = null;
