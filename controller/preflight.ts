@@ -21,6 +21,7 @@
 // 추론에 맡기고 이름으로 붙들지 않는다. noUnusedLocals: true 에 걸린다 (TS6196).
 import type { ParsedTask, TaskInterfaces } from "./contract";
 import { parseInterfaces } from "./contract";
+import type { PreflightDefect } from "./contract";
 
 /** 하나의 선언된 의존. 커버리지의 단위다 (설계 D25) */
 export interface Relation {
@@ -52,4 +53,110 @@ export function buildRelationGraph(tasks: ParsedTask[]): RelationGraph {
   }
 
   return { nodes, order, relations };
+}
+
+/**
+ * 심볼 이름만 뽑는다 — `f(a: A): B` 에서 `f`.
+ *
+ * **선언 키워드를 먼저 벗긴다.** 플랜의 `Produces` 는 TypeScript 선언 형태로 쓰이는 일이
+ * 흔하다 (`interface Foo { ... }`, `type Bar = string`). 키워드를 안 벗기면 심볼 이름이
+ * "interface" 가 되어, 그것을 `Consumes: \`Foo\`` 로 소비하는 태스크에 거짓 dangling_ref 가
+ * 난다. 이 계획서를 이 형식으로 쓰다가 발견된 버그다.
+ */
+function symbolName(sig: string): string {
+  const stripped = sig
+    .trim()
+    .replace(/^export\s+/, "")
+    .replace(/^(interface|type|class|function|const|let|var)\s+/, "");
+  const m = /^([A-Za-z_$][\w$]*)/.exec(stripped);
+  return m ? m[1] : stripped;
+}
+
+/** 같은 심볼을 생산하는지 (이름 기준 — 서명 비교는 signatureCandidates 가 한다) */
+function producesSymbol(ifaces: { produces: string[] }, symbol: string): boolean {
+  const want = symbolName(symbol);
+  return ifaces.produces.some((p) => symbolName(p) === want);
+}
+
+const pair = (a: string, b: string): [string, string] => [a, b];
+
+/** 앞 태스크가 뒤 태스크의 산출을 소비하는가 */
+function isOutOfOrder(g: RelationGraph, r: Relation): boolean {
+  if (!r.declaredFrom) return false;
+  const ci = g.order.indexOf(r.consumer);
+  const pi = g.order.indexOf(r.declaredFrom);
+  return ci !== -1 && pi !== -1 && pi > ci;
+}
+
+export function orderViolations(g: RelationGraph): PreflightDefect[] {
+  return g.relations.filter((r) => isOutOfOrder(g, r)).map((r, i) => ({
+    id: `order-${r.consumer}-${i}`,
+    kind: "order_violation" as const,
+    task_ids: pair(r.consumer, r.declaredFrom!),
+    relation: r.symbol,
+    plan_text: `- Consumes: \`${r.symbol}\` from Task ${r.declaredFrom}`,
+    conflict:
+      `Task ${r.consumer} 이 Task ${r.declaredFrom} 의 산출을 소비하지만, ` +
+      `Task ${r.declaredFrom} 이 플랜에서 뒤에 온다. 실행 시점에 아직 없다.`,
+    stage: 1 as const,
+  }));
+}
+
+export function danglingRefs(g: RelationGraph): PreflightDefect[] {
+  const out: PreflightDefect[] = [];
+  g.relations.forEach((r, i) => {
+    if (!r.declaredFrom) return;
+    // 순서 위반으로 이미 보고되는 관계는 중복 보고하지 않는다
+    if (isOutOfOrder(g, r)) return;
+    const src = g.nodes.get(r.declaredFrom);
+    if (src && producesSymbol(src, r.symbol)) return;
+    out.push({
+      id: `dangling-${r.consumer}-${i}`,
+      kind: "dangling_ref",
+      task_ids: pair(r.consumer, r.declaredFrom),
+      relation: r.symbol,
+      plan_text: `- Consumes: \`${r.symbol}\` from Task ${r.declaredFrom}`,
+      conflict: src
+        ? `Task ${r.consumer} 이 \`${r.symbol}\` 를 Task ${r.declaredFrom} 에서 소비하지만, ` +
+          `Task ${r.declaredFrom} 의 Produces 에 그 심볼이 없다.`
+        : `Task ${r.consumer} 이 Task ${r.declaredFrom} 을 참조하지만 그 태스크가 플랜에 없다.`,
+      stage: 1,
+    });
+  });
+  return out;
+}
+
+export function signatureCandidates(g: RelationGraph): PreflightDefect[] {
+  const out: PreflightDefect[] = [];
+  g.relations.forEach((r, i) => {
+    if (!r.declaredFrom) return;
+    const src = g.nodes.get(r.declaredFrom);
+    if (!src) return;
+    const want = symbolName(r.symbol);
+    const match = src.produces.find((p) => symbolName(p) === want);
+    if (!match) return;
+    if (match.trim() === r.symbol.trim()) return;
+    // 소비 쪽이 **맨 심볼 이름만** 적었으면 서명을 주장하지 않은 것이다 —
+    // `Consumes: \`Foo\`` 와 `Produces: \`interface Foo { ... }\`` 는 불일치가 아니다.
+    // 이 줄이 없으면 타입을 이름으로 소비하는 정상 선언이 전부 후보가 된다
+    // (2026-09-03 봇 실측: 이 플랜 한 건에서 오탐 후보 19건).
+    if (r.symbol.trim() === want) return;
+    out.push({
+      id: `sig-${r.consumer}-${i}`,
+      kind: "signature_mismatch",
+      task_ids: pair(r.consumer, r.declaredFrom),
+      relation: want,
+      plan_text: `- Produces: \`${match}\`  /  - Consumes: \`${r.symbol}\``,
+      conflict:
+        `같은 심볼 \`${want}\` 의 서명이 다르다. 생산: \`${match}\` · 소비: \`${r.symbol}\`. ` +
+        `표기만 다를 수 있으므로 2단계에서 판정한다.`,
+      stage: 2,
+    });
+  });
+  return out;
+}
+
+/** 1단계 전체. 확정 결함과 2단계 후보를 함께 낸다. */
+export function stage1Defects(g: RelationGraph): PreflightDefect[] {
+  return [...orderViolations(g), ...danglingRefs(g), ...signatureCandidates(g)];
 }
