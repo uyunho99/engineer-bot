@@ -371,8 +371,30 @@ export interface AssembleInput {
   graph: RelationGraph;
   pairs: FilePair[];
   previousApplied: AppliedEntry[];
-  /** 시각을 주입받는다 — 순수 함수를 유지하려고 (테스트 가능) */
+  /**
+   * 시각을 주입받는다 — 순수 함수를 유지하려고 (테스트 가능).
+   * Task 9의 `assembleResult` 는 아직 이 값을 읽지 않는다 — 소비는 Task 11부터다.
+   */
   now: string;
+}
+
+/**
+ * 이 단위(관계 또는 짝)를 **하나의** 결함이 지목하는가.
+ *
+ * 전체 결함의 task_ids 를 합집합으로 뭉쳐서 멤버십을 보면 안 된다 — 서로 무관한 결함
+ * 둘이 이 단위의 양쪽 끝을 하나씩 나눠 지목해도 "결함 있음"으로 오판하게 된다.
+ * 그래서 **개별** 결함 하나가 unitTaskIds 전부를 담고 있는지를 본다.
+ *
+ * `relation` 필드로 비교하지 않는다 — `signatureCandidates` 는 `relation` 에 심볼의
+ * 순수 이름만 넣고(`danglingRefs`/`orderViolations` 는 전체 서명을 넣는다), 정확히
+ * 일치 비교하면 진짜 서명 불일치 결함을 "clean" 으로 놓치는 거짓 음성이 생긴다.
+ * task_ids 양끝 포함 여부는 1단계 세 생성기 모두 `pair(consumer, declaredFrom)` 으로
+ * 두 끝을 항상 채우므로 이 위험이 없다 — 오판의 방향을 안전한 쪽(과다 표시)으로 둔다.
+ */
+function concernsUnit(defects: PreflightDefect[], unitTaskIds: string[]): "clean" | "defect" {
+  return defects.some((d) => unitTaskIds.every((id) => d.task_ids.includes(id)))
+    ? "defect"
+    : "clean";
 }
 
 export function assembleResult(input: AssembleInput): PreflightResult {
@@ -387,21 +409,18 @@ export function assembleResult(input: AssembleInput): PreflightResult {
   for (const d of all) if (!byId.has(d.id)) byId.set(d.id, d);
   const defects = [...byId.values()];
 
-  const defectiveTasks = new Set(defects.flatMap((d) => d.task_ids));
-
   const examined: ExaminedUnit[] = [
     ...graph.relations.map((r) => ({
       kind: "relation" as const,
       label: `${r.symbol} (Task ${r.declaredFrom ?? "?"} → Task ${r.consumer})`,
       task_ids: r.declaredFrom ? [r.declaredFrom, r.consumer] : [r.consumer],
-      result: (defectiveTasks.has(r.consumer) ? "defect" : "clean") as "clean" | "defect",
+      result: concernsUnit(defects, r.declaredFrom ? [r.consumer, r.declaredFrom] : [r.consumer]),
     })),
     ...pairs.map((p) => ({
       kind: "pair" as const,
       label: p.sharedFiles.join(", "),
       task_ids: [p.a, p.b],
-      result: (defectiveTasks.has(p.a) && defectiveTasks.has(p.b) ? "defect" : "clean") as
-        "clean" | "defect",
+      result: concernsUnit(defects, [p.a, p.b]),
     })),
   ];
 

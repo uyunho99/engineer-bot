@@ -425,6 +425,8 @@ describe("assembleResult", () => {
       critic: { additional_defects: [d("cr", 2)] },
     }) });
     expect(r.defects.map((x) => x.id).sort()).toEqual(["cr", "s1", "s2"]);
+    // bullet 6: 결함이 있으면 verdict 는 preflightVerdict 규칙대로 REJECTED 다.
+    expect(r.verdict).toBe("REJECTED");
   });
 
   test("같은 id 는 한 번만", () => {
@@ -433,6 +435,53 @@ describe("assembleResult", () => {
       stage2: { units_examined: [], units_failed: [], defects: [d("dup", 2)] },
     }) });
     expect(r.defects).toHaveLength(1);
+    // 첫 등장(=stage1)이 남아야 한다 — concat 순서를 뒤집으면 이 assertion 이 깨진다.
+    expect(r.defects[0].stage).toBe(1);
+  });
+
+  test("verdict 가 CLEAN 도 낼 수 있다 — REJECTED 로 하드코딩되면 이 테스트가 잡는다", () => {
+    expect(assembleResult({ ...base, raw: raw() }).verdict).toBe("CLEAN");
+  });
+
+  test("관계 두 개 중 결함이 있는 것만 defect 로 표시된다 — 합집합이 아니라 개별 결함 기준", () => {
+    const gMulti = graphOf(planOf(
+      task(1, ["- Produces: `a()`"]),
+      task(3, ["- Produces: `b()`"]),
+      task(2, ["- Consumes: `a()` from Task 1", "- Consumes: `b()` from Task 3"]),
+    ));
+    const r = assembleResult({ ...base, graph: gMulti, raw: raw({
+      stage1: { relations_declared: 2, defects: [d("bad-a", 1)] },
+    }) });
+    const rels = r.examined.filter((u) => u.kind === "relation");
+    expect(rels.find((u) => u.task_ids.includes("1"))?.result).toBe("defect");
+    expect(rels.find((u) => u.task_ids.includes("3"))?.result).toBe("clean");
+  });
+
+  test("짝 판정은 하나의 결함이 양쪽을 지목하는지로 정해진다 — 두 독립 결함의 합집합이 아니다", () => {
+    const covering = {
+      id: "cov", kind: "dangling_ref" as const, task_ids: ["A", "B"] as [string, string],
+      relation: "z()", plan_text: "", conflict: "", stage: 1 as const,
+    };
+    const defectX = {
+      id: "dx", kind: "dangling_ref" as const, task_ids: ["C", "X"] as [string, string],
+      relation: "x()", plan_text: "", conflict: "", stage: 1 as const,
+    };
+    const defectY = {
+      id: "dy", kind: "dangling_ref" as const, task_ids: ["D", "Y"] as [string, string],
+      relation: "y()", plan_text: "", conflict: "", stage: 1 as const,
+    };
+    const r = assembleResult({ ...base,
+      pairs: [
+        { a: "A", b: "B", sharedFiles: ["ab.ts"] },
+        { a: "C", b: "D", sharedFiles: ["cd.ts"] },
+      ],
+      raw: raw({ stage1: { relations_declared: 1, defects: [covering, defectX, defectY] } }),
+    });
+    const pairUnits = r.examined.filter((u) => u.kind === "pair");
+    // A,B 는 하나의 결함(covering)이 양쪽을 다 지목한다 — defect.
+    expect(pairUnits.find((u) => u.task_ids.join(",") === "A,B")?.result).toBe("defect");
+    // C,D 는 서로 무관한 결함 둘(dx, dy)이 한쪽씩만 지목한다 — 합집합으로 보면 오판, clean 이어야 한다.
+    expect(pairUnits.find((u) => u.task_ids.join(",") === "C,D")?.result).toBe("clean");
   });
 
   test("previousApplied 가 살아남는다 (D29)", () => {
