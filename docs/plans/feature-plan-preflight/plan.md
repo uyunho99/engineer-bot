@@ -408,12 +408,15 @@ git commit -m "feat(contract): Files/Interfaces 를 계약 필수 항목으로 (
 **Interfaces:**
 - Consumes: `BuildResult` (기존 — `controller/contract.ts`)
 - Consumes: `ContractPaths` (기존 — `controller/paths.ts`)
+- Produces: `Violation` (기존 타입의 `file` 유니온을 넓힌다 — 아래 참조)
 - Produces: `interface BuildDefect { task_id: string; plan_text: string; conflict: string; suggested_fix?: string }`, `interface FixPatch { op: "insert_after" | "replace"; task_id: string; anchor: string; text: string }`, `interface PreflightDefect { id: string; kind: DefectKind; task_ids: [string, string, ...string[]]; relation?: string; plan_text: string; conflict: string; patch?: FixPatch; stage: 1 | 2 }`, `type DefectKind = "dangling_ref" | "order_violation" | "signature_mismatch" | "undeclared_conflict"`, `ContractPaths.preflight: string`, `ContractPaths.preflightRaw: string`
 
 **테스트로 증명할 것:**
 - [ ] `contractPaths()` 가 `preflight` 를 `<planDir>/preflight.json` 으로 만든다
 - [ ] `contractPaths()` 가 `preflightRaw` 를 `<planDir>/preflight-raw.json` 으로 만든다
 - [ ] `checkBuildResult` 가 `defects` 항목을 여전히 검증한다 — 타입 이름을 빼내도 동작이 같다
+- [ ] `Violation` 의 `file` 에 `"preflight.json"` 과 `"preflight-raw.json"` 을 대입할 수 있다
+- [ ] 기존 세 값(`design-doc.md`·`plan.md`·`build-result.json`)도 계속 대입된다
 - [ ] `PreflightDefect.task_ids` 에 항목이 1개인 객체는 TypeScript 컴파일이 거부한다
 
 > ⚠️ **이 항목은 단위 테스트가 아니라 `bun run typecheck` 로 관찰한다.** 튜플 타입의
@@ -428,6 +431,8 @@ git commit -m "feat(contract): Files/Interfaces 를 계약 필수 항목으로 (
 `controller/contract.test.ts`:
 
 ```ts
+// `import { contractPaths } from "./paths";` 를 파일 상단에 추가하라 —
+// contract.test.ts 는 지금 ./paths 에서 아무것도 import 하지 않는다.
 test("contractPaths 가 preflight 경로 두 개를 만든다", () => {
   const p = contractPaths("/repo", "feature/x");
   expect(p.preflight).toBe("/repo/docs/plans/feature-x/preflight.json");
@@ -465,7 +470,28 @@ Expected: FAIL — `p.preflight` 가 `undefined`
     preflightRaw: join(planDir, "preflight-raw.json"),
 ```
 
-`controller/contract.ts`에서 익명 타입을 빼낸다:
+`controller/contract.ts` 의 `Violation.file` 유니온을 먼저 넓힌다 — **이것이 없으면 Task 8·15 의
+`bun run typecheck` 가 `TS2322` 로 실패하고, Task 11·14·15 의 통과 기준이 전부 무너진다.**
+(2026-09-03 봇이 4회전에서 프로브 파일로 실측하고 반송한 결함)
+
+```ts
+export interface Violation {
+  severity: Severity;
+  file:
+    | "design-doc.md"
+    | "plan.md"
+    | "build-result.json"
+    | "preflight.json"      // 사전 검사 결과 (설계 D7)
+    | "preflight-raw.json"; // 워크플로우 원본 (설계 D28)
+  /** 명세/AMENDMENTS의 근거 조항 */
+  rule: string;
+  message: string;
+  /** 해당 태스크가 있으면 */
+  taskId?: string;
+}
+```
+
+그리고 익명 타입을 빼낸다:
 
 ```ts
 // ─── 결함 타입 (설계 D20 · D24 · D27) ────────────────────────────
@@ -1829,11 +1855,13 @@ describe("applyPatch", () => {
     expect(r.text).not.toContain(anchor);
   });
 
-  test("앵커가 없으면 not_found 이고 원본이 안 바뀐다 (D16)", () => {
-    const before = TWO_TASKS;
+  test("앵커가 없으면 not_found 다 — 부분 적용이 타입 수준에서 불가능하다 (D16)", () => {
     const r = applyPatch(TWO_TASKS, { op: "replace", task_id: "2", anchor: "없음", text: "x" });
     expect(r.status).toBe("not_found");
-    expect(TWO_TASKS).toBe(before);
+    // `not_found` 분기에는 `text` 필드가 없다 — 부분 적용이 타입으로 막힌다.
+    expect("text" in r).toBe(false);
+    // 주의: `expect(TWO_TASKS).toBe(before)` 같은 단언을 넣지 마라. 문자열은 불변이므로
+    // 어떤 구현에서도 통과하는 항진명제다 (2026-09-03 봇 지적).
   });
 
   test("같은 태스크에 앵커가 2번이면 ambiguous, 원본 불변 (D22)", () => {
@@ -2571,7 +2599,10 @@ git commit -m "feat(preflight): 2단계 워크플로우 — 후보 판정·미�
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-import { existsSync, readFileSync } from "node:fs";
+// `node:fs` import 를 **다시 추가하지 마라.** Task 12 Step 1 이 이미
+// `import { readFileSync } from "node:fs";` 를 이 파일에 넣었다. 중복 선언이 되고,
+// `existsSync` 는 이 테스트에서 쓰이지 않아 noUnusedLocals 에도 걸린다.
+// (2026-09-03 봇 지적)
 
 describe("훅과 스킬 배선 (Task 13)", () => {
   test("훅이 PostToolUse 다 — 쓰기를 막지 않는다 (설계 D23)", () => {
@@ -2734,6 +2765,8 @@ git commit -m "feat(preflight): /preflight 스킬 + PostToolUse 훅 (설계 D13�
 - [ ] **Step 1: Write the failing test**
 
 ```ts
+// `import { readFileSync } from "node:fs";` 를 파일 상단에 추가하라 —
+// contract.test.ts 는 node:fs 를 import 하지 않는다.
 describe("오버레이가 자기 계약을 지킨다 (Task 14)", () => {
   const overlay = readFileSync("overlay/writing-plans-tagging.md", "utf8");
 
@@ -2929,13 +2962,16 @@ git commit -m "feat(overlay): Interfaces 를 필수로 승격 + /preflight 라�
 ```ts
 import { checkPreflightGate } from "./preflight";
 
-describe("checkPreflightGate (설계 D26)", () => {
-  const SHA = "a".repeat(64);
-  const result = (over: Record<string, unknown> = {}) => JSON.stringify({
+// SHA·result 를 **모듈 스코프**에 둔다. 아래 두 번째 describe 가 이것들을 쓰므로
+// describe 콜백 안에 두면 TS2304 + 런타임 ReferenceError 다 (2026-09-03 봇 지적).
+const SHA = "a".repeat(64);
+const result = (over: Record<string, unknown> = {}) => JSON.stringify({
     schema: 1, branch: "feature/x", plan_sha256: SHA, scope: "interface-graph+file-overlap",
-    verdict: "CLEAN", relations: { declared: 1, examined_stage1: 1, examined_stage2: 1, not_examined: [] },
-    examined: [], defects: [], applied: [], ...over,
-  });
+  verdict: "CLEAN", relations: { declared: 1, examined_stage1: 1, examined_stage2: 1, not_examined: [] },
+  examined: [], defects: [], applied: [], ...over,
+});
+
+describe("checkPreflightGate (설계 D26)", () => {
 
   test("파일이 없으면 REJECTED", () => {
     const r = checkPreflightGate(null, SHA);
