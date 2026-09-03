@@ -21,7 +21,7 @@
 // 추론에 맡기고 이름으로 붙들지 않는다. noUnusedLocals: true 에 걸린다 (TS6196).
 import type { ParsedTask, TaskInterfaces } from "./contract";
 import { parseInterfaces, parseFiles } from "./contract";
-import type { PreflightDefect } from "./contract";
+import type { PreflightDefect, FixPatch } from "./contract";
 import type { CheckResult, Violation } from "./contract";
 
 /** 하나의 선언된 의존. 커버리지의 단위다 (설계 D25) */
@@ -441,4 +441,77 @@ export function assembleResult(input: AssembleInput): PreflightResult {
     defects,
     applied: [...previousApplied],
   };
+}
+
+/** 대상 태스크가 플랜 전체에서 차지하는 줄 범위 [시작, 끝) */
+function taskLineRange(planText: string, taskId: string): [number, number] | null {
+  const lines = planText.split("\n");
+  const heading = new RegExp(`^#{1,6}[ \\t]+Task[ \\t]+${taskId}([^0-9]|$)`);
+  const anyHeading = /^#{1,6}[ \t]+Task[ \t]+\d+/;
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (heading.test(lines[i])) { start = i; break; }
+  }
+  if (start === -1) return null;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (anyHeading.test(lines[i])) { end = i; break; }
+  }
+  return [start, end];
+}
+
+/**
+ * 앵커 위치를 찾는다. **검색 범위는 대상 태스크 본문뿐이다** (설계 D24).
+ *
+ * 플랜 전체에서 찾으면 다른 태스크의 같은 줄에 매치된다 — 계획서에는
+ * `- [ ] ...` 같은 줄이 반복되므로 그 사고가 흔하다.
+ */
+export function findFixSites(planText: string, patch: FixPatch): number[] {
+  const range = taskLineRange(planText, patch.task_id);
+  if (!range) return [];
+  const [start, end] = range;
+  const lines = planText.split("\n");
+  const sites: number[] = [];
+  for (let i = start; i < end; i++) {
+    if (lines[i].trim() === patch.anchor.trim()) sites.push(i);
+  }
+  return sites;
+}
+
+export type ApplyOutcome =
+  | { status: "applied"; text: string }
+  | { status: "not_found" }
+  | { status: "ambiguous"; sites: number[] };
+
+/**
+ * 승인된 패치를 적용한다.
+ *
+ * 세 갈래가 전부 다르게 처리된다 (설계 D16 · D22):
+ *   0개  → not_found  (부분 적용 금지. 아무것도 바꾸지 않는다)
+ *   1개  → applied
+ *   2개+ → ambiguous  (첫 번째를 조용히 고르지 않는다. 사람이 고른다)
+ *
+ * `patch.text` 는 **바이트 그대로** 들어간다 (설계 D14) — 승인한 텍스트와
+ * 실제로 들어간 텍스트가 달라지면 승인이 의미를 잃는다.
+ */
+export function applyPatch(
+  planText: string,
+  patch: FixPatch,
+  siteIndex?: number,
+): ApplyOutcome {
+  const sites = findFixSites(planText, patch);
+  if (sites.length === 0) return { status: "not_found" };
+  if (sites.length > 1 && siteIndex === undefined) {
+    return { status: "ambiguous", sites };
+  }
+  const at = siteIndex ?? sites[0];
+  if (!sites.includes(at)) return { status: "not_found" };
+
+  const lines = planText.split("\n");
+  if (patch.op === "replace") {
+    lines[at] = patch.text;
+  } else {
+    lines.splice(at + 1, 0, patch.text);
+  }
+  return { status: "applied", text: lines.join("\n") };
 }

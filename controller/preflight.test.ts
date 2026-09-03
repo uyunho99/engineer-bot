@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
-import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, type PreflightRaw } from "./preflight";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, type PreflightRaw } from "./preflight";
 // PreflightRaw 를 함께 import 하라 — 아래 raw() 헬퍼가 그 타입을 쓴다.
 // tsconfig 의 include 가 controller/**/*.ts 이고 noUnusedLocals: true 라
 // 테스트 파일도 타입체크 대상이다 (2026-09-03 봇 지적).
@@ -509,5 +509,135 @@ describe("assembleResult", () => {
     }) });
     expect(r.relations.not_examined).toEqual(["pair:1x2"]);
     expect(r.verdict).toBe("REJECTED");
+  });
+});
+
+const TWO_TASKS = planOf(
+  [
+    "### Task 1: 저장",
+    "",
+    "**Tags:** verification=deterministic validation=invisible",
+    "",
+    "**Files:**",
+    "- Create: `src/store.ts`",
+    "",
+    "**Interfaces:**",
+    "- Produces: `save(): void`",
+    "",
+    "**테스트로 증명할 것:**",
+    "- [ ] 공통 문구",
+  ].join("\n"),
+  [
+    "### Task 2: 표시",
+    "",
+    "**Tags:** verification=deterministic validation=invisible",
+    "",
+    "**Files:**",
+    "- Create: `src/view.ts`",
+    "",
+    "**Interfaces:**",
+    "- Consumes: `save(): void` from Task 1",
+    "",
+    "**테스트로 증명할 것:**",
+    "- [ ] 공통 문구",
+  ].join("\n"),
+);
+
+describe("findFixSites", () => {
+  test("대상 태스크 본문에서만 찾는다 — 다른 태스크의 같은 줄은 세지 않는다", () => {
+    const p = { op: "insert_after" as const, task_id: "2", anchor: "- [ ] 공통 문구", text: "- [ ] 새 케이스" };
+    expect(findFixSites(TWO_TASKS, p)).toHaveLength(1);
+  });
+
+  test("없으면 빈 배열", () => {
+    const p = { op: "insert_after" as const, task_id: "2", anchor: "없는 줄", text: "x" };
+    expect(findFixSites(TWO_TASKS, p)).toEqual([]);
+  });
+});
+
+describe("applyPatch", () => {
+  const anchor = "- Consumes: `save(): void` from Task 1";
+
+  test("insert_after 는 앵커 다음 줄에 넣고 텍스트가 바이트 그대로다", () => {
+    const text = "- Consumes: `Config` from Task 1";
+    const r = applyPatch(TWO_TASKS, { op: "insert_after", task_id: "2", anchor, text });
+    expect(r.status).toBe("applied");
+    if (r.status !== "applied") return;
+    const lines = r.text.split("\n");
+    const i = lines.indexOf(anchor);
+    expect(lines[i + 1]).toBe(text);
+  });
+
+  test("replace 는 앵커 줄을 바꾼다", () => {
+    const text = "- Consumes: `save(): Promise<void>` from Task 1";
+    const r = applyPatch(TWO_TASKS, { op: "replace", task_id: "2", anchor, text });
+    expect(r.status).toBe("applied");
+    if (r.status !== "applied") return;
+    expect(r.text).toContain(text);
+    expect(r.text).not.toContain(anchor);
+  });
+
+  test("앵커가 없으면 not_found 다 — 부분 적용이 타입 수준에서 불가능하다 (D16)", () => {
+    const r = applyPatch(TWO_TASKS, { op: "replace", task_id: "2", anchor: "없음", text: "x" });
+    expect(r.status).toBe("not_found");
+    // `not_found` 분기에는 `text` 필드가 없다 — 부분 적용이 타입으로 막힌다.
+    expect("text" in r).toBe(false);
+    // 주의: `expect(TWO_TASKS).toBe(before)` 같은 단언을 넣지 마라. 문자열은 불변이므로
+    // 어떤 구현에서도 통과하는 항진명제다 (2026-09-03 봇 지적).
+  });
+
+  test("같은 태스크에 앵커가 2번이면 ambiguous, 원본 불변 (D22)", () => {
+    const dup = planOf(
+      [
+        "### Task 1: 중복",
+        "",
+        "**Tags:** verification=deterministic validation=invisible",
+        "",
+        "**Files:**",
+        "- Create: `a.ts`",
+        "",
+        "**Interfaces:**",
+        "- Produces: `f()`",
+        "",
+        "**테스트로 증명할 것:**",
+        "- [ ] 같은 줄",
+        "- [ ] 같은 줄",
+      ].join("\n"),
+    );
+    const r = applyPatch(dup, { op: "insert_after", task_id: "1", anchor: "- [ ] 같은 줄", text: "x" });
+    expect(r.status).toBe("ambiguous");
+    if (r.status !== "ambiguous") return;
+    expect(r.sites).toHaveLength(2);
+  });
+
+  test("task_id 가 없으면 not_found", () => {
+    const r = applyPatch(TWO_TASKS, { op: "replace", task_id: "9", anchor, text: "x" });
+    expect(r.status).toBe("not_found");
+  });
+
+  test("ambiguous 에 siteIndex 를 주면 그 위치에만 적용된다", () => {
+    const dup = planOf(
+      [
+        "### Task 1: 중복",
+        "",
+        "**Tags:** verification=deterministic validation=invisible",
+        "",
+        "**Files:**",
+        "- Create: `a.ts`",
+        "",
+        "**Interfaces:**",
+        "- Produces: `f()`",
+        "",
+        "**테스트로 증명할 것:**",
+        "- [ ] 같은 줄",
+        "- [ ] 같은 줄",
+      ].join("\n"),
+    );
+    const sites = findFixSites(dup, { op: "insert_after", task_id: "1", anchor: "- [ ] 같은 줄", text: "x" });
+    const r = applyPatch(dup, { op: "insert_after", task_id: "1", anchor: "- [ ] 같은 줄", text: "x" }, sites[1]);
+    expect(r.status).toBe("applied");
+    if (r.status !== "applied") return;
+    const lines = r.text.split("\n");
+    expect(lines[sites[1] + 1]).toBe("x");
   });
 });
