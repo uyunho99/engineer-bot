@@ -1,36 +1,43 @@
 {
   "schema": 1,
   "branch": "feature/plan-preflight",
-  "outcome": "BLOCKED",
-  "finished_at": "2026-09-03T00:00:00Z",
+  "outcome": "REJECTED",
+  "finished_at": "2026-09-03T08:04:32Z",
   "tasks_total": 15,
   "tasks_done": 0,
   "commits": [],
   "tests": {
-    "passed": 0,
+    "passed": 130,
     "failed": 0,
-    "summary": "테스트를 한 번도 실행하지 못했습니다 — 세션이 `bun` 을 실행할 수 없습니다"
+    "summary": "기준선 130/130 통과 (변경 없음). 태스크를 디스패치하지 않았으므로 새 테스트는 추가되지 않았습니다. 1·2회전과 달리 이번 세션은 `bun test`·`git`·`bun run typecheck` 를 정상 실행했습니다 — 권한 결함(RUN.md 관찰 #2)은 해소됐습니다."
   },
   "test_cases": [],
   "screenshots": [],
-  "concerns": [
+  "defects": [
     {
-      "task_id": "3",
-      "note": "네 번째 \"테스트로 증명할 것\" 항목(PreflightDefect[\"task_ids\"] 튜플 강제)은 단위 테스트가 아니라 `bun run typecheck` 로만 관찰된다. 계획서가 그 한계를 명기하고 있으나, 리뷰어가 \"assert 없는 테스트\"로 오인할 수 있으므로 디스패치에 미리 알려야 한다."
-    },
-    {
-      "task_id": "11",
-      "note": "계획서의 예시 `controller/preflight-cli.ts` 가 `findFixSites` 를 import 하고 사용하지 않는다. tsconfig 의 `noUnusedLocals: true` 때문에 그대로 전사하면 Task 11 Step 4 의 `bun run typecheck` 가 실패한다. 전사 시 해당 import 를 빼야 한다."
+      "task_id": "14",
+      "plan_text": "**테스트로 증명할 것:** 첫 항목 (plan.md:2725)\n- [ ] **오버레이의 예시 블록을 뽑아 `checkPlan` 에 넣으면 error 위반이 0건이다** — 오버레이가 자기 계약을 지킨다\n\nStep 1 의 테스트 코드 (plan.md:2744-2748):\n  test(\"예시 블록이 checkPlan 을 통과한다\", () => {\n    const plan = [\"## 태스크\", \"\", exampleBlock(overlay)].join(\"\\n\");\n    const errors = checkPlan(plan).filter((v) => v.severity === \"error\");\n    expect(errors).toEqual([]);\n  });\n\nStep 4 의 통과 기준 (plan.md:2820-2821):\n  Run: `bun test && bun run typecheck && ./bootstrap.sh check`\n  Expected: PASS — 전체 테스트 통과",
+      "conflict": "이 테스트는 통과할 수 없습니다. `checkPlan` 은 **플랜 전체** 불변식을 검사하는데, 테스트는 **태스크 한 개 조각**을 넣고 error 0건을 요구합니다. 실측 결과 error 3건이 납니다 (bun 1.3.14, 현재 오버레이 기준):\n\n  1. writing-plans 템플릿 | `## Global Constraints` 섹션이 없습니다\n     → 테스트가 조립하는 봉투는 `## 태스크` 뿐입니다 (plan.md:2745).\n  2. AMENDMENTS B4 | Task 1이 없습니다 — 번호가 1..N 연속이어야 합니다 (현재: 3)\n  3. AMENDMENTS B4 | Task 2이 없습니다 — 번호가 1..N 연속이어야 합니다 (현재: 3)\n\n2·3번은 원리적으로 고칠 수 없습니다. 오버레이의 예시 블록은 `- Consumes: \\`PersonaSeed\\` from Task 2` 를 시연하려고 **의도적으로 `### Task 3`** 입니다 (overlay/writing-plans-tagging.md:32,41). `### Task 1` 로 번호를 내리면 `from Task 2` 가 전방 참조가 되어 예시가 가르치려는 내용 자체가 깨집니다.\n\n결함이 Step 1 의 코드 오타가 아니라 **요건 문장(plan.md:2725)** 에 있다는 점이 중요합니다. 전사 세부를 고쳐서는 해소되지 않고, 구현자가 요건을 임의 재해석해야만 통과합니다 — 오버레이가 금지한 \"어떻게든 되게 만들기\"입니다.\n\n대조군: Task 2 의 같은 계열 테스트들(plan.md:296-331)은 `errorsOf(...).some((x) => x.message.includes(\"Files\"))` 처럼 **메시지로 필터**하므로 봉투 위반 3건에 영향받지 않습니다. Task 14 만 `toEqual([])` 를 써서 플랜 전체 규칙을 함께 떠안았습니다.",
+      "suggested_fix": "테스트의 의도(\"오버레이 예시가 자기 **태스크 단위** 계약을 지킨다\")는 타당하므로 의도를 유지하고 봉투만 고칩니다. 권장안 — Step 1 의 `plan` 조립을 유효한 최소 플랜 봉투로 바꿉니다: `## Global Constraints` 헤딩 + `PersonaSeed` 를 생산하는 Task 1·2 스텁(각각 Tags·Files·Interfaces·테스트로 증명할 것 구비)을 앞에 붙이고 그 뒤에 `exampleBlock(overlay)` 를 놓습니다. 이러면 `from Task 2` 참조까지 실제로 해소되어 검증이 오히려 강해집니다. 요건 문장(2725)도 \"최소 플랜 봉투에 넣으면 error 0건\"으로 함께 고쳐 주십시오.\n\n경량 대안: 조립은 그대로 두고 봉투 규칙만 제외합니다 — `.filter((v) => !/Global Constraints|번호가 1\\.\\.N/.test(v.message))`. 단 이쪽은 규칙 메시지 문구에 결합되어 깨지기 쉽습니다.\n\n피해야 할 안: `v.taskId` 로 필터하지 마십시오. Task 2 Step 3 이 추가하는 Files/Interfaces 위반은 `err({ file, rule, message })` 로만 push 하고 `taskId` 를 넣지 않습니다 (plan.md:365-382). taskId 필터는 이 테스트가 잡아야 할 위반을 정확히 숨깁니다."
     }
   ],
-  "verification_gaps": [],
-  "blocked": {
-    "task_id": "1",
-    "reason": "세션의 Bash 가 읽기 전용 허용목록으로 제한돼 테스트 러너와 git 쓰기를 실행할 수 없습니다. `bun test`, `bun --version`, `/Users/yunho/.bun/bin/bun test`, `npm test`, `git add` 가 모두 `This command requires approval` 로 거부됐습니다. 15개 태스크가 전부 verification=deterministic 이라 RED→GREEN 관찰이 완료 조건인데, 그 관찰을 만들 수단도 커밋할 수단도 없습니다. 검증 없이 15개 태스크를 써서 커밋하는 것은 오버레이가 금지한 \"어떻게든 되게 만들기\"에 해당하므로 Task 1 을 디스패치하지 않고 정지했습니다. 해소 방법: `bin/builder` 가 띄우는 세션처럼 `Bash(bun:*)`, `Bash(git:*)`, `Bash(gh:*)` 를 허용하는 권한 모드로 다시 실행하고, superpowers 플러그인 캐시 경로를 `--add-dir` 로 추가하십시오. 그 뒤 같은 명령을 다시 치면 ledger 가 없으므로 Task 1 부터 정상 시작합니다.",
-    "attempts": [
-      "superpowers SDD 의 `scripts/sdd-workspace` 를 직접 실행 및 `bash <path>` 로 실행 — 둘 다 거부됨. 샌드박스가 세션을 프로젝트 디렉터리로 가두어 `~/.claude/plugins/cache/…` 의 스크립트에 닿지 못한다. 워크스페이스 레이아웃(`.superpowers/sdd/feature-plan-preflight/progress.md`)을 Write 툴로 직접 만들어 우회했다.",
-      "테스트 러너를 네 가지 형태로 시도 — `bun test`, `bun --version`, 절대경로 `/Users/yunho/.bun/bin/bun test controller/contract.test.ts`, `npm test --silent`. 전부 `This command requires approval`. `which bun` 은 통과했으므로 바이너리는 존재하며(`/Users/yunho/.bun/bin/bun`), 막힌 것은 경로가 아니라 실행 권한이다.",
-      "권한이 컨트롤러 세션에만 걸린 것인지 확인하려고 haiku 서브에이전트를 띄워 `bun test` 를 시켰다 — 동일하게 거부됐다. 이어서 `git add <추적 중인 변경 없는 파일>` 로 git 쓰기 권한도 확인했고 역시 거부됐다. 따라서 서브에이전트 우회도, 커밋 경로도 없다."
-    ]
-  }
+  "concerns": [
+    {
+      "task_id": "15",
+      "note": "\"테스트로 증명할 것\" 7번 항목(`runBuilder` 가 사전 검사 미통과 시 `claude` 프로세스를 띄우지 않는다)에 대응하는 코드가 Step 1 의 테스트 블록에 없습니다. 6개만 전사되어 있습니다. 결함은 아니지만(요건이 코드를 지배한다) 전사 태스크로 최저가 모델에 맡기면 조용히 누락됩니다. 디스패치에 \"이 한 건은 직접 작성한다\"를 명시해야 합니다."
+    },
+    {
+      "task_id": "9",
+      "note": "Step 1 의 테스트가 `Partial<PreflightRaw>` 를 쓰는데 import 목록에는 `assembleResult` 만 있습니다 (plan.md:1550,1569). tsconfig 의 `include` 가 `controller/**/*.ts` 이고 `noUnusedLocals: true` 이므로 테스트 파일도 타입체크 대상입니다 — `PreflightRaw` 타입 import 를 함께 추가해야 Task 11 의 `bun run typecheck` 가 통과합니다. Task 1 이 \"import 줄에 타입을 추가한다\"고 명시한 것과 같은 계열의 전사 세부입니다."
+    },
+    {
+      "task_id": "13",
+      "note": "`.claude/settings.json` 을 새로 만드는 태스크입니다. 현재 이 레포에 그 파일은 없고 `.claude/skills/webapp-testing/` 만 있으므로 충돌은 없습니다. 다만 빌드 도중 이 파일이 생기면 훅이 같은 세션에 로드될 수 있습니다. `--gate` 는 항상 exit 0 이고(plan.md:2187) 매처가 `docs/plans/.*/plan\\.md` 쓰기로 한정되므로 실질 위험은 낮다고 판단했습니다 — 다만 1회전 관찰 항목으로 남길 만합니다."
+    },
+    {
+      "task_id": "0",
+      "note": "Global Constraints 의 \"기존 테스트 107개는 유지된다\"가 실측과 어긋납니다. 현재 기준선은 **130개**입니다 (하네스 수정으로 `controller/builder.test.ts` 12건 등이 추가됨). 리뷰어에게 넘기는 attention lens 에 틀린 수치가 들어가면 회귀 판정 기준이 흔들립니다. 130 으로 갱신을 권합니다."
+    }
+  ],
+  "verification_gaps": []
 }
