@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
-import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw } from "./preflight";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, type PreflightRaw } from "./preflight";
+// PreflightRaw 를 함께 import 하라 — 아래 raw() 헬퍼가 그 타입을 쓴다.
+// tsconfig 의 include 가 controller/**/*.ts 이고 noUnusedLocals: true 라
+// 테스트 파일도 타입체크 대상이다 (2026-09-03 봇 지적).
 
 const PLAN = [
   "### Task 1: 목록",
@@ -387,5 +390,75 @@ describe("checkPreflightRaw", () => {
 
   test("critic 은 선택 필드다", () => {
     expect(checkPreflightRaw(validRaw(), SHA).ok).toBe(true);
+  });
+});
+
+describe("assembleResult", () => {
+  const g = graphOf(planOf(
+    task(1, ["- Produces: `a()`"]),
+    task(2, ["- Consumes: `a()` from Task 1"]),
+  ));
+  const d = (id: string, stage: 1 | 2) => ({
+    id, kind: "dangling_ref" as const, task_ids: ["2", "1"] as [string, string],
+    relation: "a()", plan_text: "", conflict: "", stage,
+  });
+  const base = {
+    branch: "feature/x",
+    planSha256: "a".repeat(64),
+    graph: g,
+    pairs: [],
+    previousApplied: [],
+    now: "2026-09-03T00:00:00Z",
+  };
+  const raw = (over: Partial<PreflightRaw> = {}): PreflightRaw => ({
+    schema: 1,
+    plan_sha256: "a".repeat(64),
+    stage1: { relations_declared: 1, defects: [] },
+    stage2: { units_examined: [], units_failed: [], defects: [] },
+    ...over,
+  });
+
+  test("세 곳의 결함이 하나로 합쳐진다", () => {
+    const r = assembleResult({ ...base, raw: raw({
+      stage1: { relations_declared: 1, defects: [d("s1", 1)] },
+      stage2: { units_examined: [], units_failed: [], defects: [d("s2", 2)] },
+      critic: { additional_defects: [d("cr", 2)] },
+    }) });
+    expect(r.defects.map((x) => x.id).sort()).toEqual(["cr", "s1", "s2"]);
+  });
+
+  test("같은 id 는 한 번만", () => {
+    const r = assembleResult({ ...base, raw: raw({
+      stage1: { relations_declared: 1, defects: [d("dup", 1)] },
+      stage2: { units_examined: [], units_failed: [], defects: [d("dup", 2)] },
+    }) });
+    expect(r.defects).toHaveLength(1);
+  });
+
+  test("previousApplied 가 살아남는다 (D29)", () => {
+    const prev = [{ defect_id: "old", at: "2026-09-01T00:00:00Z", sha256_before: "x", sha256_after: "y" }];
+    const r = assembleResult({ ...base, previousApplied: prev, raw: raw() });
+    expect(r.applied).toEqual(prev);
+  });
+
+  test("previousApplied 가 비면 applied 도 빈 배열", () => {
+    expect(assembleResult({ ...base, raw: raw() }).applied).toEqual([]);
+  });
+
+  test("선언된 관계 전부가 examined 에 들어간다", () => {
+    const r = assembleResult({ ...base, raw: raw() });
+    expect(r.examined.filter((u) => u.kind === "relation")).toHaveLength(g.relations.length);
+  });
+
+  test("scope 가 범위를 명시한다", () => {
+    expect(assembleResult({ ...base, raw: raw() }).scope).toBe("interface-graph+file-overlap");
+  });
+
+  test("units_failed 가 not_examined 로 전달된다", () => {
+    const r = assembleResult({ ...base, raw: raw({
+      stage2: { units_examined: [], units_failed: ["pair:1x2"], defects: [] },
+    }) });
+    expect(r.relations.not_examined).toEqual(["pair:1x2"]);
+    expect(r.verdict).toBe("REJECTED");
   });
 });

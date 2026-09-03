@@ -333,3 +333,93 @@ export function checkPreflightRaw(
   if (errors.length) return { ok: false, violations: v };
   return { ok: true, violations: v, data: parsed as PreflightRaw };
 }
+
+// ─── 결과 조립 (설계 D9 · D15 · D29) ────────────────────────────────────
+
+export interface AppliedEntry {
+  defect_id: string;
+  at: string;
+  sha256_before: string;
+  sha256_after: string;
+}
+
+export interface ExaminedUnit {
+  kind: "relation" | "pair" | "cluster";
+  label: string;
+  task_ids: string[];
+  result: "clean" | "defect";
+}
+
+export interface PreflightResult {
+  schema: 1;
+  branch: string;
+  plan_sha256: string;
+  /** 이 검사의 범위. 나중에 넓힐 때 과거 결과를 구분하려면 필요하다 */
+  scope: string;
+  verdict: Verdict;
+  relations: RelationCoverage;
+  examined: ExaminedUnit[];
+  defects: PreflightDefect[];
+  /** 사람이 승인해 반영한 수정. **재검사를 넘어 누적된다** (설계 D29) */
+  applied: AppliedEntry[];
+}
+
+export interface AssembleInput {
+  branch: string;
+  planSha256: string;
+  raw: PreflightRaw;
+  graph: RelationGraph;
+  pairs: FilePair[];
+  previousApplied: AppliedEntry[];
+  /** 시각을 주입받는다 — 순수 함수를 유지하려고 (테스트 가능) */
+  now: string;
+}
+
+export function assembleResult(input: AssembleInput): PreflightResult {
+  const { raw, graph, pairs, previousApplied } = input;
+
+  const all = [
+    ...raw.stage1.defects,
+    ...raw.stage2.defects,
+    ...(raw.critic?.additional_defects ?? []),
+  ];
+  const byId = new Map<string, PreflightDefect>();
+  for (const d of all) if (!byId.has(d.id)) byId.set(d.id, d);
+  const defects = [...byId.values()];
+
+  const defectiveTasks = new Set(defects.flatMap((d) => d.task_ids));
+
+  const examined: ExaminedUnit[] = [
+    ...graph.relations.map((r) => ({
+      kind: "relation" as const,
+      label: `${r.symbol} (Task ${r.declaredFrom ?? "?"} → Task ${r.consumer})`,
+      task_ids: r.declaredFrom ? [r.declaredFrom, r.consumer] : [r.consumer],
+      result: (defectiveTasks.has(r.consumer) ? "defect" : "clean") as "clean" | "defect",
+    })),
+    ...pairs.map((p) => ({
+      kind: "pair" as const,
+      label: p.sharedFiles.join(", "),
+      task_ids: [p.a, p.b],
+      result: (defectiveTasks.has(p.a) && defectiveTasks.has(p.b) ? "defect" : "clean") as
+        "clean" | "defect",
+    })),
+  ];
+
+  const relations = relationCoverage(
+    graph,
+    raw.stage2.units_examined,
+    raw.stage2.units_failed,
+  );
+
+  return {
+    schema: 1,
+    branch: input.branch,
+    plan_sha256: input.planSha256,
+    scope: "interface-graph+file-overlap",
+    verdict: preflightVerdict(defects, relations),
+    relations,
+    examined,
+    defects,
+    applied: [...previousApplied],
+  };
+}
