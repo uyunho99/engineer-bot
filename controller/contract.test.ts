@@ -599,12 +599,28 @@ describe("오버레이가 자기 계약을 지킨다 (Task 14)", () => {
   });
 
   test("Interfaces 가 필수임을 본문이 말한다", () => {
-    expect(/\*\*Interfaces:\*\*[\s\S]{0,400}필수/.test(overlay)).toBe(true);
+    // 전체 문서를 정규식으로 훑으면 오버레이 예시 블록(Task 3)의
+    // `**Interfaces:**` 헤딩과, 그로부터 400자 이내에 있는 무관한 문장
+    // ("테스트로 증명할 것 섹션이 필수다") 이 먼저 매칭돼 거짓 통과한다.
+    // "Interfaces 가 필수다" 라는 요건 자체를 선언하는 새 섹션 헤딩을 정확히
+    // 찾아 그 본문에서만 확인한다 — self-review 체크리스트 검사와 같은 패턴.
+    const heading = "## `**Interfaces:**` 는 필수다";
+    const headingIdx = overlay.indexOf(heading);
+    expect(headingIdx).not.toBe(-1);
+    const body = overlay.slice(headingIdx + heading.length, headingIdx + heading.length + 400);
+    expect(body).toContain("필수");
   });
 
   test("self-review 체크리스트에 Interfaces 항목이 있다", () => {
+    // "Interfaces" 라는 낱말이 체크리스트 구역 어딘가의 산문에 등장하기만
+    // 해도 통과하는 검사는 실제 체크리스트 항목 존재를 증명하지 못한다.
+    // 어떤 줄이 체크박스(`- [ ]`)로 시작하면서 `**Interfaces:**` 를
+    // 언급하는지까지 확인한다.
     const list = overlay.slice(overlay.indexOf("Self-Review"));
-    expect(list).toContain("Interfaces");
+    const hasInterfacesChecklistItem = list
+      .split("\n")
+      .some((line) => line.trimStart().startsWith("- [ ]") && line.includes("**Interfaces:**"));
+    expect(hasInterfacesChecklistItem).toBe(true);
   });
 });
 
