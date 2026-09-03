@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
-import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, type PreflightRaw } from "./preflight";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, type PreflightRaw } from "./preflight";
 // PreflightRaw 를 함께 import 하라 — 아래 raw() 헬퍼가 그 타입을 쓴다.
 // tsconfig 의 include 가 controller/**/*.ts 이고 noUnusedLocals: true 라
 // 테스트 파일도 타입체크 대상이다 (2026-09-03 봇 지적).
@@ -677,5 +677,45 @@ describe("applyPatch", () => {
     ).not.toThrow();
     const r = applyPatch(TWO_TASKS, { op: "replace", task_id: "(", anchor, text: "x" });
     expect(r.status).toBe("not_found");
+  });
+});
+
+describe("gateDecision (설계 D10)", () => {
+  const SHA = "a".repeat(64);
+  const prev = (verdict: "CLEAN" | "REJECTED", sha = SHA) =>
+    ({ verdict, plan_sha256: sha } as any);
+
+  test("plan.md 가 없으면 skip — 오류가 아니다 (E4)", () => {
+    const r = gateDecision({ planExists: false, planSha256: "", previous: null, contractOk: true });
+    expect(r.action).toBe("skip");
+    expect(r.reason).toBeTruthy();
+  });
+
+  test("계약 검증 실패면 skip — 형식이 먼저다", () => {
+    expect(gateDecision({ planExists: true, planSha256: SHA, previous: null, contractOk: false }).action)
+      .toBe("skip");
+  });
+
+  test("이전 결과가 없으면 run", () => {
+    expect(gateDecision({ planExists: true, planSha256: SHA, previous: null, contractOk: true }).action)
+      .toBe("run");
+  });
+
+  test("해시가 다르면 run", () => {
+    expect(gateDecision({
+      planExists: true, planSha256: SHA, previous: prev("CLEAN", "b".repeat(64)), contractOk: true,
+    }).action).toBe("run");
+  });
+
+  test("해시 같고 CLEAN 이면 cached", () => {
+    expect(gateDecision({
+      planExists: true, planSha256: SHA, previous: prev("CLEAN"), contractOk: true,
+    }).action).toBe("cached");
+  });
+
+  test("해시 같지만 REJECTED 면 run — 결함이 캐시를 타지 않는다 (D10)", () => {
+    expect(gateDecision({
+      planExists: true, planSha256: SHA, previous: prev("REJECTED"), contractOk: true,
+    }).action).toBe("run");
   });
 });

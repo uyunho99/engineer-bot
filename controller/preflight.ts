@@ -497,6 +497,47 @@ export function findFixSites(planText: string, patch: FixPatch): number[] {
   return sites;
 }
 
+// ─── 게이트 ① 판정 (설계 D10 · D23) ────────────────────────────────────
+
+export interface GateInput {
+  planExists: boolean;
+  planSha256: string;
+  previous: PreflightResult | null;
+  contractOk: boolean;
+}
+
+export type GateOutcome =
+  | { action: "skip"; reason: string }
+  | { action: "run"; reason: string }
+  | { action: "cached"; reason: string };
+
+/**
+ * 검사를 돌릴지 판정한다.
+ *
+ * **캐시 적중 조건은 "같은 해시 + 유효한 CLEAN"이다** (설계 D10).
+ * 해시 일치만으로 통과시키면 직전 REJECTED 가 "이미 검사됨"이 되어
+ * 결함 있는 플랜이 캐시를 타고 게이트 ① 을 지나간다.
+ */
+export function gateDecision(input: GateInput): GateOutcome {
+  if (!input.planExists) {
+    return { action: "skip", reason: "plan.md 가 아직 없습니다 — 검사 대상이 없습니다" };
+  }
+  if (!input.contractOk) {
+    return { action: "skip", reason: "계약(형식) 검증이 먼저 통과해야 합니다" };
+  }
+  const p = input.previous;
+  if (!p) {
+    return { action: "run", reason: "이 플랜은 아직 검사되지 않았습니다" };
+  }
+  if (p.plan_sha256 !== input.planSha256) {
+    return { action: "run", reason: "검사 이후 plan.md 가 바뀌었습니다" };
+  }
+  if (p.verdict !== "CLEAN") {
+    return { action: "run", reason: `직전 결과가 ${p.verdict} 입니다 — 캐시를 쓰지 않습니다` };
+  }
+  return { action: "cached", reason: "같은 내용으로 이미 CLEAN 판정을 받았습니다" };
+}
+
 export type ApplyOutcome =
   | { status: "applied"; text: string }
   | { status: "not_found" }

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# 계획서 사전 검사 (설계 §6.2). 워크플로우는 메인 세션만 부를 수 있으므로
+# 기계 단계(--gate/--plan/--record/--apply)만 여기 있다. 에이전트 단계는
+# /preflight 스킬이 세션에서 돌린다.
+#
+#   bin/preflight <branch> --gate            형식+해시 판정 (훅이 부른다)
+#   bin/preflight <branch> --plan            1단계 실행 → args JSON 을 stdout
+#   bin/preflight <branch> --record          preflight-raw.json → preflight.json
+#   bin/preflight <branch> --apply <id...>   승인된 패치 적용
+set -uo pipefail
+
+HARNESS="$(cd "$(dirname "$0")/.." && pwd)"
+BRANCH="${1:-}"
+MODE="${2:-}"
+
+if [ -z "$BRANCH" ] || [ -z "$MODE" ]; then
+  echo "usage: bin/preflight <branch> --gate|--plan|--record|--apply <id...>" >&2
+  exit 2
+fi
+
+shift 2
+exec bun "$HARNESS/controller/preflight-cli.ts" "$BRANCH" "$MODE" "$@"
