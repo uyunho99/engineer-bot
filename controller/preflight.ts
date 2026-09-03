@@ -20,7 +20,7 @@
 // ConsumeRef 를 import 하지 마라 — 이 파일은 `ifaces.consumes` 의 원소 타입을
 // 추론에 맡기고 이름으로 붙들지 않는다. noUnusedLocals: true 에 걸린다 (TS6196).
 import type { ParsedTask, TaskInterfaces } from "./contract";
-import { parseInterfaces, parseFiles } from "./contract";
+import { parseInterfaces, parseFiles, stripFences } from "./contract";
 import type { PreflightDefect, FixPatch } from "./contract";
 import type { CheckResult, Violation } from "./contract";
 
@@ -443,9 +443,22 @@ export function assembleResult(input: AssembleInput): PreflightResult {
   };
 }
 
-/** 대상 태스크가 플랜 전체에서 차지하는 줄 범위 [시작, 끝) */
+/**
+ * 대상 태스크가 플랜 전체에서 차지하는 줄 범위 [시작, 끝).
+ *
+ * 헤딩 탐지는 **펜스를 벗긴 줄**(`stripFences`)에서 한다 — `parseTasks`(contract.ts)와
+ * 같은 패턴이다. `stripFences`는 펜스 내용을 빈 문자열로 바꿀 뿐 줄을 지우지 않으므로
+ * 줄 번호는 원본과 그대로 맞는다. 펜스 안에 열 0에서 시작하는 `### Task N: ...` 같은
+ * 문자열이 있어도(계획서 작성 예시가 실제로 그런 걸 담는다 — overlay/writing-plans-tagging.md
+ * 참고) 가짜 헤딩으로 오탐해 범위를 끊지 않는다.
+ */
 function taskLineRange(planText: string, taskId: string): [number, number] | null {
-  const lines = planText.split("\n");
+  // task_id 는 AI 가 생성한 JSON(FixPatch)에서 오고 타입은 무제한 string 이다.
+  // 이스케이프 없이 정규식에 그대로 넣으면 `(`, `[` 같은 문자에서 new RegExp 가 던진다.
+  // 태스크 ID는 항상 숫자다(contract.ts TASK_HEADING) — 숫자가 아니면 애초에 매치될
+  // 헤딩이 없으므로 정규식을 만들지 않고 바로 not_found 경로로 보낸다.
+  if (!/^\d+$/.test(taskId)) return null;
+  const lines = stripFences(planText).split("\n");
   const heading = new RegExp(`^#{1,6}[ \\t]+Task[ \\t]+${taskId}([^0-9]|$)`);
   const anyHeading = /^#{1,6}[ \t]+Task[ \t]+\d+/;
   let start = -1;
@@ -465,6 +478,12 @@ function taskLineRange(planText: string, taskId: string): [number, number] | nul
  *
  * 플랜 전체에서 찾으면 다른 태스크의 같은 줄에 매치된다 — 계획서에는
  * `- [ ] ...` 같은 줄이 반복되므로 그 사고가 흔하다.
+ *
+ * 범위(`taskLineRange`)는 펜스 기준으로 계산하지만, **앵커 매칭 자체는 원본
+ * 줄에서 한다** — 의도적이다. 앵커는 사람이 승인한 리터럴 한 줄이고, 계획서의
+ * 태스크 본문은 정당하게 펜스 블록 안에 코드를 담는다(패치 대상이 펜스 안에
+ * 있을 수 있다). 펜스 여부로 앵커 매칭까지 걸러내면 그런 정당한 타깃을
+ * `not_found`로 오판한다. 펜스 인식은 범위 계산에만 필요하다.
  */
 export function findFixSites(planText: string, patch: FixPatch): number[] {
   const range = taskLineRange(planText, patch.task_id);

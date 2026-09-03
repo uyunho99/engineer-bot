@@ -640,4 +640,42 @@ describe("applyPatch", () => {
     const lines = r.text.split("\n");
     expect(lines[sites[1] + 1]).toBe("x");
   });
+
+  test("펜스 안의 열-0 가짜 Task 헤딩에 범위 탐지가 속지 않는다 — 그 뒤 앵커도 본문 범위 안이다", () => {
+    // overlay/writing-plans-tagging.md 처럼 태스크 본문이 예시로 펜스 블록에
+    // `### Task N: ...` 를 열 0부터 담을 수 있다. 펜스를 무시하고 원본 줄만 보면
+    // 그 가짜 헤딩에서 범위(end)가 끊겨, 그 뒤에 오는 진짜 앵커를 놓친다.
+    const withFakeHeadingInFence = planOf(
+      [
+        "### Task 1: 실제",
+        "",
+        "**Tags:** verification=deterministic validation=invisible",
+        "",
+        "**Files:**",
+        "- Create: `a.ts`",
+        "",
+        "**Interfaces:**",
+        "- Produces: `f()`",
+        "",
+        "예시 태그 형식:",
+        "```",
+        "### Task 3: 가짜 헤딩",
+        "```",
+        "",
+        "**테스트로 증명할 것:**",
+        "- [ ] 진짜 앵커",
+      ].join("\n"),
+    );
+    const p = { op: "insert_after" as const, task_id: "1", anchor: "- [ ] 진짜 앵커", text: "x" };
+    const r = applyPatch(withFakeHeadingInFence, p);
+    expect(r.status).toBe("applied");
+  });
+
+  test("task_id 가 숫자가 아니면(정규식 특수문자 포함) 예외를 던지지 않고 not_found 다", () => {
+    expect(() =>
+      applyPatch(TWO_TASKS, { op: "replace", task_id: "(", anchor, text: "x" }),
+    ).not.toThrow();
+    const r = applyPatch(TWO_TASKS, { op: "replace", task_id: "(", anchor, text: "x" });
+    expect(r.status).toBe("not_found");
+  });
 });

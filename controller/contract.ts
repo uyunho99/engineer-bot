@@ -37,7 +37,7 @@ const err = (v: Omit<Violation, "severity">): Violation => ({ severity: "error",
 const warn = (v: Omit<Violation, "severity">): Violation => ({ severity: "warn", ...v });
 
 /** 코드 펜스 안의 내용은 문서 구조가 아니다 — 헤딩 오탐을 막는다. */
-function stripFences(text: string): string {
+export function stripFences(text: string): string {
   const out: string[] = [];
   let inFence = false;
   for (const line of text.split("\n")) {
