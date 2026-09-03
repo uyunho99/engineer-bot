@@ -93,6 +93,12 @@ export function buildClaudeArgs(opts: {
   repoRoot: string;
   prompt: string;
   model?: string;
+  /**
+   * superpowers 플러그인 설치 경로. SDD 스킬이 `scripts/sdd-workspace`·`task-brief`·
+   * `review-package` 를 **절대 경로로 실행**하므로 세션이 그 디렉터리에 닿아야 한다.
+   * 없으면 SDD 가 워크스페이스 스크립트를 못 돌리고 Write 툴로 우회한다 (2026-09-03 실측).
+   */
+  superpowersDir?: string;
 }): string[] {
   const args = [
     "--print",
@@ -107,10 +113,47 @@ export function buildClaudeArgs(opts: {
     "--add-dir",
     opts.repoRoot,
   ];
+  if (opts.superpowersDir) args.push("--add-dir", opts.superpowersDir);
   if (opts.model) args.push("--model", opts.model);
   // 프롬프트 앞의 `--` 는 필수다. 위 주석 참조.
   args.push("--", opts.prompt);
   return args;
+}
+
+/**
+ * superpowers 플러그인 설치 경로를 런타임에 해석한다.
+ *
+ * 버전이 경로에 들어가므로(`.../superpowers/6.2.0`) 하드코딩할 수 없다.
+ * `bootstrap.sh` 가 쓰는 것과 같은 출처를 읽는다.
+ */
+export function resolveSuperpowersDir(installedPlugins: unknown): string | null {
+  const p = installedPlugins as {
+    plugins?: Record<string, Array<{ installPath?: string }>>;
+  };
+  return p?.plugins?.["superpowers@superpowers-marketplace"]?.[0]?.installPath ?? null;
+}
+
+/**
+ * 세션에 넘길 설정을 만든다 — 이식 가능한 기본 설정에 **호스트별 경로**를 얹는다.
+ *
+ * `config/builder.settings.json` 은 이식 가능해야 하므로 절대 경로를 담을 수 없다.
+ * 그런데 SDD 스크립트는 절대 경로로 실행되므로 `allow` 항목이 필요하다.
+ * 그래서 기동 시점에 병합한다 — 파일은 이식 가능하게 남고, 경로는 런타임에 붙는다.
+ */
+export function mergeSettings(
+  base: unknown,
+  superpowersDir: string | null,
+): Record<string, unknown> {
+  const b = structuredClone(base) as Record<string, any>;
+  if (!superpowersDir) return b;
+  b.permissions ??= {};
+  b.permissions.allow ??= [];
+  const scripts = "skills/subagent-driven-development/scripts";
+  for (const name of ["sdd-workspace", "task-brief", "review-package"]) {
+    const rule = `Bash(${superpowersDir}/${scripts}/${name}:*)`;
+    if (!b.permissions.allow.includes(rule)) b.permissions.allow.push(rule);
+  }
+  return b;
 }
 
 /** 컨트롤러가 직접 결론을 써야 하는 경우 (세션이 보고를 남기지 못했을 때) */
@@ -172,8 +215,23 @@ export async function runBuilder(opts: BuilderOptions): Promise<BuilderOutcome> 
   await mkdir(p.screenshotDir, { recursive: true });
 
   const overlay = await readFile(join(HARNESS_ROOT, "overlay", "CLAUDE.builder.md"), "utf8");
-  const settings = join(HARNESS_ROOT, "config", "builder.settings.json");
   const prompt = buildPrompt(p.plan, p.discoveries, p.buildResult);
+
+  // 호스트별 경로를 기동 시점에 병합한다 (mergeSettings 주석 참조).
+  const baseSettings = JSON.parse(
+    await readFile(join(HARNESS_ROOT, "config", "builder.settings.json"), "utf8"),
+  );
+  let superpowersDir: string | null = null;
+  try {
+    const installed = JSON.parse(
+      await readFile(join(process.env.HOME ?? "", ".claude", "plugins", "installed_plugins.json"), "utf8"),
+    );
+    superpowersDir = resolveSuperpowersDir(installed);
+  } catch {
+    superpowersDir = null;
+  }
+  const settings = join(p.planDir, ".builder-settings.json");
+  await writeFile(settings, JSON.stringify(mergeSettings(baseSettings, superpowersDir), null, 2), "utf8");
 
   const args = buildClaudeArgs({
     settingsPath: settings,
@@ -181,10 +239,14 @@ export async function runBuilder(opts: BuilderOptions): Promise<BuilderOutcome> 
     repoRoot: p.repoRoot,
     prompt,
     model: opts.model,
+    superpowersDir: superpowersDir ?? undefined,
   });
 
   const proc = Bun.spawn(["claude", ...args], {
     cwd: p.repoRoot,
+    // stdin 을 닫는다. 열어두면 claude 가 파이프 입력을 3초 기다린다
+    // ("no stdin data received in 3s") — 2026-09-03 실측.
+    stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
     env: { ...process.env },

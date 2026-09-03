@@ -414,7 +414,14 @@ git commit -m "feat(contract): Files/Interfaces 를 계약 필수 항목으로 (
 - [ ] `contractPaths()` 가 `preflight` 를 `<planDir>/preflight.json` 으로 만든다
 - [ ] `contractPaths()` 가 `preflightRaw` 를 `<planDir>/preflight-raw.json` 으로 만든다
 - [ ] `checkBuildResult` 가 `defects` 항목을 여전히 검증한다 — 타입 이름을 빼내도 동작이 같다
-- [ ] `PreflightDefect.task_ids` 에 항목이 1개인 객체는 TypeScript 컴파일이 거부한다 (`bun run typecheck` 로 확인)
+- [ ] `PreflightDefect.task_ids` 에 항목이 1개인 객체는 TypeScript 컴파일이 거부한다
+
+> ⚠️ **이 항목은 단위 테스트가 아니라 `bun run typecheck` 로 관찰한다.** 튜플 타입의
+> 최소 길이 강제는 런타임에 존재하지 않으므로 `expect()` 로 확인할 수 없다.
+> **리뷰어에게:** 이것을 "assert 없는 테스트"로 반려하지 마라 — 관찰 수단이 컴파일러다.
+> 검증 방법은 아래 Step 3 의 주석 처리된 한 줄을 잠깐 풀고 `bun run typecheck` 가
+> 실패하는 것을 확인한 뒤 되돌리는 것이다.
+> (2026-09-03 봇이 BLOCKED 보고에서 오인 위험을 지적한 항목)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2149,9 +2156,12 @@ import { checkPlan, parseTasks } from "./contract";
 import { contractPaths } from "./paths";
 import {
   applyPatch, assembleResult, buildRelationGraph, checkPreflightRaw,
-  findFixSites, gateDecision, overlappingPairs, stage1Defects,
+  gateDecision, overlappingPairs, stage1Defects,
   type PreflightResult,
 } from "./preflight";
+// findFixSites 를 import 하지 마라. 이 파일에서 쓰이지 않고,
+// tsconfig 의 noUnusedLocals: true 때문에 Step 4 의 typecheck 가 실패한다.
+// (2026-09-03 봇이 BLOCKED 보고에서 지적한 결함)
 
 const sha256 = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 const readOr = (p: string, d = "") => (existsSync(p) ? readFileSync(p, "utf8") : d);

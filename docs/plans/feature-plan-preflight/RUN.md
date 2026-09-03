@@ -123,3 +123,52 @@ BUILD-PLAN 이 *"❌ 실제 claude -p 세션으로 플랜을 완주한 적 없�
 
 **교훈:** 하네스 코드가 외부 프로세스를 띄우는 지점은 단위 테스트가 닿지 않는다.
 그 경계의 **입력 구성**만이라도 순수 함수로 뽑아야 테스트가 가능하다.
+
+## Phase 0-B 관찰 #2 — 권한 결함 (2026-09-03, 두 번째 실행)
+
+argv 수정 후 세션이 정상 기동했고 **SDD 가 실제로 시작했다** (워크스페이스 생성 확인).
+그러나 Task 1 을 디스패치하지 못하고 **300초 뒤 `BLOCKED`** 으로 정지했다.
+
+**봇의 보고 (요약):**
+> 세션의 Bash 가 읽기 전용 허용목록으로 제한돼 테스트 러너와 git 쓰기를 실행할 수
+> 없습니다. `bun test`, `bun --version`, `npm test`, `git add` 가 모두
+> `This command requires approval` 로 거부됐습니다. 15개 태스크가 전부
+> verification=deterministic 이라 RED→GREEN 관찰이 완료 조건인데, 그 관찰을 만들
+> 수단도 커밋할 수단도 없습니다. 검증 없이 15개 태스크를 써서 커밋하는 것은
+> 오버레이가 금지한 "어떻게든 되게 만들기"에 해당하므로 정지했습니다.
+
+**이 보고 자체가 성과다.** 봇이 시도 3건을 기록하고(스크립트 직접 실행 · 러너 4형태 ·
+서브에이전트 우회), 해소 방법을 제시하고, `build-result.json` 을 규격대로 썼다.
+A6 외부 계약과 오버레이의 "우회 금지"가 실제로 작동했다.
+
+**원인:** `config/builder.settings.json` 에 `deny` 만 있고 **`allow` 가 없었다.**
+`--permission-mode acceptEdits` 는 **파일 편집만** 자동 승인한다. Bash 는 여전히
+승인이 필요하고 headless 에는 승인할 사람이 없다. 초안은 "위험한 것을 막는다"만
+쓰고 "평범한 것을 허용한다"를 빼먹었다 — 대화형 세션에서는 사람이 나머지를
+승인하므로 드러나지 않는 결함이다.
+
+**수정 3건:**
+1. `config/builder.settings.json` 에 `allow` 목록 추가 (bun · node · git 하위명령 ·
+   gh pr create/view/list/diff). `deny` 가 `allow` 를 이기므로 위험한 것은 그대로 막힌다.
+2. `superpowersDir` 를 런타임에 해석해 `--add-dir` 로 넘기고, SDD 스크립트 3개의
+   절대경로 `allow` 규칙을 기동 시점에 병합한다 (`mergeSettings`). 설정 파일은
+   이식 가능하게 남고 호스트별 경로는 런타임에 붙는다.
+   → 봇이 `~/.claude/plugins/cache/…/scripts/sdd-workspace` 에 닿지 못해 Write 툴로
+     워크스페이스를 우회 생성했던 문제도 이것으로 해소된다.
+3. `stdin: "ignore"` — 열어두면 claude 가 파이프 입력을 3초 기다린다
+   (`no stdin data received in 3s`).
+
+**봇이 함께 보고한 플랜 결함 2건 (검증 후 수정):**
+- `[Task 11]` 예시 코드가 `findFixSites` 를 import 하고 쓰지 않는다. tsconfig 의
+  `noUnusedLocals: true` 로 Step 4 의 `bun run typecheck` 가 실패한다. **실측 확인** —
+  import 목록에서 제거하고 이유를 주석으로 남겼다.
+- `[Task 3]` 네 번째 테스트 케이스는 단위 테스트가 아니라 `bun run typecheck` 로만
+  관찰된다. 리뷰어가 "assert 없는 테스트"로 오인할 수 있다. 관찰 수단과 검증 절차를
+  항목에 명시했다.
+
+**이것이 §6.3 반송 경로가 실제로 작동한 사례다.** 봇이 플랜을 고치지 않고 결함을
+보고했고, 사람 쪽(planner)이 검증한 뒤 고쳤다.
+
+**교훈:** headless 세션의 권한은 `deny` 만으로 설계할 수 없다. 대화형에서는 사람이
+암묵적 `allow` 를 제공하지만 headless 에는 그것이 없다. `--permission-mode` 가
+무엇을 자동 승인하는지(편집만)를 정확히 알아야 한다.

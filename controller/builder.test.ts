@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildClaudeArgs } from "./builder";
+import { buildClaudeArgs, mergeSettings, resolveSuperpowersDir } from "./builder";
 
 /**
  * argv 구성 회귀 테스트.
@@ -95,6 +95,83 @@ describe("buildClaudeArgs — 모델", () => {
 
   test("--model 을 줘도 프롬프트는 여전히 마지막이고 `--` 가 앞에 있다", () => {
     const args = buildClaudeArgs({ ...base, model: "opus" });
+    expect(args[args.length - 1]).toBe(base.prompt);
+    expect(args[args.length - 2]).toBe("--");
+  });
+});
+
+describe("resolveSuperpowersDir", () => {
+  test("installed_plugins.json 에서 installPath 를 뽑는다", () => {
+    const fixture = {
+      plugins: {
+        "superpowers@superpowers-marketplace": [
+          { installPath: "/cache/superpowers/6.2.0", version: "6.2.0" },
+        ],
+      },
+    };
+    expect(resolveSuperpowersDir(fixture)).toBe("/cache/superpowers/6.2.0");
+  });
+
+  test("항목이 없으면 null — 던지지 않는다", () => {
+    expect(resolveSuperpowersDir({ plugins: {} })).toBeNull();
+    expect(resolveSuperpowersDir({})).toBeNull();
+    expect(resolveSuperpowersDir(null)).toBeNull();
+  });
+});
+
+describe("mergeSettings — 호스트별 경로 주입", () => {
+  const base = { permissions: { allow: ["Bash(bun:*)"], deny: ["Bash(rm -rf:*)"] } };
+
+  test("SDD 스크립트 3개의 allow 규칙이 추가된다", () => {
+    const m = mergeSettings(base, "/cache/sp") as any;
+    const allow: string[] = m.permissions.allow;
+    for (const n of ["sdd-workspace", "task-brief", "review-package"]) {
+      expect(allow.some((r) => r.includes(`/scripts/${n}:*`))).toBe(true);
+    }
+  });
+
+  test("기존 allow·deny 를 지우지 않는다", () => {
+    const m = mergeSettings(base, "/cache/sp") as any;
+    expect(m.permissions.allow).toContain("Bash(bun:*)");
+    expect(m.permissions.deny).toEqual(["Bash(rm -rf:*)"]);
+  });
+
+  test("원본을 변형하지 않는다 (순수)", () => {
+    const before = JSON.stringify(base);
+    mergeSettings(base, "/cache/sp");
+    expect(JSON.stringify(base)).toBe(before);
+  });
+
+  test("경로가 null 이면 그대로 돌려준다", () => {
+    expect(mergeSettings(base, null)).toEqual(base);
+  });
+
+  test("두 번 병합해도 규칙이 중복되지 않는다 (멱등)", () => {
+    const once = mergeSettings(base, "/cache/sp");
+    const twice = mergeSettings(once, "/cache/sp") as any;
+    const rules = twice.permissions.allow.filter((r: string) => r.includes("task-brief"));
+    expect(rules).toHaveLength(1);
+  });
+
+  test("permissions 가 아예 없는 설정에도 붙는다", () => {
+    const m = mergeSettings({}, "/cache/sp") as any;
+    expect(m.permissions.allow.length).toBe(3);
+  });
+});
+
+describe("buildClaudeArgs — superpowersDir", () => {
+  test("주면 --add-dir 가 두 번 들어간다 (레포 + 플러그인)", () => {
+    const args = buildClaudeArgs({ ...base, superpowersDir: "/cache/sp" });
+    expect(args.filter((a) => a === "--add-dir")).toHaveLength(2);
+    expect(args).toContain("/cache/sp");
+  });
+
+  test("안 주면 --add-dir 는 한 번뿐이다", () => {
+    expect(buildClaudeArgs(base).filter((a) => a === "--add-dir")).toHaveLength(1);
+  });
+
+  test("superpowersDir 를 줘도 프롬프트는 마지막이고 `--` 가 앞에 있다", () => {
+    const args = buildClaudeArgs({ ...base, superpowersDir: "/cache/sp", model: "opus" });
     expect(args[args.length - 1]).toBe(base.prompt);
     expect(args[args.length - 2]).toBe("--");
   });

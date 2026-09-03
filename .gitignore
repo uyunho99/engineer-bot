@@ -22,3 +22,6 @@ state.sqlite-wal
 
 # 의존성
 node_modules/
+
+# builder 세션 설정 (런타임 병합 산출물)
+docs/plans/**/.builder-settings.json
