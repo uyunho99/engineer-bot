@@ -20,7 +20,7 @@
 // ConsumeRef 를 import 하지 마라 — 이 파일은 `ifaces.consumes` 의 원소 타입을
 // 추론에 맡기고 이름으로 붙들지 않는다. noUnusedLocals: true 에 걸린다 (TS6196).
 import type { ParsedTask, TaskInterfaces } from "./contract";
-import { parseInterfaces } from "./contract";
+import { parseInterfaces, parseFiles } from "./contract";
 import type { PreflightDefect } from "./contract";
 
 /** 하나의 선언된 의존. 커버리지의 단위다 (설계 D25) */
@@ -159,4 +159,34 @@ export function signatureCandidates(g: RelationGraph): PreflightDefect[] {
 /** 1단계 전체. 확정 결함과 2단계 후보를 함께 낸다. */
 export function stage1Defects(g: RelationGraph): PreflightDefect[] {
   return [...orderViolations(g), ...danglingRefs(g), ...signatureCandidates(g)];
+}
+
+export interface FilePair {
+  a: string;
+  b: string;
+  sharedFiles: string[];
+}
+
+/**
+ * 같은 파일을 **쓰는** 태스크 짝만 낸다.
+ *
+ * Test 파일은 제외한다 — 두 태스크가 같은 테스트 파일에 케이스를 추가하는 것은
+ * 정상이고 모순 신호가 아니다. Create/Modify 만 본다.
+ */
+export function overlappingPairs(tasks: ParsedTask[]): FilePair[] {
+  const writes = tasks.map((t) => {
+    const f = parseFiles(t.body);
+    return { id: t.id, files: new Set([...f.create, ...f.modify]) };
+  });
+
+  const out: FilePair[] = [];
+  for (let i = 0; i < writes.length; i++) {
+    for (let j = i + 1; j < writes.length; j++) {
+      const shared = [...writes[i].files].filter((f) => writes[j].files.has(f));
+      if (shared.length) {
+        out.push({ a: writes[i].id, b: writes[j].id, sharedFiles: shared });
+      }
+    }
+  }
+  return out;
 }

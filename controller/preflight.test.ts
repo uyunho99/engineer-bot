@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
-import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects } from "./preflight";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs } from "./preflight";
 
 const PLAN = [
   "### Task 1: 목록",
@@ -219,5 +219,62 @@ describe("stage1Defects", () => {
 
   test("관계가 없으면 빈 배열", () => {
     expect(stage1Defects(graphOf(planOf(task(1, ["- Produces: `a()`"]))))).toEqual([]);
+  });
+});
+
+const fileTask = (n: number, lines: string[]) =>
+  [
+    `### Task ${n}: T${n}`,
+    "",
+    "**Tags:** verification=deterministic validation=invisible",
+    "",
+    "**Files:**",
+    ...lines,
+    "",
+    "**Interfaces:**",
+    `- Produces: \`p${n}()\``,
+  ].join("\n");
+
+describe("overlappingPairs", () => {
+  test("같은 파일을 건드리는 짝만 나온다", () => {
+    const p = overlappingPairs(parseTasks(planOf(
+      fileTask(1, ["- Create: `src/a.ts`"]),
+      fileTask(2, ["- Modify: `src/a.ts`", "- Create: `src/b.ts`"]),
+      fileTask(3, ["- Create: `src/c.ts`"]),
+    )));
+    expect(p).toHaveLength(1);
+    expect(p[0]).toEqual({ a: "1", b: "2", sharedFiles: ["src/a.ts"] });
+  });
+
+  test("겹치지 않으면 짝이 없다", () => {
+    const p = overlappingPairs(parseTasks(planOf(
+      fileTask(1, ["- Create: `x.ts`"]),
+      fileTask(2, ["- Create: `y.ts`"]),
+    )));
+    expect(p).toEqual([]);
+  });
+
+  test("한 방향만 — 3×7 과 7×3 이 중복되지 않는다", () => {
+    const p = overlappingPairs(parseTasks(planOf(
+      fileTask(1, ["- Create: `s.ts`"]),
+      fileTask(2, ["- Modify: `s.ts`"]),
+    )));
+    expect(p).toHaveLength(1);
+  });
+
+  test("태스크 1개면 짝 0개, 예외 없음 (E1)", () => {
+    expect(overlappingPairs(parseTasks(fileTask(1, ["- Create: `a.ts`"])))).toEqual([]);
+  });
+
+  test("태스크 0개면 짝 0개, 예외 없음", () => {
+    expect(overlappingPairs([])).toEqual([]);
+  });
+
+  test("Test 파일 공유는 짝이 아니다", () => {
+    const p = overlappingPairs(parseTasks(planOf(
+      fileTask(1, ["- Create: `a.ts`", "- Test: `shared.test.ts`"]),
+      fileTask(2, ["- Create: `b.ts`", "- Test: `shared.test.ts`"]),
+    )));
+    expect(p).toEqual([]);
   });
 });
