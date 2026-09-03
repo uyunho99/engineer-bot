@@ -67,8 +67,8 @@ Slack은 아웃바운드 보고만 한다.**
 
 | 단계 | 상태 |
 |---|---|
-| `qa-planning` | **사용자가 제작 중.** 2축 태그(`visible`/`invisible`)를 입력으로 소비하도록 설계할 것 — 태그 판정을 다시 하지 않는다. CLAUDE.md 라우팅 테이블에 행 추가 필요 (P6) |
-| `webapp-testing` | **미도입.** `anthropics/skills`의 `skills/webapp-testing`. Python Playwright 의존이라 `bootstrap.sh`에 핀이 필요하다 — 노드 playwright 1.58.2(chromium 1208)와 캐시를 공유하므로 `playwright==1.58.2`로 맞춰야 리비전이 안 늘어난다. 봇 호스트 vendoring 권장 (마켓플레이스 자동 업데이트는 재현성 위험 — A7 참조) |
+| `qa-planning` | ✅ **이미 사용 가능** (2026-09-03 실측). 출처는 사용자 제작이 아니라 **`anthropic-skills` 인라인 플러그인** — 디스크에 파일이 없고 앱에 번들돼 있다. **미결 2건:** ① 산출물 `QA_PLAN.md`의 경로가 스킬 쪽에 지정돼 있지 않다 → AMENDMENTS B2와 같은 종류의 문제이므로 `materialize.ts` 패턴의 정규화 단계가 필요할 수 있다. ② 배치 — 스킬 설명이 "테스트 코드 작성 전"(기획 단계)과 "브랜치가 기능적으로 완성된 뒤"(게이트 ② 전) 둘 다 지지한다. 명세 §3.4가 이미 `invisible` 할 일에 "테스트로 증명할 것" 목록을 `plan.md`에 요구하므로 **기획 단계 쪽이 기존 구조와 정합**하다. 어느 쪽이든 2축 태그를 **입력으로 소비**하게 하고 태그 판정을 다시 시키지 않는다. CLAUDE.md 라우팅 테이블에 행 추가 필요 (P6) |
+| `webapp-testing` | ❌ **미도입** (2026-09-03 실측: 스킬 없음 · python playwright 없음 · 캐시는 chromium 1208·1228 그대로). `anthropics/skills`의 `skills/webapp-testing`. Python Playwright 의존이라 `bootstrap.sh`에 핀이 필요하다 — 노드 playwright 1.58.2(chromium 1208)와 캐시를 공유하므로 `playwright==1.58.2`로 맞춰야 리비전이 안 늘어난다. 봇 호스트 vendoring 권장 (마켓플레이스 자동 업데이트는 재현성 위험 — A7 참조) |
 | `verification-before-completion` | **불필요.** SDD가 이 스킬을 호출하지 않지만, task reviewer + 최종 whole-branch reviewer가 기능적으로 그 자리를 채운다 |
 | 다이나믹 워크플로우 | **이 문서의 대상(사전 검사기)에서 처음 쓰인다.** 개발 구간에는 없다 — SDD가 이미 오케스트레이터이므로 워크플로우로 또 감싸면 오케스트레이터가 둘이 된다 (A1이 fork로 판정한 상황) |
 
