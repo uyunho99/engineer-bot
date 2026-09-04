@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
-import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, overlappingClusters, CLUSTER_WARN_SIZE, oversizedClusterWarnings, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, parsePreviousResult, planSha256, concernsUnit, type PreflightRaw, type JudgedUnit } from "./preflight";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, overlappingClusters, CLUSTER_WARN_SIZE, oversizedClusterWarnings, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, parsePreviousResult, planSha256, concernsUnit, type PreflightRaw, type JudgedUnit, type ExaminedRawUnit } from "./preflight";
 // PreflightRaw 를 함께 import 하라 — 아래 raw() 헬퍼가 그 타입을 쓴다.
 // tsconfig 의 include 가 controller/**/*.ts 이고 noUnusedLocals: true 라
 // 테스트 파일도 타입체크 대상이다 (2026-09-03 봇 지적).
@@ -437,7 +437,7 @@ describe("relationCoverage", () => {
   });
 
   test("실패한 단위가 not_examined 에 들어간다", () => {
-    expect(relationCoverage(g, ["pair:1x2"], ["pair:2x3"]).not_examined).toEqual(["pair:2x3"]);
+    expect(relationCoverage(g, [{ kind: "cluster", label: "pair:1x2" }], ["pair:2x3"]).not_examined).toEqual(["pair:2x3"]);
   });
 
   test("not_examined 는 비어도 배열로 존재한다", () => {
@@ -478,7 +478,7 @@ const validRaw = (over: Record<string, unknown> = {}) => JSON.stringify({
   schema: 1,
   plan_sha256: SHA,
   stage1: { relations_declared: 2, defects: [validDefect] },
-  stage2: { units_examined: ["pair:1x2"], units_failed: [], defects: [] },
+  stage2: { units_examined: [{ kind: "cluster", label: "pair:1x2" }], units_failed: [], defects: [] },
   ...over,
 });
 
@@ -991,7 +991,7 @@ describe("워크플로우 산출 형식 왕복", () => {
     schema: 1,
     plan_sha256: SHA,
     stage1: { relations_declared: 2, defects: [] },
-    stage2: { units_examined: ["pair:1x2"], units_failed: [], defects: [] },
+    stage2: { units_examined: [{ kind: "cluster", label: "pair:1x2" }], units_failed: [], defects: [] },
     critic: { additional_defects: [] },
   };
 
@@ -1340,5 +1340,98 @@ describe("concernsUnit (DC2 — 단위 종류별 판정 규칙)", () => {
     const clusterUnit: JudgedUnit = { kind: "cluster", task_ids: ["1", "2"], file: "a.ts" };
     expect(concernsUnit(defects, relationUnit)).toBe("clean");
     expect(concernsUnit(defects, clusterUnit)).toBe("defect");
+  });
+});
+
+// ─── Task 5 — raw 스키마의 검사 단위를 객체로 (설계 DC6) ──────────────────
+//
+// `units_examined` 이 `string[]` 이던 시절엔 signature/cluster/critic 세
+// 종류를 문자열 접두사로 구분해야 했는데, 그건 하드룰 #4(자유 텍스트 파싱
+// 금지)를 정면으로 어긴다. 그래서 원소를 `{ kind, label }` 객체로 바꾼다.
+//
+// 2026-09-04 실측: 실행 중 검사 단위가 6개였는데 배열 원소는 7개였다
+// (critic 1개가 더 있었다) — `examined_stage2` 를 배열 길이로 세면
+// 커버리지가 부풀려진다. `units_failed` 는 그대로 `string[]` 로 남는다
+// (기존 실패 경로 보존).
+describe("checkPreflightRaw — units_examined 객체 형태 (Task 5 · DC6)", () => {
+  test("units_examined 원소가 { kind, label } 객체면 통과한다", () => {
+    const r = checkPreflightRaw(validRaw({
+      stage2: { units_examined: [{ kind: "cluster", label: "src/a.ts" }], units_failed: [], defects: [] },
+    }), SHA);
+    expect(r.ok).toBe(true);
+    expect(r.data?.stage2.units_examined).toEqual([{ kind: "cluster", label: "src/a.ts" }]);
+  });
+
+  test("kind 가 signature/cluster/critic 세 값 밖이면 거부한다", () => {
+    const r = checkPreflightRaw(validRaw({
+      stage2: { units_examined: [{ kind: "bogus", label: "x" }], units_failed: [], defects: [] },
+    }), SHA);
+    expect(r.ok).toBe(false);
+  });
+
+  test("원소가 문자열이면 거부한다 — 옛 형식을 조용히 받지 않는다", () => {
+    const r = checkPreflightRaw(validRaw({
+      stage2: { units_examined: ["pair:1x2"], units_failed: [], defects: [] },
+    }), SHA);
+    expect(r.ok).toBe(false);
+  });
+
+  test("label 이 없으면 거부한다", () => {
+    const r = checkPreflightRaw(validRaw({
+      stage2: { units_examined: [{ kind: "signature" }], units_failed: [], defects: [] },
+    }), SHA);
+    expect(r.ok).toBe(false);
+  });
+
+  test("units_failed 는 여전히 문자열 배열이다 — 기존 실패 경로 보존", () => {
+    const r = checkPreflightRaw(validRaw({
+      stage2: { units_examined: [], units_failed: ["pair:1x2"], defects: [] },
+    }), SHA);
+    expect(r.ok).toBe(true);
+    expect(r.data?.stage2.units_failed).toEqual(["pair:1x2"]);
+  });
+});
+
+describe("relationCoverage — examined_stage2 는 cluster 만 센다 (Task 5 · DC6 · Ⓔ 회귀)", () => {
+  const g = graphOf(planOf(task(1, ["- Produces: `a()`"])));
+
+  test("2026-09-04 실측 픽스처 — 배열 7개(critic 포함)인데 클러스터는 3개뿐이다", () => {
+    // signature 3 + cluster 3 + critic 1 = 배열 7개, 검사 단위(=critic 제외) 6개.
+    // examined_stage2 는 둘 다 아니라 클러스터 수(3)여야 한다 — 배열 길이(7)로
+    // 세거나 critic 만 뺀 값(6)으로 세면 이 assertion 이 잡는다.
+    const units: ExaminedRawUnit[] = [
+      { kind: "signature", label: "sig:a()" },
+      { kind: "signature", label: "sig:b()" },
+      { kind: "signature", label: "sig:c()" },
+      { kind: "cluster", label: "src/a.ts" },
+      { kind: "cluster", label: "src/b.ts" },
+      { kind: "cluster", label: "src/c.ts" },
+      { kind: "critic", label: "completeness" },
+    ];
+    const cov = relationCoverage(g, units, []);
+    expect(cov.examined_stage2).toBe(3);
+    expect(cov.examined_stage2).not.toBe(6);
+    expect(cov.examined_stage2).not.toBe(7);
+  });
+
+  test("signature 와 critic 이 섞여 있어도 그 수가 부풀지 않는다 — cluster 가 하나뿐이면 1", () => {
+    const units: ExaminedRawUnit[] = [
+      { kind: "signature", label: "sig:a()" },
+      { kind: "critic", label: "completeness" },
+      { kind: "cluster", label: "src/a.ts" },
+    ];
+    expect(relationCoverage(g, units, []).examined_stage2).toBe(1);
+  });
+
+  test("클러스터가 0개면 examined_stage2 는 0", () => {
+    const units: ExaminedRawUnit[] = [
+      { kind: "signature", label: "sig:a()" },
+      { kind: "critic", label: "completeness" },
+    ];
+    expect(relationCoverage(g, units, []).examined_stage2).toBe(0);
+  });
+
+  test("units_failed 의 라벨이 not_examined 에 그대로 들어간다 — 기존 실패 경로 보존", () => {
+    expect(relationCoverage(g, [], ["pair:1x2"]).not_examined).toEqual(["pair:1x2"]);
   });
 });

@@ -297,15 +297,29 @@ export interface RelationCoverage {
   not_examined: string[];
 }
 
+/**
+ * `examined_stage2` 는 **클러스터만** 센다 (설계 DC6).
+ *
+ * 2단계는 이제 세 종류를 검사한다 — signature 후보, 파일 클러스터, 완결성
+ * critic. 커버리지가 뜻하는 "관계를 몇 개 봤나"는 클러스터 수와만 대응한다
+ * (관계 자체가 1단계 산출이고, 2단계 클러스터가 그 위에 겹쳐 도는 별도 단위 —
+ * `assembleResult` 의 `pairs`/`cluster` 처리와 같은 결). signature 후보는
+ * 아직 결함으로 확정되지 않은 중간 산출이고 critic 은 검사 단위 자체가 아니라
+ * 완결성 재검토이므로 어느 쪽도 세면 안 된다.
+ *
+ * 2026-09-04 실측: 실행 한 번에서 `units_examined` 가 검사 단위 6개에 대해
+ * 배열 원소 7개를 담았다(critic 1개가 더 있었다). 배열 길이로 세면
+ * `examined_stage2` 가 7이 되어 실제보다 부풀려진다.
+ */
 export function relationCoverage(
   g: RelationGraph,
-  examinedStage2: string[],
+  examinedStage2: ExaminedRawUnit[],
   failed: string[],
 ): RelationCoverage {
   return {
     declared: g.relations.length,
     examined_stage1: g.relations.length,
-    examined_stage2: examinedStage2.length,
+    examined_stage2: examinedStage2.filter((u) => u.kind === "cluster").length,
     not_examined: [...failed],
   };
 }
@@ -332,8 +346,25 @@ export interface RawStage {
   defects: PreflightDefect[];
 }
 
+/**
+ * 2단계가 검사한 단위 하나 (설계 DC6).
+ *
+ * 옛 형식은 `"pair:1x2"` 같은 문자열 라벨이었다 — 종류를 알려면 접두사를
+ * 파싱해야 했는데, 그건 하드룰 #4(경계는 파일 + JSON 스키마, 자유 텍스트
+ * 파싱 금지)를 어긴다. 그래서 원소가 자기 `kind` 를 직접 선언한다.
+ *
+ * **접두사로 종류를 추론하지 않는다.** 옛 문자열 형식은 호환 없이 거부한다
+ * (`checkPreflightRaw` 참고) — 조용히 받아주는 shim 은 만들지 않는다.
+ */
+export interface ExaminedRawUnit {
+  kind: "signature" | "cluster" | "critic";
+  label: string;
+}
+
 export interface RawStage2 {
-  units_examined: string[];
+  units_examined: ExaminedRawUnit[];
+  /** 검사 대상으로 뽑혔지만 실패한 단위의 라벨. 문자열 그대로 남는다 —
+   *  실패 경로는 이번 변경의 대상이 아니다. */
   units_failed: string[];
   defects: PreflightDefect[];
 }
@@ -414,6 +445,31 @@ function checkDefectShape(d: unknown, where: string, v: Violation[]): void {
   if (typeof p.text !== "string") bad("patch.text 가 문자열이 아닙니다");
 }
 
+const EXAMINED_KINDS = new Set(["signature", "cluster", "critic"]);
+
+/**
+ * `units_examined` 원소 하나의 형태를 검증한다 (설계 DC6).
+ *
+ * **접두사 파싱으로 우회하지 않는다 (하드룰 #4).** `"pair:1x2"` 처럼 콜론
+ * 앞을 잘라 종류를 추론하는 대신, 원소 자체가 `kind` 를 선언해야 유효하다 —
+ * 그래서 문자열 원소는 옛 형식이라도 호환 없이 거부한다.
+ */
+function checkExaminedUnitShape(u: unknown, where: string, v: Violation[]): void {
+  const bad = (m: string) =>
+    v.push({ severity: "error", file: "preflight-raw.json", rule: "DC6", message: `${where}: ${m}` });
+  if (!u || typeof u !== "object" || Array.isArray(u)) {
+    bad("검사 단위가 { kind, label } 객체가 아닙니다 — 문자열 라벨(옛 형식)은 더 이상 받지 않습니다");
+    return;
+  }
+  const o = u as Record<string, unknown>;
+  if (typeof o.kind !== "string" || !EXAMINED_KINDS.has(o.kind)) {
+    bad(`kind 가 signature/cluster/critic 중 하나가 아닙니다: ${String(o.kind)}`);
+  }
+  if (typeof o.label !== "string" || !o.label) {
+    bad("label 이 없거나 비어 있습니다");
+  }
+}
+
 /**
  * 워크플로우가 쓴 원본을 검증한다.
  *
@@ -458,6 +514,7 @@ export function checkPreflightRaw(
   if (!s2 || !Array.isArray(s2.units_examined) || !Array.isArray(s2.units_failed) || !Array.isArray(s2.defects)) {
     bad("stage2 가 없거나 units_examined/units_failed/defects 가 빠졌습니다");
   } else {
+    s2.units_examined.forEach((u, i) => checkExaminedUnitShape(u, `stage2.units_examined[${i}]`, v));
     s2.defects.forEach((d, i) => checkDefectShape(d, `stage2.defects[${i}]`, v));
   }
 
