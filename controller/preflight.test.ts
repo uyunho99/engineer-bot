@@ -1699,7 +1699,7 @@ describe("assembleResult — 2단계 단위가 클러스터다 (Task 6)", () => 
   });
 });
 
-describe("parsePreviousResult — warnings 를 정규화한다 (Task 6 · pair:4x6-2)", () => {
+describe("parsePreviousResult — warnings: 없으면 [] 로 채우고, 배열이 아니면 broken 이다 (Task 6r4)", () => {
   const old = (over: Record<string, unknown> = {}) => JSON.stringify({
     schema: 1, applied: [], defects: [], ...over,
   });
@@ -1710,10 +1710,22 @@ describe("parsePreviousResult — warnings 를 정규화한다 (Task 6 · pair:4
     expect(r.status === "ok" && r.result.warnings).toEqual([]);
   });
 
-  test("배열이 아닌 warnings 도 [] 로 정규화한다 — broken 으로 몰지 않는다", () => {
+  test("문자열 warnings 는 broken 이다 — [] 로 뭉개면 손상 신호가 지워진다 (4판 반송 사유)", () => {
     const r = parsePreviousResult(old({ warnings: "경고 3건" }));
-    expect(r.status).toBe("ok");
-    expect(r.status === "ok" && r.result.warnings).toEqual([]);
+    expect(r.status).toBe("broken");
+    expect(r.status === "broken" && r.reason).toContain("warnings");
+  });
+
+  test("객체 warnings 도 broken 이다 — 배열이 아닌 모든 타입이 대상이다", () => {
+    const r = parsePreviousResult(old({ warnings: { count: 3 } }));
+    expect(r.status).toBe("broken");
+    expect(r.status === "broken" && r.reason).toContain("warnings");
+  });
+
+  test("숫자 warnings 도 broken 이다", () => {
+    const r = parsePreviousResult(old({ warnings: 3 }));
+    expect(r.status).toBe("broken");
+    expect(r.status === "broken" && r.reason).toContain("warnings");
   });
 
   test("있는 warnings 는 건드리지 않는다", () => {

@@ -801,12 +801,20 @@ export function parsePreviousResult(raw: string | null): PreviousResult {
   if (o.schema !== 1) return { status: "broken", reason: `schema 가 1이 아닙니다: ${String(o.schema)}` };
   if (!Array.isArray(o.applied)) return { status: "broken", reason: "applied 가 배열이 아닙니다" };
   if (!Array.isArray(o.defects)) return { status: "broken", reason: "defects 가 배열이 아닙니다" };
-  // `warnings` 는 **거부하지 않고 정규화한다.** 이 기능 이전에 쓰인 파일에는
-  // 이 필드가 없는데 `schema` 는 그대로 `1` 이라 읽는 쪽이 두 형식을 구분할
-  // 방법이 없다 — 없다고 broken 으로 몰면 멀쩡한 과거 결과가 전부 판정 불가가
-  // 되고, 그대로 캐스팅하면 `--apply` 가 `{ ...previous }` 로 다시 쓸 때
-  // `warnings` 가 사라져 "항상 존재하는 배열"이라는 계약이 깨진다.
-  if (!Array.isArray(o.warnings)) o.warnings = [];
+  // `warnings` 는 **없는 것과 틀린 것을 구분한다** (4판 반송 사유). 이 기능
+  // 이전에 쓰인 파일에는 이 필드가 아예 없는데 `schema` 는 그대로 `1` 이라
+  // 읽는 쪽이 두 형식을 구분할 방법이 없다 — 없다고 broken 으로 몰면 멀쩡한
+  // 과거 결과가 전부 판정 불가가 된다. 그래서 **없으면** `[]` 로 채운다.
+  // 반면 필드가 있는데 배열이 아니면 파일이 손상된 것이다 — 형제 필드
+  // `applied`·`defects` 와 같은 조건이다. 이걸 정규화로 뭉개면
+  // `warnings: "경고 3건"` 인 파일이 통과하고, `--apply` 가 `{ ...previous }`
+  // 로 다시 쓸 때 `[]` 로 덮어써 손상 신호를 지운다 — 검증 실패는 BLOCKED 이지
+  // 성공이 아니다 (하드룰 #4).
+  if (o.warnings === undefined) {
+    o.warnings = [];
+  } else if (!Array.isArray(o.warnings)) {
+    return { status: "broken", reason: "warnings 가 배열이 아닙니다" };
+  }
   return { status: "ok", result: parsed as PreflightResult };
 }
 
