@@ -2081,3 +2081,140 @@ describe("assembleResult — 커버리지 개수 불일치는 not_examined 에 �
     expect(r.verdict).toBe("CLEAN");
   });
 });
+
+// ─── 최종 리뷰 수정 — agent() 가 null 을 돌려주는 경로 (C1 · C2) ────────────
+//
+// 워크플로우 런타임의 `agent()` 는 서브에이전트가 중간에 건너뛰어지거나 재시도
+// 후에도 터미널 API 오류로 죽으면 **`null` 을 돌려준다** (사용량 한도 소진이
+// 그 경로다 — 2026-09-04 실측). 던지지 않으므로 `.catch` 가 뜨지 않는다.
+//
+// 그래서 `.catch` 만 고친 커밋 203a86c 로는 부족하다. null 은 "판단"이 아니라
+// **검사하지 못한 것**이고, 그것을 검사됨(examined)으로 세거나 반증(refuted)으로
+// 취급하면 이 기능의 최악 실패 — 아무도 보지 않은 단위를 `clean` 이라고
+// 주장하는 것 — 이 그대로 재현된다 (하드룰 #4).
+//
+// 이 파일은 실행할 수 없다 (tsconfig include 밖 · import 하는 곳 없음 ·
+// 워크플로우 전역 의존). 그래서 검증은 소스 문자열 검사뿐이다 — 위 Task 7 ·
+// Task 12 블록이 이미 쓰는 방식 그대로다.
+describe("워크플로우 — 죽은 에이전트를 검사됨으로 세지 않는다 (C1 · C2)", () => {
+  const nullGuardSrc = readFileSync("workflows/plan-preflight.js", "utf8");
+  const nullGuardCode = nullGuardSrc
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+
+  // 주석을 벗긴 뒤에도 남는 `phase('...')` 호출로 Verify 구간을 도려낸다 —
+  // 섹션 주석(`// ── 4)`)은 스트립 대상이라 경계로 쓸 수 없다.
+  const verifySection = nullGuardCode.slice(
+    nullGuardCode.indexOf("phase('Verify')"),
+    nullGuardCode.indexOf("phase('Fix')"),
+  );
+
+  test("Verify 구간 경계가 잡힌다 (전제 조건)", () => {
+    expect(nullGuardCode.indexOf("phase('Verify')")).toBeGreaterThan(-1);
+    expect(verifySection.length).toBeGreaterThan(0);
+    expect(verifySection).toContain("refute:");
+  });
+
+  test("C2 — 세 팬아웃 전부 examined.push 바로 앞에 null 가드가 있다", () => {
+    // `.then((r) => { examined.push(...); return r })` 는 r === null 일 때도
+    // 돈다. 그러면 죽은 에이전트의 단위가 units_examined 에 들어가고,
+    // relationCoverage 가 그것을 세고, clusterCoverageGap 이 불일치를 못 잡고,
+    // assembleResult 가 `result: "clean"` 을 쓴다 — 아무도 읽지 않은 파일에 대해.
+    const guarded =
+      nullGuardCode.match(
+        /if\s*\(\s*!r\s*\)\s*\{\s*failed\.push\([^)]+\)\s*;?\s*return null\s*\}\s*examined\.push\(\{/g,
+      ) ?? [];
+    expect(guarded.length).toBe(3);
+  });
+
+  test("C2 — 가드가 각 단계의 기존 failed 라벨 규약을 그대로 쓴다", () => {
+    expect(nullGuardCode).toMatch(/if\s*\(\s*!r\s*\)\s*\{\s*failed\.push\(`sig:\$\{c\.id\}`\)/);
+    expect(nullGuardCode).toMatch(/if\s*\(\s*!r\s*\)\s*\{\s*failed\.push\(unit\)/);
+    expect(nullGuardCode).toMatch(/if\s*\(\s*!r\s*\)\s*\{\s*failed\.push\('critic'\)/);
+  });
+
+  test("C1 — Verify 의 null 결과가 결함을 조용히 지우지 않는다", () => {
+    // 옛 모양: `.then((v) => (v && !v.refuted ? d : null))` — v 가 null 이면
+    // null 을 내고 뒤의 .filter(Boolean) 이 결함을 통째로 버린다.
+    expect(verifySection).not.toMatch(
+      /\.then\(\(v\)\s*=>\s*\(v\s*&&\s*!v\.refuted\s*\?\s*d\s*:\s*null\)\)/,
+    );
+    expect(verifySection).toMatch(
+      /if\s*\(\s*!v\s*\)\s*\{\s*failed\.push\(`verify:\$\{d\.id\}`\)\s*;?\s*return d\s*\}/,
+    );
+  });
+
+  test("C1 — Verify 실패 기록이 null 경로와 throw 경로 양쪽에 있다", () => {
+    const pushes = verifySection.match(/failed\.push\(`verify:\$\{d\.id\}`\)/g) ?? [];
+    expect(pushes.length).toBe(2);
+  });
+
+  test("C1 — 실제 반증(refuted=true)은 여전히 결함을 떨어뜨린다", () => {
+    expect(verifySection).toMatch(/v\.refuted\s*\?\s*null\s*:\s*d/);
+  });
+});
+
+// ─── 최종 리뷰 수정 — critic: null 이 검증기 밖으로 던지지 않는다 (I1) ──────
+//
+// `cr !== undefined` 는 null 을 통과시키므로 `cr.additional_defects` 가
+// null 역참조로 **던졌다.** preflight-cli.ts 는 checkPreflightRaw 를 모듈
+// 최상위에서 try 없이 부르므로 `--record` 가 스택 트레이스로 죽고, bun 의
+// uncaught 종료 코드는 1 — 그 1이 이 도구에서는 "REJECTED, 계획서를 고쳐라"다.
+// 검증 실패를 판정으로 둔갑시키는 것이라 하드룰 #4 위반이다.
+describe("checkPreflightRaw — critic 이 객체가 아니어도 던지지 않는다 (I1)", () => {
+  const criticCases: Array<[string, unknown]> = [
+    ["null", null],
+    ["문자열", "nope"],
+    ["숫자", 3],
+    ["배열", []],
+    ["불리언", true],
+  ];
+
+  for (const [name, value] of criticCases) {
+    test(`critic 이 ${name} 이면 던지지 않고 ok:false 를 돌려준다`, () => {
+      const r = checkPreflightRaw(validRaw({ critic: value }), SHA);
+      expect(r.ok).toBe(false);
+      expect(r.violations.some((x) => x.message.includes("critic"))).toBe(true);
+    });
+  }
+
+  test("critic 필드가 아예 없으면 통과한다 — 옵셔널이 깨지지 않았다", () => {
+    expect(checkPreflightRaw(validRaw(), SHA).ok).toBe(true);
+  });
+
+  test("정상 critic 은 그대로 통과한다", () => {
+    const r = checkPreflightRaw(validRaw({ critic: { additional_defects: [] } }), SHA);
+    expect(r.ok).toBe(true);
+  });
+});
+
+// ─── 최종 리뷰 수정 — file 없는 클러스터 단위는 결함을 거르지 않는다 (Minor) ──
+//
+// cluster 분기는 `d.file === unit.file` 을 비교하는데, `unit.file` 이
+// undefined 면 file 을 가진 결함이 **전부** 걸러져 진짜 결함이 clean 이 된다
+// (거짓 음성 — 안전하지 않은 방향). assembleResult 는 항상 file 을 채우지만
+// concernsUnit 은 export 되어 있다.
+describe("concernsUnit — unit.file 이 없는 클러스터 (Minor)", () => {
+  const filelessDefect = (
+    task_ids: [string, string, ...string[]],
+    file?: string,
+  ) => ({
+    id: `m-${task_ids.join("-")}${file ? `-${file}` : ""}`,
+    kind: "undeclared_conflict" as const,
+    task_ids,
+    plan_text: "",
+    conflict: "",
+    stage: 2 as const,
+    ...(file !== undefined ? { file } : {}),
+  });
+
+  test("file 있는 결함이 file 없는 클러스터 단위를 defect 로 만든다 — 과다 표시 쪽", () => {
+    const unit: JudgedUnit = { kind: "cluster", task_ids: ["1", "2"] };
+    expect(concernsUnit([filelessDefect(["1", "9"], "a.ts")], unit)).toBe("defect");
+  });
+
+  test("태스크가 안 겹치면 file 이 없어도 여전히 clean 이다 — 가드가 교집합 규칙을 지우지 않는다", () => {
+    const unit: JudgedUnit = { kind: "cluster", task_ids: ["1", "2"] };
+    expect(concernsUnit([filelessDefect(["8", "9"], "a.ts")], unit)).toBe("clean");
+  });
+});

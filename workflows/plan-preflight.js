@@ -92,7 +92,14 @@ const sigResults = await parallel((args.stage2Candidates ?? []).map((c) => () =>
     `보고할 때 id 는 "${c.id}" 를 그대로 쓰고, kind 는 "signature_mismatch", stage 는 2,\n` +
     `task_ids 는 ["${c.task_ids[0]}", "${c.task_ids[1]}"] 로 한다.`,
     { label: `sig:${c.id}`, phase: 'Candidates', schema: DEFECT_SCHEMA, model: 'sonnet' },
-  ).then((r) => { examined.push({ kind: 'signature', label: `sig:${c.id}` }); return r })
+  ).then((r) => {
+    // agent() 는 서브에이전트가 건너뛰어지거나 죽으면 **null 을 돌려준다** —
+    // 던지지 않으므로 .catch 가 뜨지 않는다. 그 단위를 examined 에 밀어 넣으면
+    // 아무도 읽지 않은 것을 "검사했다"고 주장하게 된다 (하드룰 #4).
+    if (!r) { failed.push(`sig:${c.id}`); return null }
+    examined.push({ kind: 'signature', label: `sig:${c.id}` })
+    return r
+  })
     .catch(() => { failed.push(`sig:${c.id}`); return null })))
 
 // ── 2) 선언되지 않은 충돌 탐색 (파일 클러스터마다) ────────────────
@@ -120,7 +127,15 @@ const clusterResults = await parallel((args.clusters ?? []).map((c) => () => {
     `id 는 "${unit}-<번호>" 형식으로, kind 는 "undeclared_conflict", stage 는 2,\n` +
     `file 은 "${c.file}" 로 채운다 — 비워두거나 생략하지 마라.`,
     { label: unit, phase: 'Undeclared', schema: DEFECT_SCHEMA, model: 'opus' },
-  ).then((r) => { examined.push({ kind: 'cluster', label: unit }); return r })
+  ).then((r) => {
+    // null = 에이전트가 돌지 않았다. 이 클러스터를 examined 에 넣으면
+    // relationCoverage 가 그것을 세고, clusterCoverageGap(1, 1) 이 `[]` 를 내고,
+    // assembleResult 가 그 파일에 `result: "clean"` 을 쓴다 — 아무도 읽지 않은
+    // 파일에 대해. Task 8 이 막으려던 실패가 옆문으로 되돌아오는 경로다.
+    if (!r) { failed.push(unit); return null }
+    examined.push({ kind: 'cluster', label: unit })
+    return r
+  })
     .catch(() => { failed.push(unit); return null })
 }))
 
@@ -139,7 +154,12 @@ const critic = await agent(
   `id 는 "critic-<번호>", kind 는 "undeclared_conflict", stage 는 2,\n` +
   `task_ids 는 모순에 관련된 태스크 번호를 2개 이상 그대로 적는다.`,
   { label: 'critic', phase: 'Critic', schema: DEFECT_SCHEMA, model: 'opus' },
-).then((r) => { examined.push({ kind: 'critic', label: 'critic' }); return r })
+).then((r) => {
+  // 검사관이 죽어도(null) 완결성 검사를 "했다"고 말하면 안 된다.
+  if (!r) { failed.push('critic'); return null }
+  examined.push({ kind: 'critic', label: 'critic' })
+  return r
+})
   .catch(() => { failed.push('critic'); return null })
 
 // 검사관이 낸 결함의 id 를 기억해 둔다 — Fix 단계 이후 출처별로 되돌려 쓰려면
@@ -156,7 +176,14 @@ const survivors = (await parallel(candidates.map((d) => () =>
     `계획서 ${PLAN} 를 읽고 판단하라. **불확실하면 refuted=true 가 기본값이다.**\n` +
     `오탐이 정상 플랜을 반송시키는 것이 놓치는 것보다 비싸다.`,
     { label: `refute:${d.id}`, phase: 'Verify', schema: VERDICT_SCHEMA, model: 'sonnet' },
-  ).then((v) => (v && !v.refuted ? d : null))
+  ).then((v) => {
+    // 에이전트가 죽으면 agent() 는 **null 을 돌려준다** (던지지 않는다). 옛
+    // 모양 `v && !v.refuted ? d : null` 은 그 null 을 반증으로 읽어 뒤의
+    // .filter(Boolean) 이 결함을 통째로 지웠다 — .catch 는 뜨지도 않으므로
+    // units_failed 는 `[]` 로 남는다. 커밋 203a86c 는 throw 경로만 고쳤다.
+    if (!v) { failed.push(`verify:${d.id}`); return d }
+    return v.refuted ? null : d
+  })
    // 에이전트 실패는 판단이 아니다 — 결함을 유지하고 실패를 기록한다.
    //
    // 2026-09-04 실측: 사용량 한도로 refute 15개가 실패했고, 옛 코드

@@ -504,10 +504,17 @@ export function checkPreflightRaw(
   //
   // critic 은 검증에서 뺄 이유가 없다. 오히려 그 산출이 AI 한 개의 자유
   // 출력이므로 **더** 검증돼야 한다 (하드룰 #4).
+  //
+  // `cr !== undefined` 만으로는 `critic: null` 이 통과해 `cr.additional_defects`
+  // 가 null 역참조로 **던졌다.** `preflight-cli.ts` 는 이 함수를 모듈 최상위에서
+  // try 없이 부르므로 `--record` 가 스택 트레이스로 죽고, bun 의 uncaught 종료
+  // 코드는 1 — 이 도구에서 1은 "REJECTED, 계획서를 고쳐라"다. 검증 실패를
+  // 판정으로 둔갑시키는 것이라 하드룰 #4 위반이다. 형제 분기(s1·s2)와 같은
+  // 모양으로 막는다. **필드가 아예 없는 것은 여전히 정상이다** (옵셔널).
   const cr = o.critic as Record<string, unknown> | undefined;
   if (cr !== undefined) {
-    if (!Array.isArray(cr.additional_defects)) {
-      bad("critic 이 있는데 additional_defects 가 배열이 아닙니다");
+    if (!cr || typeof cr !== "object" || Array.isArray(cr) || !Array.isArray(cr.additional_defects)) {
+      bad("critic 이 있는데 객체가 아니거나 additional_defects 가 배열이 아닙니다");
     } else {
       cr.additional_defects.forEach((d, i) =>
         checkDefectShape(d, `critic.additional_defects[${i}]`, v),
@@ -631,7 +638,12 @@ export function concernsUnit(defects: PreflightDefect[], unit: JudgedUnit): "cle
   if (unit.kind === "cluster") {
     return defects.some(
       (d) =>
-        (d.file === undefined || d.file === unit.file) &&
+        // 어느 쪽 `file` 이 없어도 거르지 않는다 — 결함 쪽이든(위 표) 단위
+        // 쪽이든 마찬가지다. `unit.file` 이 없을 때 `d.file === unit.file` 로
+        // 비교하면 file 을 가진 결함이 **전부** 걸러져 진짜 결함이 clean 이
+        // 된다(거짓 음성). `assembleResult` 는 늘 file 을 채우지만 이 함수는
+        // export 되어 있으므로 안전한 방향(과다 표시)으로 둔다.
+        (d.file === undefined || unit.file === undefined || d.file === unit.file) &&
         unit.task_ids.some((id) => d.task_ids.includes(id)),
     )
       ? "defect"
