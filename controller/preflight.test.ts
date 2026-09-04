@@ -937,6 +937,56 @@ describe("훅과 스킬 배선 (Task 13)", () => {
     expect(js).toMatch(/failed\.push\(`fix:\$\{d\.id\}`\)/);
   });
 
+  /**
+   * 2026-09-04 실측 결함 — **검증되지 않는 버킷이 있었다.**
+   *
+   * `checkPreflightRaw` 는 stage1·stage2 의 defects 만 검사하고
+   * `critic.additional_defects` 는 검사하지 않았는데, `assembleResult` 는
+   * 그 버킷을 그대로 `defects` 에 합친다. 같은 불량 결함을 두 곳에 넣어 확인:
+   *
+   *   stage2.defects            → BLOCKED (task_ids 가 2개 미만입니다)
+   *   critic.additional_defects → 통과, preflight.json 에 기록
+   *
+   * D27 이 타입으로 강제한 "결함은 관계다"가 런타임에 뚫린다.
+   */
+  test("critic 버킷도 형태 검증을 받는다 — stage2 와 같은 답이어야 한다", () => {
+    const badDefect = { id: "x", kind: "undeclared_conflict", task_ids: [1], conflict: "c", stage: 2 };
+    const mk = (bucket: "stage2" | "critic") => ({
+      schema: 1,
+      plan_sha256: SHA,
+      stage1: { relations_declared: 1, defects: [] },
+      stage2: {
+        units_examined: [], units_failed: [],
+        defects: bucket === "stage2" ? [badDefect] : [],
+      },
+      critic: { additional_defects: bucket === "critic" ? [badDefect] : [] },
+    });
+    const a = checkPreflightRaw(JSON.stringify(mk("stage2")), SHA);
+    const b = checkPreflightRaw(JSON.stringify(mk("critic")), SHA);
+    expect(a.ok).toBe(false);
+    expect(b.ok).toBe(false); // ← 이 줄이 2026-09-04 이전에는 실패했다
+    expect(b.violations.some((x) => x.message.includes("task_ids"))).toBe(true);
+  });
+
+  test("critic 이 없어도 통과한다 — 옵셔널 필드다", () => {
+    const raw = {
+      schema: 1, plan_sha256: SHA,
+      stage1: { relations_declared: 0, defects: [] },
+      stage2: { units_examined: [], units_failed: [], defects: [] },
+    };
+    expect(checkPreflightRaw(JSON.stringify(raw), SHA).ok).toBe(true);
+  });
+
+  test("critic 이 있는데 additional_defects 가 배열이 아니면 거부한다", () => {
+    const raw = {
+      schema: 1, plan_sha256: SHA,
+      stage1: { relations_declared: 0, defects: [] },
+      stage2: { units_examined: [], units_failed: [], defects: [] },
+      critic: { additional_defects: "nope" },
+    };
+    expect(checkPreflightRaw(JSON.stringify(raw), SHA).ok).toBe(false);
+  });
+
   test("검사 단위가 실패하면 판정이 CLEAN 이 될 수 없다", () => {
     const cov = { declared: 3, examined_stage1: 3, examined_stage2: 1, not_examined: ["verify:x-1"] };
     expect(preflightVerdict([], cov)).toBe("REJECTED");

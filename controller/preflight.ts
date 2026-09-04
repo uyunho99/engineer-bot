@@ -382,6 +382,33 @@ export function checkPreflightRaw(
     s2.defects.forEach((d, i) => checkDefectShape(d, `stage2.defects[${i}]`, v));
   }
 
+  // 완결성 검사관 버킷도 같은 형태 검증을 받는다.
+  //
+  // 2026-09-04 실측 결함: 이 검사가 없었다. `assembleResult` 는
+  // `raw.critic?.additional_defects` 를 그대로 `defects` 에 합치므로,
+  // **검증을 통과하지 않은 결함이 결과에 들어갔다.** 같은 불량 결함
+  // (`task_ids: [1]` — 원소 1개, 숫자)을 두 버킷에 넣어 확인했다:
+  //
+  //   stage2.defects            → BLOCKED · exit 4 ("task_ids 가 2개 미만입니다")
+  //   critic.additional_defects → 통과 · preflight.json 에 그대로 기록
+  //
+  // D27 이 `task_ids: [string, string, ...string[]]` 로 타입에서 강제한
+  // "결함은 관계다"가 런타임에 뚫린다. 그러면 `concernsUnit` 의 비교가
+  // 어긋나 진짜 결함이 모든 단위에서 `clean` 이 된다 — 거짓 음성이다.
+  //
+  // critic 은 검증에서 뺄 이유가 없다. 오히려 그 산출이 AI 한 개의 자유
+  // 출력이므로 **더** 검증돼야 한다 (하드룰 #4).
+  const cr = o.critic as Record<string, unknown> | undefined;
+  if (cr !== undefined) {
+    if (!Array.isArray(cr.additional_defects)) {
+      bad("critic 이 있는데 additional_defects 가 배열이 아닙니다");
+    } else {
+      cr.additional_defects.forEach((d, i) =>
+        checkDefectShape(d, `critic.additional_defects[${i}]`, v),
+      );
+    }
+  }
+
   const errors = v.filter((x) => x.severity === "error");
   if (errors.length) return { ok: false, violations: v };
   return { ok: true, violations: v, data: parsed as PreflightRaw };
