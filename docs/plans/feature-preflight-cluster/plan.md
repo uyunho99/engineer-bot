@@ -297,8 +297,14 @@
 
 **Files:**
 - Modify: `workflows/plan-preflight.js`
-- Modify: `.claude/skills/preflight/SKILL.md`
 - Test: `controller/preflight.test.ts`
+
+> **`.claude/skills/preflight/SKILL.md` 는 이 태스크의 Files 가 아니다** —
+> headless 세션은 `.claude/` 하위를 쓸 수 없다 (AMENDMENTS B8, 2026-09-04 두 번
+> 실측). `--settings` 의 allow 에 `Write(.claude/**)` 를 넣어도 이기지 못한다.
+> **그 한 줄은 사람이 이미 적용했다** (커밋 98d4b55):
+> `검사 단위 (짝 + …)` → `검사 단위 (파일 클러스터 + …)`.
+> 이 태스크는 그것을 **단언만** 한다.
 
 **Interfaces:**
 - Consumes: `ExaminedRawUnit` from Task 5
@@ -316,11 +322,11 @@
 - [ ] 프롬프트가 "순차로 확장한다"는 맥락을 준다 — 짝 프롬프트보다 정보가 많은 것이 DC4 의 근거다
 - [ ] `units_examined` 에 넣는 값이 `{ kind, label }` 객체다 — 세 단계 모두 (DC6)
 - [ ] `meta` 블록의 `phases` 가 실제 `phase()` 호출과 일치한다
-- [ ] **`.claude/skills/preflight/SKILL.md` 의 규모 산식이 "짝" 이 아니라 "클러스터" 를
-      말한다** — 그 줄은 사람이 토큰을 쓰기 전에 규모를 예고하는 데 쓰는 산식이고,
-      이 브랜치가 그 코드 경로를 없앴다. **`39 에이전트` 실측 인용(같은 파일 아래)은
-      건드리지 마라** — 그것은 2026-09-04 자 경고성 기록이고 테스트가 못박고 있다
-      (3판 반송 사유)
+- [ ] **`.claude/skills/preflight/SKILL.md` 의 규모 산식이 "짝" 이 아니라
+      "파일 클러스터" 를 말한다** — 사람이 이미 적용했으므로(위 주석) 이 태스크는
+      파일을 읽어 그 문자열을 **단언만** 한다. 고치려 하지 마라 — 쓸 수 없다.
+      **`39 에이전트` 실측 인용(같은 파일 아래)은 건드리지 마라** — 2026-09-04 자
+      경고성 기록이고 테스트가 못박고 있다 (3판 반송 사유)
 
 **주의 — 이 파일은 기계 검사가 0이다.** tsconfig `include` 밖이고, 파일을 **읽지도 쓰지도**
 못하며(AMENDMENTS B7) 워크플로우 런타임 전역에 의존해 실행할 수 없다. 위 단언은 전부
