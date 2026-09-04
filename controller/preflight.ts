@@ -178,36 +178,6 @@ export function stage1Defects(g: RelationGraph): PreflightDefect[] {
   return [...orderViolations(g), ...danglingRefs(g), ...signatureCandidates(g)];
 }
 
-export interface FilePair {
-  a: string;
-  b: string;
-  sharedFiles: string[];
-}
-
-/**
- * 같은 파일을 **쓰는** 태스크 짝만 낸다.
- *
- * Test 파일은 제외한다 — 두 태스크가 같은 테스트 파일에 케이스를 추가하는 것은
- * 정상이고 모순 신호가 아니다. Create/Modify 만 본다.
- */
-export function overlappingPairs(tasks: ParsedTask[]): FilePair[] {
-  const writes = tasks.map((t) => {
-    const f = parseFiles(t.body);
-    return { id: t.id, files: new Set([...f.create, ...f.modify]) };
-  });
-
-  const out: FilePair[] = [];
-  for (let i = 0; i < writes.length; i++) {
-    for (let j = i + 1; j < writes.length; j++) {
-      const shared = [...writes[i].files].filter((f) => writes[j].files.has(f));
-      if (shared.length) {
-        out.push({ a: writes[i].id, b: writes[j].id, sharedFiles: shared });
-      }
-    }
-  }
-  return out;
-}
-
 /** 클러스터 하나 — 파일 하나를 2개 이상 태스크가 쓴다. */
 export interface FileCluster {
   file: string;
@@ -221,18 +191,18 @@ export interface FileCluster {
 export const CLUSTER_WARN_SIZE = 12;
 
 /**
- * `overlappingPairs` 를 짝(O(n²))에서 **파일 클러스터**(O(n))로 바꾼 것 —
+ * 2단계의 검사 단위. **짝(O(n²))이 아니라 파일 클러스터(O(n))다** —
  * 부모 플랜 실측: 짝 39개 → 클러스터 2개 (`controller/preflight.ts` 9태스크,
  * `controller/contract.ts` 3태스크; 짝 검산 36 + 3 = 39).
  *
  * **DC1 — 단위는 파일이지, 연결 성분(connected component)이 아니다.** 태스크가
  * 파일 A·B 를 둘 다 쓰면 A 클러스터와 B 클러스터에 각각 나온다. A-B 를 하나로
  * 합치지 않는다 — 합치면 파일을 통해서만 이어진 무관한 태스크들이 전이적으로
- * 한 검사 단위에 뭉쳐, `overlappingPairs` 가 잡던 "이 두 태스크가 이 파일을 두고
- * 충돌하는가"라는 국소적 질문이 흐려진다.
+ * 한 검사 단위에 뭉쳐, "이 태스크들이 **이 파일을** 두고 충돌하는가"라는
+ * 국소적 질문이 흐려진다.
  *
- * `overlappingPairs` 와 같은 write-set 규칙을 쓴다: Create + Modify 만 보고
- * Test 는 제외한다 (같은 테스트 파일에 케이스를 추가하는 것은 정상이다).
+ * 짝 시절과 같은 write-set 규칙을 쓴다: Create + Modify 만 보고 Test 는
+ * 제외한다 (같은 테스트 파일에 케이스를 추가하는 것은 정상이다).
  */
 export function overlappingClusters(tasks: ParsedTask[]): FileCluster[] {
   const byFile = new Map<string, string[]>();
@@ -303,9 +273,9 @@ export interface RelationCoverage {
  * 2단계는 이제 세 종류를 검사한다 — signature 후보, 파일 클러스터, 완결성
  * critic. 커버리지가 뜻하는 "관계를 몇 개 봤나"는 클러스터 수와만 대응한다
  * (관계 자체가 1단계 산출이고, 2단계 클러스터가 그 위에 겹쳐 도는 별도 단위 —
- * `assembleResult` 의 `pairs`/`cluster` 처리와 같은 결). signature 후보는
- * 아직 결함으로 확정되지 않은 중간 산출이고 critic 은 검사 단위 자체가 아니라
- * 완결성 재검토이므로 어느 쪽도 세면 안 된다.
+ * `assembleResult` 가 `relation`/`cluster` 를 나눠 다루는 것과 같은 결).
+ * signature 후보는 아직 결함으로 확정되지 않은 중간 산출이고 critic 은 검사
+ * 단위 자체가 아니라 완결성 재검토이므로 어느 쪽도 세면 안 된다.
  *
  * 2026-09-04 실측: 실행 한 번에서 `units_examined` 가 검사 단위 6개에 대해
  * 배열 원소 7개를 담았다(critic 1개가 더 있었다). 배열 길이로 세면
@@ -532,8 +502,17 @@ export interface AppliedEntry {
   sha256_after: string;
 }
 
+/**
+ * 사람이 읽는 "무엇을 봤나"의 한 줄 (설계 D9).
+ *
+ * `kind` 는 `JudgedUnit` 과 같은 두 값이다 — 구 2단계 단위였던 `"pair"` 는
+ * 없다. 남겨두면 `assembleResult` 가 더 이상 만들지 않는 종류를 소비자가
+ * 계속 분기 처리하게 되고, 그 분기는 어떤 입력으로도 실행되지 않으므로
+ * 테스트가 잡을 수 없다.
+ */
 export interface ExaminedUnit {
-  kind: "relation" | "pair" | "cluster";
+  kind: "relation" | "cluster";
+  /** `relation` 은 `심볼 (Task a → Task b)`, `cluster` 는 **파일 경로** */
   label: string;
   task_ids: string[];
   result: "clean" | "defect";
@@ -552,10 +531,11 @@ export interface PreflightResult {
   /** 사람이 승인해 반영한 수정. **재검사를 넘어 누적된다** (설계 D29) */
   applied: AppliedEntry[];
   /**
-   * 판정을 바꾸지 않는 경고 (예: 오버사이즈 클러스터 — DC5). Task 4 는 자리와
-   * 기본값 `[]` 만 보장한다 — `oversizedClusterWarnings` 를 실제로 불러 채우는
-   * 것은 Task 6 이다. `undefined` 도 필드 누락도 아니다: 소비자가 매번
-   * `?? []` 로 방어할 필요가 없어야 한다.
+   * 판정을 바꾸지 않는 경고 (예: 오버사이즈 클러스터 — DC5).
+   * `oversizedClusterWarnings(input.clusters)` 가 그대로 들어간다.
+   * `undefined` 도 필드 누락도 아니다: 소비자가 매번 `?? []` 로 방어할
+   * 필요가 없어야 한다 (이 기능 이전에 쓰인 파일의 정규화는
+   * `parsePreviousResult` 가 맡는다).
    */
   warnings: Violation[];
 }
@@ -565,7 +545,8 @@ export interface AssembleInput {
   planSha256: string;
   raw: PreflightRaw;
   graph: RelationGraph;
-  pairs: FilePair[];
+  /** 2단계의 검사 단위 (`overlappingClusters`). 짝이 아니다 — DC1 */
+  clusters: FileCluster[];
   previousApplied: AppliedEntry[];
   /**
    * 시각을 주입받는다 — 순수 함수를 유지하려고 (테스트 가능).
@@ -576,9 +557,7 @@ export interface AssembleInput {
 
 /**
  * 판정을 내릴 단위. `relation`(1단계, 관계 하나)과 `cluster`(2단계, 파일 하나를
- * 같이 쓰는 태스크 묶음 — Task 1) 두 종류가 있다. `pair`(구 2단계)는 Task 6 이
- * `cluster` 로 대체할 때까지 `assembleResult` 안에서 `relation` 규칙을 빌려 쓴다
- * (판정 규칙은 원소가 항상 2개뿐인 관계·짝이 같아서다 — 아래 표 참고).
+ * 같이 쓰는 태스크 묶음) 두 종류가 전부다 — 구 2단계 단위였던 짝은 없다.
  */
 export interface JudgedUnit {
   kind: "relation" | "cluster";
@@ -637,7 +616,7 @@ export function concernsUnit(defects: PreflightDefect[], unit: JudgedUnit): "cle
 }
 
 export function assembleResult(input: AssembleInput): PreflightResult {
-  const { raw, graph, pairs, previousApplied } = input;
+  const { raw, graph, clusters, previousApplied } = input;
 
   const all = [
     ...raw.stage1.defects,
@@ -658,15 +637,21 @@ export function assembleResult(input: AssembleInput): PreflightResult {
         task_ids: r.declaredFrom ? [r.consumer, r.declaredFrom] : [r.consumer],
       }),
     })),
-    // `pair` 는 구 2단계 단위다 — Task 6 이 `cluster` 로 대체할 때까지, 판정은
-    // `relation` 규칙(부분집합)을 그대로 빌려 쓴다. 원소가 항상 2개(a, b)뿐이라
-    // 지금까지의 답과 정확히 같다 — `kind: "pair"` 는 여기 없다(JudgedUnit 이
-    // 아직 그 종류를 모른다), 레이블용 `ExaminedUnit.kind` 만 "pair" 로 남는다.
-    ...pairs.map((p) => ({
-      kind: "pair" as const,
-      label: p.sharedFiles.join(", "),
-      task_ids: [p.a, p.b],
-      result: concernsUnit(defects, { kind: "relation", task_ids: [p.a, p.b] }),
+    // 2단계 단위는 **파일 클러스터**다 (DC1). `label` 에 파일 경로를 그대로
+    // 넣는다 — 사람이 결과 파일에서 "무엇을 봤나"를 읽는 유일한 단서다 (D9).
+    //
+    // `file` 을 빼먹지 마라. `concernsUnit` 의 cluster 분기는 `d.file` 이 있는
+    // 결함을 `unit.file` 과 비교하는데, `unit.file` 이 undefined 면 file 을 가진
+    // 결함이 **전부** 걸러져 진짜 결함이 clean 으로 기록된다 (거짓 음성).
+    ...clusters.map((c) => ({
+      kind: "cluster" as const,
+      label: c.file,
+      task_ids: c.task_ids,
+      result: concernsUnit(defects, {
+        kind: "cluster",
+        task_ids: c.task_ids,
+        file: c.file,
+      }),
     })),
   ];
 
@@ -686,9 +671,9 @@ export function assembleResult(input: AssembleInput): PreflightResult {
     examined,
     defects,
     applied: [...previousApplied],
-    // 클러스터를 아직 넘겨받지 않는다(AssembleInput 에 없다) — 값을 채우는
-    // 것은 Task 6. 여기서는 필드가 항상 존재하고 빈 배열임을 보장한다.
-    warnings: [],
+    // 경고는 클러스터만으로 계산된다 — `defects` 도 `verdict` 도 보지 않으므로
+    // 판정에 끼어들 통로가 없다 (DC5).
+    warnings: oversizedClusterWarnings(clusters),
   };
 }
 
@@ -789,6 +774,12 @@ export function parsePreviousResult(raw: string | null): PreviousResult {
   if (o.schema !== 1) return { status: "broken", reason: `schema 가 1이 아닙니다: ${String(o.schema)}` };
   if (!Array.isArray(o.applied)) return { status: "broken", reason: "applied 가 배열이 아닙니다" };
   if (!Array.isArray(o.defects)) return { status: "broken", reason: "defects 가 배열이 아닙니다" };
+  // `warnings` 는 **거부하지 않고 정규화한다.** 이 기능 이전에 쓰인 파일에는
+  // 이 필드가 없는데 `schema` 는 그대로 `1` 이라 읽는 쪽이 두 형식을 구분할
+  // 방법이 없다 — 없다고 broken 으로 몰면 멀쩡한 과거 결과가 전부 판정 불가가
+  // 되고, 그대로 캐스팅하면 `--apply` 가 `{ ...previous }` 로 다시 쓸 때
+  // `warnings` 가 사라져 "항상 존재하는 배열"이라는 계약이 깨진다.
+  if (!Array.isArray(o.warnings)) o.warnings = [];
   return { status: "ok", result: parsed as PreflightResult };
 }
 

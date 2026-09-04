@@ -17,7 +17,8 @@ import { checkPlan, parseTasks } from "./contract";
 import { contractPaths } from "./paths";
 import {
   applyPatch, assembleResult, buildRelationGraph, checkPreflightRaw,
-  gateDecision, overlappingPairs, parsePreviousResult, planSha256, stage1Defects,
+  gateDecision, overlappingClusters, oversizedClusterWarnings, parsePreviousResult,
+  planSha256, stage1Defects,
   type PreflightResult,
 } from "./preflight";
 // findFixSites 를 import 하지 마라. 이 파일에서 쓰이지 않고,
@@ -63,7 +64,9 @@ if (mode === "--plan") {
   const tasks = parseTasks(planText);
   const graph = buildRelationGraph(tasks);
   const defects = stage1Defects(graph);
-  const pairs = overlappingPairs(tasks);
+  // 2단계 팬아웃의 단위다 (DC1). 이 키가 없으면 워크플로우의 검사 단위가
+  // 0개가 되어 아무것도 검사하지 않은 채 CLEAN 이 난다 — 이 기능의 최악 실패다.
+  const clusters = overlappingClusters(tasks);
   console.log(JSON.stringify({
     planPath: p.plan,
     rawPath: p.preflightRaw,
@@ -71,7 +74,11 @@ if (mode === "--plan") {
     relationsDeclared: graph.relations.length,
     stage1Defects: defects.filter((d) => d.stage === 1),
     stage2Candidates: defects.filter((d) => d.stage === 2),
-    pairs,
+    clusters,
+    // 경고는 클러스터만으로 계산된다 — 팬아웃 **전**인 여기서 이미 낼 수 있다.
+    // 여기서 안 내면 경고가 에이전트 수십 개가 돈 뒤에야 계산되어, 그 사이
+    // 사람이 "플랜을 더 쪼개라"는 신호를 볼 기회를 통째로 잃는다.
+    warnings: oversizedClusterWarnings(clusters),
   }, null, 2));
   process.exit(0);
 }
@@ -101,7 +108,7 @@ if (mode === "--record") {
     planSha256: planSha,
     raw: checked.data,
     graph: buildRelationGraph(tasks),
-    pairs: overlappingPairs(tasks),
+    clusters: overlappingClusters(tasks),
     previousApplied: previous?.applied ?? [],
     now: new Date().toISOString(),
   });
@@ -110,9 +117,18 @@ if (mode === "--record") {
   // 그 앞에 `REJECTED — 결함 0건` 이 찍히면 사람이 그 줄만 보고 오해한다.
   if (!result.relations.not_examined.length) {
     console.log(
-      `${result.verdict} — 결함 ${result.defects.length}건 · 관계 ${result.relations.declared}개 검사`,
+      `${result.verdict} — 결함 ${result.defects.length}건 · 관계 ${result.relations.declared}개 검사` +
+        // 0건이면 붙이지 않는다 — 매번 `· 경고 0건` 이 붙으면 사람이 그 절을
+        // 읽지 않게 되고, 실제로 경고가 났을 때도 눈에 걸리지 않는다.
+        (result.warnings.length ? ` · 경고 ${result.warnings.length}건` : ""),
     );
   }
+  // **콘솔이 경고가 사람에게 닿는 유일한 경로다.** preflight.json 안에만 남기면
+  // 아무도 읽지 않는다 — DC5 가 요구한 "다음 행동이 드러난다"가 성립하지 않는다.
+  // 판정 줄과 달리 not_examined 로 막지 않는다: 판정하지 못한 실행에서도 경고는
+  // 여전히 참이고, 오히려 그때가 플랜을 다시 쪼갤 이유가 가장 큰 순간이다.
+  // severity 가 "warn" 이므로 아래의 종료 코드는 이것에 영향받지 않는다 (DC5).
+  for (const w of result.warnings) console.error(`warn: ${w.message}`);
   // 검사 단위가 하나라도 실패했으면 **판정한 것이 아니다** — BLOCKED 다.
   //
   // preflightVerdict 는 not_examined 가 있으면 REJECTED 를 내는데, Verdict 타입에

@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
-import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, overlappingClusters, CLUSTER_WARN_SIZE, oversizedClusterWarnings, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, parsePreviousResult, planSha256, concernsUnit, type PreflightRaw, type JudgedUnit, type ExaminedRawUnit } from "./preflight";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingClusters, CLUSTER_WARN_SIZE, oversizedClusterWarnings, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, parsePreviousResult, planSha256, concernsUnit, type PreflightRaw, type JudgedUnit, type ExaminedRawUnit, type ExaminedUnit, type FileCluster } from "./preflight";
 // PreflightRaw 를 함께 import 하라 — 아래 raw() 헬퍼가 그 타입을 쓴다.
 // tsconfig 의 include 가 controller/**/*.ts 이고 noUnusedLocals: true 라
 // 테스트 파일도 타입체크 대상이다 (2026-09-03 봇 지적).
@@ -239,50 +241,6 @@ const fileTask = (n: number, lines: string[]) =>
     "**Interfaces:**",
     `- Produces: \`p${n}()\``,
   ].join("\n");
-
-describe("overlappingPairs", () => {
-  test("같은 파일을 건드리는 짝만 나온다", () => {
-    const p = overlappingPairs(parseTasks(planOf(
-      fileTask(1, ["- Create: `src/a.ts`"]),
-      fileTask(2, ["- Modify: `src/a.ts`", "- Create: `src/b.ts`"]),
-      fileTask(3, ["- Create: `src/c.ts`"]),
-    )));
-    expect(p).toHaveLength(1);
-    expect(p[0]).toEqual({ a: "1", b: "2", sharedFiles: ["src/a.ts"] });
-  });
-
-  test("겹치지 않으면 짝이 없다", () => {
-    const p = overlappingPairs(parseTasks(planOf(
-      fileTask(1, ["- Create: `x.ts`"]),
-      fileTask(2, ["- Create: `y.ts`"]),
-    )));
-    expect(p).toEqual([]);
-  });
-
-  test("한 방향만 — 3×7 과 7×3 이 중복되지 않는다", () => {
-    const p = overlappingPairs(parseTasks(planOf(
-      fileTask(1, ["- Create: `s.ts`"]),
-      fileTask(2, ["- Modify: `s.ts`"]),
-    )));
-    expect(p).toHaveLength(1);
-  });
-
-  test("태스크 1개면 짝 0개, 예외 없음 (E1)", () => {
-    expect(overlappingPairs(parseTasks(fileTask(1, ["- Create: `a.ts`"])))).toEqual([]);
-  });
-
-  test("태스크 0개면 짝 0개, 예외 없음", () => {
-    expect(overlappingPairs([])).toEqual([]);
-  });
-
-  test("Test 파일 공유는 짝이 아니다", () => {
-    const p = overlappingPairs(parseTasks(planOf(
-      fileTask(1, ["- Create: `a.ts`", "- Test: `shared.test.ts`"]),
-      fileTask(2, ["- Create: `b.ts`", "- Test: `shared.test.ts`"]),
-    )));
-    expect(p).toEqual([]);
-  });
-});
 
 describe("overlappingClusters", () => {
   test("같은 파일을 Modify 하는 태스크 2개 → 클러스터 1개, task_ids 둘 다", () => {
@@ -621,7 +579,7 @@ describe("assembleResult", () => {
     branch: "feature/x",
     planSha256: "a".repeat(64),
     graph: g,
-    pairs: [],
+    clusters: [],
     previousApplied: [],
     now: "2026-09-03T00:00:00Z",
   };
@@ -672,31 +630,38 @@ describe("assembleResult", () => {
     expect(rels.find((u) => u.task_ids.includes("3"))?.result).toBe("clean");
   });
 
-  test("짝 판정은 하나의 결함이 양쪽을 지목하는지로 정해진다 — 두 독립 결함의 합집합이 아니다", () => {
+  // 원래 이 회귀는 **짝** 단위 위에서 돌았다. Task 6 이 짝을 클러스터로 갈아치우면서
+  // 같은 회귀를 `relation` 단위로 옮겼다 — 부분집합 규칙을 쓰는 쪽이 그쪽이라
+  // 질문("하나의 결함이 단위 전체를 지목하는가")이 글자 그대로 보존된다.
+  // 클러스터는 의도적으로 다른 규칙(교집합)을 쓰므로 이 회귀의 자리가 아니다 (DC2).
+  test("판정은 하나의 결함이 단위 전체를 지목하는지로 정해진다 — 두 독립 결함의 합집합이 아니다", () => {
+    const gTwoRel = graphOf(planOf(
+      task(1, ["- Produces: `a()`"]),
+      task(2, ["- Consumes: `a()` from Task 1"]),
+      task(3, ["- Produces: `b()`"]),
+      task(4, ["- Consumes: `b()` from Task 3"]),
+    ));
     const covering = {
-      id: "cov", kind: "dangling_ref" as const, task_ids: ["A", "B"] as [string, string],
-      relation: "z()", plan_text: "", conflict: "", stage: 1 as const,
+      id: "cov", kind: "dangling_ref" as const, task_ids: ["1", "2"] as [string, string],
+      relation: "a()", plan_text: "", conflict: "", stage: 1 as const,
     };
     const defectX = {
-      id: "dx", kind: "dangling_ref" as const, task_ids: ["C", "X"] as [string, string],
+      id: "dx", kind: "dangling_ref" as const, task_ids: ["3", "X"] as [string, string],
       relation: "x()", plan_text: "", conflict: "", stage: 1 as const,
     };
     const defectY = {
-      id: "dy", kind: "dangling_ref" as const, task_ids: ["D", "Y"] as [string, string],
+      id: "dy", kind: "dangling_ref" as const, task_ids: ["4", "Y"] as [string, string],
       relation: "y()", plan_text: "", conflict: "", stage: 1 as const,
     };
     const r = assembleResult({ ...base,
-      pairs: [
-        { a: "A", b: "B", sharedFiles: ["ab.ts"] },
-        { a: "C", b: "D", sharedFiles: ["cd.ts"] },
-      ],
-      raw: raw({ stage1: { relations_declared: 1, defects: [covering, defectX, defectY] } }),
+      graph: gTwoRel,
+      raw: raw({ stage1: { relations_declared: 2, defects: [covering, defectX, defectY] } }),
     });
-    const pairUnits = r.examined.filter((u) => u.kind === "pair");
-    // A,B 는 하나의 결함(covering)이 양쪽을 다 지목한다 — defect.
-    expect(pairUnits.find((u) => u.task_ids.join(",") === "A,B")?.result).toBe("defect");
-    // C,D 는 서로 무관한 결함 둘(dx, dy)이 한쪽씩만 지목한다 — 합집합으로 보면 오판, clean 이어야 한다.
-    expect(pairUnits.find((u) => u.task_ids.join(",") === "C,D")?.result).toBe("clean");
+    const rels = r.examined.filter((u) => u.kind === "relation");
+    // 1,2 는 하나의 결함(covering)이 양쪽을 다 지목한다 — defect.
+    expect(rels.find((u) => u.task_ids.join(",") === "1,2")?.result).toBe("defect");
+    // 3,4 는 서로 무관한 결함 둘(dx, dy)이 한쪽씩만 지목한다 — 합집합으로 보면 오판, clean 이어야 한다.
+    expect(rels.find((u) => u.task_ids.join(",") === "3,4")?.result).toBe("clean");
   });
 
   test("previousApplied 가 살아남는다 (D29)", () => {
@@ -1009,7 +974,7 @@ describe("워크플로우 산출 형식 왕복", () => {
     const g = graphOf(planOf(task(1, ["- Produces: `a()`"]), task(2, ["- Consumes: `a()` from Task 1"])));
     const r = assembleResult({
       branch: "feature/x", planSha256: SHA, raw: checked.data!, graph: g,
-      pairs: [], previousApplied: [], now: "2026-09-03T00:00:00Z",
+      clusters: [], previousApplied: [], now: "2026-09-03T00:00:00Z",
     });
     expect(r.relations.not_examined).toEqual(["pair:1x2"]);
     expect(r.verdict).toBe("REJECTED");
@@ -1433,5 +1398,317 @@ describe("relationCoverage — examined_stage2 는 cluster 만 센다 (Task 5 ·
 
   test("units_failed 의 라벨이 not_examined 에 그대로 들어간다 — 기존 실패 경로 보존", () => {
     expect(relationCoverage(g, [], ["pair:1x2"]).not_examined).toEqual(["pair:1x2"]);
+  });
+});
+
+// ─── Task 6 — 결과 조립과 CLI 배선 (설계 DC1 · DC2 · DC5 · Ⓐ · Ⓓ) ────────
+//
+// 이 브랜치의 마지막 호출자를 짝에서 클러스터로 옮긴다. 여기까지 오기 전에는
+// `assembleResult` 가 `pairs` 를 받아 `kind: "pair"` 단위를 냈고 `warnings` 는
+// 하드코딩된 `[]` 였다 — Task 1·3·4·5 가 만든 조각이 전부 배선되지 않은 채
+// 놀고 있었다는 뜻이다.
+
+describe("assembleResult — 2단계 단위가 클러스터다 (Task 6)", () => {
+  const g6 = graphOf(planOf(
+    task(1, ["- Produces: `a()`"]),
+    task(2, ["- Consumes: `a()` from Task 1"]),
+  ));
+  const raw6 = (over: Partial<PreflightRaw> = {}): PreflightRaw => ({
+    schema: 1,
+    plan_sha256: "a".repeat(64),
+    stage1: { relations_declared: 1, defects: [] },
+    stage2: { units_examined: [], units_failed: [], defects: [] },
+    ...over,
+  });
+  const base6 = {
+    branch: "feature/x",
+    planSha256: "a".repeat(64),
+    graph: g6,
+    clusters: [] as FileCluster[],
+    previousApplied: [],
+    now: "2026-09-04T00:00:00Z",
+  };
+  const defect6 = (task_ids: [string, string, ...string[]], file?: string) => ({
+    id: `d-${task_ids.join("-")}${file ? `-${file}` : ""}`,
+    kind: "dangling_ref" as const,
+    task_ids,
+    plan_text: "",
+    conflict: "",
+    stage: 2 as const,
+    ...(file !== undefined ? { file } : {}),
+  });
+
+  test("2단계 항목의 kind 가 'cluster' 다", () => {
+    const r = assembleResult({
+      ...base6,
+      clusters: [{ file: "controller/preflight.ts", task_ids: ["1", "2"] }],
+      raw: raw6(),
+    });
+    const stage2 = r.examined.filter((u) => u.kind !== "relation");
+    expect(stage2).toHaveLength(1);
+    expect(stage2[0].kind).toBe("cluster");
+  });
+
+  test("label 이 파일 경로다 — 사람이 무엇을 봤는지 읽을 수 있어야 한다 (부모 D9)", () => {
+    const r = assembleResult({
+      ...base6,
+      clusters: [{ file: "controller/contract.ts", task_ids: ["1", "2", "3"] }],
+      raw: raw6(),
+    });
+    const unit = r.examined.find((u) => u.kind === "cluster")!;
+    expect(unit.label).toBe("controller/contract.ts");
+    expect(unit.task_ids).toEqual(["1", "2", "3"]);
+  });
+
+  test("클러스터가 0개면 examined 에 2단계 항목이 없고 판정이 1단계만으로 난다", () => {
+    const r = assembleResult({ ...base6, clusters: [], raw: raw6() });
+    expect(r.examined.every((u) => u.kind === "relation")).toBe(true);
+    expect(r.examined).toHaveLength(g6.relations.length);
+    expect(r.verdict).toBe("CLEAN");
+  });
+
+  test("결함 0건이면 verdict 가 CLEAN — 클러스터화가 판정 규칙을 바꾸지 않는다", () => {
+    const r = assembleResult({
+      ...base6,
+      clusters: [{ file: "src/a.ts", task_ids: ["1", "2"] }],
+      raw: raw6(),
+    });
+    expect(r.defects).toEqual([]);
+    expect(r.verdict).toBe("CLEAN");
+    expect(r.examined.find((u) => u.kind === "cluster")?.result).toBe("clean");
+  });
+
+  test("클러스터 판정에 file 이 함께 넘어간다 — 다른 파일의 결함이 오염시키지 않는다 (Ⓑ)", () => {
+    // `kind: "cluster"` 만 넘기고 `file` 을 빼면 `d.file === unit.file` 비교에서
+    // unit.file 이 undefined 라 **file 을 가진 결함이 전부 걸러진다** — 거짓 음성
+    // 쪽이고 이 기능에서 가장 위험한 방향이다. 같은 task_ids 에 file 만 다른
+    // 클러스터 둘을 두는 이 픽스처가 그 누락을 잡는다.
+    const r = assembleResult({
+      ...base6,
+      clusters: [
+        { file: "a.ts", task_ids: ["1", "2"] },
+        { file: "b.ts", task_ids: ["1", "2"] },
+      ],
+      raw: raw6({
+        stage2: { units_examined: [], units_failed: [], defects: [defect6(["1", "2"], "a.ts")] },
+      }),
+    });
+    const byFile = new Map(
+      r.examined.filter((u) => u.kind === "cluster").map((u) => [u.label, u.result]),
+    );
+    expect(byFile.get("a.ts")).toBe("defect");
+    expect(byFile.get("b.ts")).toBe("clean");
+  });
+
+  test("클러스터 규칙은 교집합이다 — 일부 태스크만 지목한 결함도 defect 다 (DC2)", () => {
+    const r = assembleResult({
+      ...base6,
+      clusters: [{ file: "src/a.ts", task_ids: ["1", "2", "3", "4"] }],
+      raw: raw6({
+        stage2: { units_examined: [], units_failed: [], defects: [defect6(["3", "9"])] },
+      }),
+    });
+    expect(r.examined.find((u) => u.kind === "cluster")?.result).toBe("defect");
+  });
+
+  test("warnings 를 oversizedClusterWarnings 결과로 채운다 (Ⓓ)", () => {
+    const big: FileCluster = {
+      file: "src/big.ts",
+      task_ids: Array.from({ length: CLUSTER_WARN_SIZE + 1 }, (_, i) => String(i + 1)),
+    };
+    const r = assembleResult({ ...base6, clusters: [big], raw: raw6() });
+    expect(r.warnings).toEqual(oversizedClusterWarnings([big]));
+    expect(r.warnings).toHaveLength(1);
+    // DC5 — 경고는 판정을 바꾸지 않는다.
+    expect(r.verdict).toBe("CLEAN");
+  });
+
+  test("경고선 이하의 클러스터만 있으면 warnings 는 빈 배열", () => {
+    const r = assembleResult({
+      ...base6,
+      clusters: [{ file: "src/a.ts", task_ids: ["1", "2"] }],
+      raw: raw6(),
+    });
+    expect(r.warnings).toEqual([]);
+  });
+
+  test("ExaminedUnit.kind 유니온에 'pair' 가 없다", () => {
+    // @ts-expect-error — "pair" 는 Task 6 이 유니온에서 지웠다. 되살아나면 이
+    // 지시자가 "쓰이지 않은 @ts-expect-error" 로 typecheck 를 깨뜨린다.
+    const revived: ExaminedUnit["kind"] = "pair";
+    // `as string` 으로 넓혀서 비교한다 — 좁은 유니온 그대로 비교하면 `toBe` 의
+    // 인자 쪽에서 다시 TS2769 가 나고, 그건 이 프로브가 잡으려는 회귀가 아니다.
+    expect(revived as string).toBe("pair");
+  });
+});
+
+describe("parsePreviousResult — warnings 를 정규화한다 (Task 6 · pair:4x6-2)", () => {
+  const old = (over: Record<string, unknown> = {}) => JSON.stringify({
+    schema: 1, applied: [], defects: [], ...over,
+  });
+
+  test("warnings 가 없는 구 파일도 ok 이고 [] 로 채워진다 — schema 는 그대로 1 이라 구분할 수 없다", () => {
+    const r = parsePreviousResult(old());
+    expect(r.status).toBe("ok");
+    expect(r.status === "ok" && r.result.warnings).toEqual([]);
+  });
+
+  test("배열이 아닌 warnings 도 [] 로 정규화한다 — broken 으로 몰지 않는다", () => {
+    const r = parsePreviousResult(old({ warnings: "경고 3건" }));
+    expect(r.status).toBe("ok");
+    expect(r.status === "ok" && r.result.warnings).toEqual([]);
+  });
+
+  test("있는 warnings 는 건드리지 않는다", () => {
+    const w = oversizedClusterWarnings([
+      { file: "src/big.ts", task_ids: Array.from({ length: CLUSTER_WARN_SIZE + 1 }, (_, i) => String(i + 1)) },
+    ]);
+    const r = parsePreviousResult(old({ warnings: w }));
+    expect(r.status === "ok" && r.result.warnings).toEqual(w);
+  });
+});
+
+describe("소스에 overlappingPairs 참조가 남아 있지 않다 (Ⓐa)", () => {
+  // 테스트 파일 자신은 스캔하지 않는다 — 이 단언문이 그 문자열을 담고 있어
+  // 스스로를 스캔하면 영원히 실패한다. 검사 대상은 **소스** 세 파일이다.
+  const SOURCES = [
+    "controller/preflight.ts",
+    "controller/preflight-cli.ts",
+    "workflows/plan-preflight.js",
+  ];
+
+  for (const f of SOURCES) {
+    test(`${f} 에 죽은 참조가 없다`, () => {
+      expect(readFileSync(f, "utf8")).not.toContain("overlappingPairs");
+    });
+  }
+});
+
+// `--plan` 출력은 **spawn 해야만** 관찰된다. `preflight-cli.ts` 는 최상위에서
+// process.exit 을 부르는 스크립트라 아무도 import 하지 않고, 그래서 `bun test`
+// 가 로드조차 하지 않는다 — 부모 Task 11 의 검증 공백이 정확히 그것이었다.
+describe("bin/preflight — 클러스터 배선 (Task 6)", () => {
+  const roots: string[] = [];
+  const BIN = join(import.meta.dir, "..", "bin", "preflight");
+  const BRANCH = "feature/x";
+
+  afterAll(() => roots.forEach((r) => rmSync(r, { recursive: true, force: true })));
+
+  const mkRepo = (planText: string) => {
+    const root = mkdtempSync(join(tmpdir(), "engineer-bot-t6-"));
+    roots.push(root);
+    const dir = join(root, "docs", "plans", BRANCH.replace(/\//g, "-"));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plan.md"), planText, "utf8");
+    return { root, dir };
+  };
+
+  const run = (root: string, ...args: string[]) => {
+    const r = Bun.spawnSync([BIN, BRANCH, ...args], {
+      env: { ...process.env, TARGET_REPO: root },
+    });
+    return { code: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
+  };
+
+  const rawFor = (planText: string) => JSON.stringify({
+    schema: 1,
+    plan_sha256: planSha256(planText),
+    stage1: { relations_declared: 0, defects: [] },
+    stage2: { units_examined: [], units_failed: [], defects: [] },
+  });
+
+  const twoTaskPlan = planOf(
+    fileTask(1, ["- Modify: `src/a.ts`"]),
+    fileTask(2, ["- Modify: `src/a.ts`"]),
+  );
+  /** 경고선(12)을 넘기는 클러스터 하나 — 태스크 13개가 같은 파일을 쓴다 */
+  const oversizedPlan = planOf(
+    ...Array.from({ length: CLUSTER_WARN_SIZE + 1 }, (_, i) =>
+      fileTask(i + 1, ["- Modify: `src/big.ts`"])),
+  );
+
+  test("--plan 출력에 clusters 가 있고 pairs 가 없다 (Ⓐc)", () => {
+    const { root } = mkRepo(twoTaskPlan);
+    const r = run(root, "--plan");
+    expect(r.code).toBe(0);
+    const out = JSON.parse(r.stdout);
+    expect(out.clusters).toEqual([{ file: "src/a.ts", task_ids: ["1", "2"] }]);
+    expect(out.pairs).toBeUndefined();
+  });
+
+  test("--plan 출력에도 warnings 가 있다 — 팬아웃 전에 낼 수 있다", () => {
+    const { root } = mkRepo(oversizedPlan);
+    const out = JSON.parse(run(root, "--plan").stdout);
+    expect(out.warnings).toHaveLength(1);
+    expect(out.warnings[0].severity).toBe("warn");
+    expect(out.warnings[0].message).toContain("src/big.ts");
+  });
+
+  test("--plan 의 warnings 는 경고가 없어도 배열로 존재한다", () => {
+    const { root } = mkRepo(twoTaskPlan);
+    expect(JSON.parse(run(root, "--plan").stdout).warnings).toEqual([]);
+  });
+
+  test("--record 가 쓴 preflight.json 에 warnings 배열이 있다", () => {
+    const { root, dir } = mkRepo(twoTaskPlan);
+    writeFileSync(join(dir, "preflight-raw.json"), rawFor(twoTaskPlan), "utf8");
+    const r = run(root, "--record");
+    expect(r.code).toBe(0);
+    const written = JSON.parse(readFileSync(join(dir, "preflight.json"), "utf8"));
+    expect(written.warnings).toEqual([]);
+    expect(written.examined.filter((u: ExaminedUnit) => u.kind === "cluster")).toHaveLength(1);
+  });
+
+  test("경고가 사람이 읽는 콘솔에 닿는다 — 판정 줄의 경고 절과 message 줄 (pair:4x6-3)", () => {
+    const { root, dir } = mkRepo(oversizedPlan);
+    writeFileSync(join(dir, "preflight-raw.json"), rawFor(oversizedPlan), "utf8");
+    const r = run(root, "--record");
+    // DC5 — severity: "warn" 은 종료 코드를 바꾸지 않는다.
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("CLEAN");
+    expect(r.stdout).toContain("· 경고 1건");
+    expect(r.stderr).toContain("src/big.ts");
+    expect(JSON.parse(readFileSync(join(dir, "preflight.json"), "utf8")).warnings).toHaveLength(1);
+  });
+
+  test("경고가 0건이면 판정 줄에 경고 절을 붙이지 않는다", () => {
+    const { root, dir } = mkRepo(twoTaskPlan);
+    writeFileSync(join(dir, "preflight-raw.json"), rawFor(twoTaskPlan), "utf8");
+    const r = run(root, "--record");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("CLEAN");
+    expect(r.stdout).not.toContain("경고");
+  });
+
+  test("--apply 가 warnings 없는 구 preflight.json 에도 warnings 를 남긴다 (pair:4x6-2)", () => {
+    const onePlan = fileTask(1, ["- Modify: `src/a.ts`"]);
+    const { root, dir } = mkRepo(onePlan);
+    // 이 기능 **이전에** 쓰인 파일이다 — schema 는 그대로 1 인데 warnings 가 없다.
+    // 읽는 쪽이 스키마 번호로는 두 형식을 구분할 수 없다는 것이 이 픽스처의 요점이다.
+    const old = {
+      schema: 1,
+      branch: BRANCH,
+      plan_sha256: planSha256(onePlan),
+      scope: "interface-graph+file-overlap",
+      verdict: "REJECTED",
+      relations: { declared: 0, examined_stage1: 0, examined_stage2: 0, not_examined: [] },
+      examined: [],
+      defects: [{
+        id: "d1", kind: "dangling_ref", task_ids: ["1", "2"], plan_text: "", conflict: "", stage: 1,
+        patch: {
+          op: "insert_after", task_id: "1",
+          anchor: "- Modify: `src/a.ts`", text: "- Modify: `src/b.ts`",
+        },
+      }],
+      applied: [],
+    };
+    expect(old).not.toHaveProperty("warnings");
+    writeFileSync(join(dir, "preflight.json"), JSON.stringify(old), "utf8");
+
+    const r = run(root, "--apply", "d1");
+    expect(r.code).toBe(0);
+    const written = JSON.parse(readFileSync(join(dir, "preflight.json"), "utf8"));
+    expect(written.warnings).toEqual([]);
+    expect(written.applied).toHaveLength(1);
   });
 });
