@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
-import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, overlappingClusters, CLUSTER_WARN_SIZE, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, parsePreviousResult, planSha256, type PreflightRaw } from "./preflight";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, overlappingClusters, CLUSTER_WARN_SIZE, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, parsePreviousResult, planSha256, concernsUnit, type PreflightRaw, type JudgedUnit } from "./preflight";
 // PreflightRaw 를 함께 import 하라 — 아래 raw() 헬퍼가 그 타입을 쓴다.
 // tsconfig 의 include 가 controller/**/*.ts 이고 noUnusedLocals: true 라
 // 테스트 파일도 타입체크 대상이다 (2026-09-03 봇 지적).
@@ -1180,3 +1180,95 @@ describe("planSha256 — 게이트 양끝이 같은 계산을 쓴다 (M11)", () 
 // builder.ts 의 게이트 블록을 통째로 지워도 통과했다. 게이트가 `dryRun` 조기
 // 반환보다 앞에 있으므로 `runBuilder({ dryRun: true })` 로 실제 실행을 관찰할
 // 수 있고, 그 테스트가 builder.test.ts 에 있다 (2026-09-03 최종 리뷰 I8).
+
+// `concernsUnit` 은 위 `describe("assembleResult", ...)` 를 통해서도 간접적으로
+// 이미 커버된다 (관계·짝 판정 회귀 테스트) — 그 테스트는 지우지 않는다. 여기서는
+// Task 3 이 새로 만든 서명 `concernsUnit(defects, unit: JudgedUnit)` 을 직접
+// 호출해, kind 별 규칙(DC2)과 두 회귀(Ⓑ, Ⓒ)를 못 박는다.
+describe("concernsUnit (DC2 — 단위 종류별 판정 규칙)", () => {
+  const defect = (
+    task_ids: [string, string, ...string[]],
+    file?: string,
+  ) => ({
+    id: `d-${task_ids.join("-")}${file ? `-${file}` : ""}`,
+    kind: "dangling_ref" as const,
+    task_ids,
+    plan_text: "",
+    conflict: "",
+    stage: 1 as const,
+    ...(file !== undefined ? { file } : {}),
+  });
+
+  describe("kind: cluster", () => {
+    test("9개 중 2개를 지명한 결함이 클러스터를 defect 로 만든다", () => {
+      const unit: JudgedUnit = {
+        kind: "cluster",
+        task_ids: ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+        file: "controller/preflight.ts",
+      };
+      const defects = [defect(["3", "7"])];
+      expect(concernsUnit(defects, unit)).toBe("defect");
+    });
+
+    test("클러스터 밖 태스크만 지명한 결함은 오염시키지 않는다", () => {
+      const unit: JudgedUnit = {
+        kind: "cluster",
+        task_ids: ["1", "2", "3"],
+        file: "controller/preflight.ts",
+      };
+      const defects = [defect(["10", "11"])];
+      expect(concernsUnit(defects, unit)).toBe("clean");
+    });
+
+    test("Ⓑ 회귀 — task_ids 는 같고 file 만 다른 두 클러스터, 한쪽 결함이 다른 쪽을 오염시키지 않는다", () => {
+      const clusterA: JudgedUnit = { kind: "cluster", task_ids: ["1", "2"], file: "a.ts" };
+      const clusterB: JudgedUnit = { kind: "cluster", task_ids: ["1", "2"], file: "b.ts" };
+      const defects = [defect(["1", "2"], "a.ts")];
+      expect(concernsUnit(defects, clusterA)).toBe("defect");
+      expect(concernsUnit(defects, clusterB)).toBe("clean");
+    });
+
+    test("결함에 file 이 없으면 거르지 않는다 — 과다 표시 쪽으로 안전하게", () => {
+      const unit: JudgedUnit = { kind: "cluster", task_ids: ["1", "2"], file: "a.ts" };
+      const defects = [defect(["1", "9"])]; // file 필드 없음
+      expect(concernsUnit(defects, unit)).toBe("defect");
+    });
+  });
+
+  describe("kind: relation", () => {
+    test("Ⓒ 회귀 — 원소 1개짜리 단위에서, 그 태스크를 지명한 결함이 있으면 defect 다", () => {
+      const unit: JudgedUnit = { kind: "relation", task_ids: ["5"] };
+      const defects = [defect(["5", "9"])];
+      expect(concernsUnit(defects, unit)).toBe("defect");
+    });
+
+    test("Ⓒ 회귀 — 태스크 3개를 지명한 결함 {1,3,5} 가 단위 {1,3} 을 defect 로 만든다", () => {
+      const unit: JudgedUnit = { kind: "relation", task_ids: ["1", "3"] };
+      const defects = [defect(["1", "3", "5"])];
+      expect(concernsUnit(defects, unit)).toBe("defect");
+    });
+
+    test("file 을 무시한다 — 관계에는 파일 개념이 없다", () => {
+      const unit: JudgedUnit = { kind: "relation", task_ids: ["1", "2"] };
+      const defects = [defect(["1", "2"], "unrelated-file.ts")];
+      expect(concernsUnit(defects, unit)).toBe("defect");
+    });
+  });
+
+  test("결함이 없으면 어느 종류든 clean", () => {
+    const relationUnit: JudgedUnit = { kind: "relation", task_ids: ["1", "2"] };
+    const clusterUnit: JudgedUnit = { kind: "cluster", task_ids: ["1", "2"], file: "a.ts" };
+    expect(concernsUnit([], relationUnit)).toBe("clean");
+    expect(concernsUnit([], clusterUnit)).toBe("clean");
+  });
+
+  test("크기가 아니라 종류로 갈린다 — 원소 2개짜리 relation 과 cluster 가 같은 입력에서 다른 답을 낸다", () => {
+    // 결함이 "1" 만 지명한다 — cluster 는 교집합 규칙이라 이것으로 충분히 defect,
+    // relation 은 부분집합 규칙이라 "2" 도 있어야 하므로 clean.
+    const defects = [defect(["1", "9"])];
+    const relationUnit: JudgedUnit = { kind: "relation", task_ids: ["1", "2"] };
+    const clusterUnit: JudgedUnit = { kind: "cluster", task_ids: ["1", "2"], file: "a.ts" };
+    expect(concernsUnit(defects, relationUnit)).toBe("clean");
+    expect(concernsUnit(defects, clusterUnit)).toBe("defect");
+  });
+});

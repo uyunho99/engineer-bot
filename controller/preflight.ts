@@ -484,20 +484,63 @@ export interface AssembleInput {
 }
 
 /**
- * 이 단위(관계 또는 짝)를 **하나의** 결함이 지목하는가.
+ * 판정을 내릴 단위. `relation`(1단계, 관계 하나)과 `cluster`(2단계, 파일 하나를
+ * 같이 쓰는 태스크 묶음 — Task 1) 두 종류가 있다. `pair`(구 2단계)는 Task 6 이
+ * `cluster` 로 대체할 때까지 `assembleResult` 안에서 `relation` 규칙을 빌려 쓴다
+ * (판정 규칙은 원소가 항상 2개뿐인 관계·짝이 같아서다 — 아래 표 참고).
+ */
+export interface JudgedUnit {
+  kind: "relation" | "cluster";
+  task_ids: string[];
+  /** `cluster` 전용. `relation` 은 파일 개념이 없어 이 필드를 무시한다. */
+  file?: string;
+}
+
+/**
+ * 이 단위를 **하나의** 결함이 지목하는가.
  *
  * 전체 결함의 task_ids 를 합집합으로 뭉쳐서 멤버십을 보면 안 된다 — 서로 무관한 결함
  * 둘이 이 단위의 양쪽 끝을 하나씩 나눠 지목해도 "결함 있음"으로 오판하게 된다.
- * 그래서 **개별** 결함 하나가 unitTaskIds 전부를 담고 있는지를 본다.
+ * 그래서 **개별** 결함 하나를 기준으로 본다.
  *
  * `relation` 필드로 비교하지 않는다 — `signatureCandidates` 는 `relation` 에 심볼의
  * 순수 이름만 넣고(`danglingRefs`/`orderViolations` 는 전체 서명을 넣는다), 정확히
  * 일치 비교하면 진짜 서명 불일치 결함을 "clean" 으로 놓치는 거짓 음성이 생긴다.
  * task_ids 양끝 포함 여부는 1단계 세 생성기 모두 `pair(consumer, declaredFrom)` 으로
  * 두 끝을 항상 채우므로 이 위험이 없다 — 오판의 방향을 안전한 쪽(과다 표시)으로 둔다.
+ *
+ * **DC2 — `kind` 마다 규칙이 다르다. `length` 로 분기하지 않는다:**
+ *
+ * | kind       | 판정 규칙                                            | 왜                       |
+ * |------------|-------------------------------------------------------|--------------------------|
+ * | `relation` | 결함 하나가 `unit.task_ids` **전부**를 담아야 한다     | 원소가 항상 관계의 양끝  |
+ * |            | (부분집합: `unit.task_ids ⊆ d.task_ids`). `file` 무시. | 2개뿐이라 "전부"가 정확한 |
+ * |            |                                                         | 질문이다.                |
+ * | `cluster`  | 결함 하나가 `unit.task_ids` 중 **하나라도** 겹치고,    | 클러스터는 최대 12개     |
+ * |            | (`file`이 있으면) `d.file` 이 `unit.file` 과 같아야    | (`CLUSTER_WARN_SIZE`)까지 |
+ * |            | 한다 (교집합 + 파일 필터). `d.file` 이 없으면 거르지   | 늘어나는 목록이라 "전부  |
+ * |            | 않는다 — 과다 표시 쪽으로 안전하게 둔다.               | 담아야"를 요구하면 결함이 |
+ * |            |                                                         | 일부만 지명해도 영원히   |
+ * |            |                                                         | clean 이 된다.           |
+ *
+ * `relation` 규칙을 뒤집어 "결함이 unit.task_ids 전부를 담아야" 대신 "unit 이
+ * 결함 전부를 담아야"로 바꾸면(교집합처럼 보이지만 방향이 반대다) 원소 1개짜리
+ * 단위는 결함의 다른 task_id 때문에 영원히 `clean` 이 된다 — 이 함수가 막아야
+ * 하는 회귀(Ⓒ)다. `cluster` 규칙에서 부분집합 방향을 쓰면(= relation 규칙 재사용)
+ * 결함이 클러스터의 일부 태스크만 지명하는 흔한 경우를 전부 놓친다 — 그래서
+ * 두 kind 는 서로 다른 연산(⊆ vs ∩)을 쓴다.
  */
-function concernsUnit(defects: PreflightDefect[], unitTaskIds: string[]): "clean" | "defect" {
-  return defects.some((d) => unitTaskIds.every((id) => d.task_ids.includes(id)))
+export function concernsUnit(defects: PreflightDefect[], unit: JudgedUnit): "clean" | "defect" {
+  if (unit.kind === "cluster") {
+    return defects.some(
+      (d) =>
+        (d.file === undefined || d.file === unit.file) &&
+        unit.task_ids.some((id) => d.task_ids.includes(id)),
+    )
+      ? "defect"
+      : "clean";
+  }
+  return defects.some((d) => unit.task_ids.every((id) => d.task_ids.includes(id)))
     ? "defect"
     : "clean";
 }
@@ -519,13 +562,20 @@ export function assembleResult(input: AssembleInput): PreflightResult {
       kind: "relation" as const,
       label: `${r.symbol} (Task ${r.declaredFrom ?? "?"} → Task ${r.consumer})`,
       task_ids: r.declaredFrom ? [r.declaredFrom, r.consumer] : [r.consumer],
-      result: concernsUnit(defects, r.declaredFrom ? [r.consumer, r.declaredFrom] : [r.consumer]),
+      result: concernsUnit(defects, {
+        kind: "relation",
+        task_ids: r.declaredFrom ? [r.consumer, r.declaredFrom] : [r.consumer],
+      }),
     })),
+    // `pair` 는 구 2단계 단위다 — Task 6 이 `cluster` 로 대체할 때까지, 판정은
+    // `relation` 규칙(부분집합)을 그대로 빌려 쓴다. 원소가 항상 2개(a, b)뿐이라
+    // 지금까지의 답과 정확히 같다 — `kind: "pair"` 는 여기 없다(JudgedUnit 이
+    // 아직 그 종류를 모른다), 레이블용 `ExaminedUnit.kind` 만 "pair" 로 남는다.
     ...pairs.map((p) => ({
       kind: "pair" as const,
       label: p.sharedFiles.join(", "),
       task_ids: [p.a, p.b],
-      result: concernsUnit(defects, [p.a, p.b]),
+      result: concernsUnit(defects, { kind: "relation", task_ids: [p.a, p.b] }),
     })),
   ];
 
