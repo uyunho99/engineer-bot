@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
-import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, parsePreviousResult, planSha256, type PreflightRaw } from "./preflight";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, overlappingClusters, CLUSTER_WARN_SIZE, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, parsePreviousResult, planSha256, type PreflightRaw } from "./preflight";
 // PreflightRaw 를 함께 import 하라 — 아래 raw() 헬퍼가 그 타입을 쓴다.
 // tsconfig 의 include 가 controller/**/*.ts 이고 noUnusedLocals: true 라
 // 테스트 파일도 타입체크 대상이다 (2026-09-03 봇 지적).
@@ -281,6 +281,78 @@ describe("overlappingPairs", () => {
       fileTask(2, ["- Create: `b.ts`", "- Test: `shared.test.ts`"]),
     )));
     expect(p).toEqual([]);
+  });
+});
+
+describe("overlappingClusters", () => {
+  test("같은 파일을 Modify 하는 태스크 2개 → 클러스터 1개, task_ids 둘 다", () => {
+    const c = overlappingClusters(parseTasks(planOf(
+      fileTask(1, ["- Modify: `src/a.ts`"]),
+      fileTask(2, ["- Modify: `src/a.ts`"]),
+    )));
+    expect(c).toEqual([{ file: "src/a.ts", task_ids: ["1", "2"] }]);
+  });
+
+  test("태스크 1개만 쓰는 파일은 클러스터가 아니다", () => {
+    const c = overlappingClusters(parseTasks(planOf(
+      fileTask(1, ["- Create: `src/a.ts`"]),
+      fileTask(2, ["- Create: `src/b.ts`"]),
+    )));
+    expect(c).toEqual([]);
+  });
+
+  test("Test 파일은 클러스터를 만들지 않는다", () => {
+    const c = overlappingClusters(parseTasks(planOf(
+      fileTask(1, ["- Create: `a.ts`", "- Test: `shared.test.ts`"]),
+      fileTask(2, ["- Create: `b.ts`", "- Test: `shared.test.ts`"]),
+    )));
+    expect(c).toEqual([]);
+  });
+
+  test("Create 와 Modify 를 섞어도 같은 파일이면 한 클러스터", () => {
+    const c = overlappingClusters(parseTasks(planOf(
+      fileTask(1, ["- Create: `src/a.ts`"]),
+      fileTask(2, ["- Modify: `src/a.ts`"]),
+    )));
+    expect(c).toEqual([{ file: "src/a.ts", task_ids: ["1", "2"] }]);
+  });
+
+  test("한 태스크가 두 파일을 쓰면 두 클러스터에 각각 나온다 (DC1 — 연결 성분이 아니다)", () => {
+    const c = overlappingClusters(parseTasks(planOf(
+      fileTask(1, ["- Modify: `src/a.ts`", "- Modify: `src/b.ts`"]),
+      fileTask(2, ["- Modify: `src/a.ts`"]),
+      fileTask(3, ["- Modify: `src/b.ts`"]),
+    )));
+    expect(c).toEqual([
+      { file: "src/a.ts", task_ids: ["1", "2"] },
+      { file: "src/b.ts", task_ids: ["1", "3"] },
+    ]);
+  });
+
+  test("task_ids 가 플랜 등장 순서다 — 태스크 번호 순이 아니다", () => {
+    const c = overlappingClusters(parseTasks(planOf(
+      fileTask(3, ["- Modify: `src/a.ts`"]),
+      fileTask(1, ["- Modify: `src/a.ts`"]),
+    )));
+    expect(c).toEqual([{ file: "src/a.ts", task_ids: ["3", "1"] }]);
+  });
+
+  test("file 이 오름차순으로 정렬된다", () => {
+    const c = overlappingClusters(parseTasks(planOf(
+      fileTask(1, ["- Modify: `z.ts`"]),
+      fileTask(2, ["- Modify: `z.ts`"]),
+      fileTask(3, ["- Modify: `a.ts`"]),
+      fileTask(4, ["- Modify: `a.ts`"]),
+    )));
+    expect(c.map((x) => x.file)).toEqual(["a.ts", "z.ts"]);
+  });
+
+  test("태스크가 0개면 빈 배열, 예외 없음", () => {
+    expect(overlappingClusters([])).toEqual([]);
+  });
+
+  test("CLUSTER_WARN_SIZE 가 12 다", () => {
+    expect(CLUSTER_WARN_SIZE).toBe(12);
   });
 });
 

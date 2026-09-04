@@ -208,6 +208,51 @@ export function overlappingPairs(tasks: ParsedTask[]): FilePair[] {
   return out;
 }
 
+/** 클러스터 하나 — 파일 하나를 2개 이상 태스크가 쓴다. */
+export interface FileCluster {
+  file: string;
+  task_ids: string[];
+}
+
+/**
+ * 클러스터 크기 상한 경고선. Task 4 가 이 값을 넘는 클러스터에 경고를 낸다
+ * (여기서는 값만 선언한다 — 경고 로직은 아직 없다).
+ */
+export const CLUSTER_WARN_SIZE = 12;
+
+/**
+ * `overlappingPairs` 를 짝(O(n²))에서 **파일 클러스터**(O(n))로 바꾼 것 —
+ * 부모 플랜 실측: 짝 39개 → 클러스터 2개 (`controller/preflight.ts` 9태스크,
+ * `controller/contract.ts` 3태스크; 짝 검산 36 + 3 = 39).
+ *
+ * **DC1 — 단위는 파일이지, 연결 성분(connected component)이 아니다.** 태스크가
+ * 파일 A·B 를 둘 다 쓰면 A 클러스터와 B 클러스터에 각각 나온다. A-B 를 하나로
+ * 합치지 않는다 — 합치면 파일을 통해서만 이어진 무관한 태스크들이 전이적으로
+ * 한 검사 단위에 뭉쳐, `overlappingPairs` 가 잡던 "이 두 태스크가 이 파일을 두고
+ * 충돌하는가"라는 국소적 질문이 흐려진다.
+ *
+ * `overlappingPairs` 와 같은 write-set 규칙을 쓴다: Create + Modify 만 보고
+ * Test 는 제외한다 (같은 테스트 파일에 케이스를 추가하는 것은 정상이다).
+ */
+export function overlappingClusters(tasks: ParsedTask[]): FileCluster[] {
+  const byFile = new Map<string, string[]>();
+  for (const t of tasks) {
+    const f = parseFiles(t.body);
+    for (const file of new Set([...f.create, ...f.modify])) {
+      const ids = byFile.get(file);
+      if (ids) ids.push(t.id);
+      else byFile.set(file, [t.id]);
+    }
+  }
+
+  const out: FileCluster[] = [];
+  for (const [file, task_ids] of byFile) {
+    if (task_ids.length >= 2) out.push({ file, task_ids });
+  }
+  out.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+  return out;
+}
+
 /**
  * 커버리지는 **관계** 단위로 센다. 태스크 단위로 세지 않는다 (설계 D25).
  *
