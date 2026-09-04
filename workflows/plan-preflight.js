@@ -14,9 +14,19 @@ export const meta = {
 // { planPath, rawPath, planSha256, relationsDeclared,
 //   stage1Defects[], stage2Candidates[], pairs[] }
 //
-// 이 스크립트는 파일을 읽을 수 없다 (플랫폼 제약). 판단 로직도 두지 않는다 —
-// controller/preflight.ts 가 그것을 갖는다 (설계 D1). 여기 있는 것은
-// agent() 호출과 결과 수집뿐이다.
+// **이 스크립트는 파일을 읽지도 쓰지도 못한다** (플랫폼 제약, 2026-09-04 실측):
+//   전역      : globalThis 뿐 — process·Bun·fetch·require 가 전부 없다
+//   require   : throw "require is not defined"
+//   import()  : 구문 오류 "import() is not available in workflow scripts"
+//
+// 그래서 `args.rawPath` 는 **이 스크립트가 쓰라는 뜻이 아니다.** 세션이 반환값을
+// 저장할 자리를 알려 주는 값이고, 저장은 세션이 한다 (AMENDMENTS B7 — 설계 D28
+// 개정). 스크립트 안에서 쓸 수 있는 유일한 방법은 agent() 로 Claude 를 띄우는
+// 것인데, 그것은 **LLM 이 큰 JSON 을 다시 타이핑하는 것**이라 D28 이 막으려던
+// 위험 그 자체다.
+//
+// 판단 로직도 두지 않는다 — controller/preflight.ts 가 그것을 갖는다 (설계 D1).
+// 여기 있는 것은 agent() 호출과 결과 수집뿐이다.
 //
 // 모델은 모든 호출에 명시한다 (하드룰 #3 · 설계 D19). 워크플로우 레퍼런스는
 // 생략을 기본으로 하지만, 에이전트가 20개 넘게 뜨는 곳에서 생략하면 세션
@@ -128,7 +138,18 @@ const survivors = (await parallel(candidates.map((d) => () =>
     `계획서 ${PLAN} 를 읽고 판단하라. **불확실하면 refuted=true 가 기본값이다.**\n` +
     `오탐이 정상 플랜을 반송시키는 것이 놓치는 것보다 비싸다.`,
     { label: `refute:${d.id}`, phase: 'Verify', schema: VERDICT_SCHEMA, model: 'sonnet' },
-  ).then((v) => (v && !v.refuted ? d : null)).catch(() => null))))
+  ).then((v) => (v && !v.refuted ? d : null))
+   // 에이전트 실패는 판단이 아니다 — 결함을 유지하고 실패를 기록한다.
+   //
+   // 2026-09-04 실측: 사용량 한도로 refute 15개가 실패했고, 옛 코드
+   // `.catch(() => null)` 이 그 15건을 **조용히 버렸다.** 완결성 검사관이 낸
+   // 5건이 통째로 포함됐다. 발견 44건 · 보고 1건 · units_failed 는 `[]` 였다 —
+   // 보고서가 "전부 정상 검사됨"이라고 말했다.
+   //
+   // 프롬프트의 "불확실하면 refuted=true" 는 **모델의 판단**에 대한 정책이다.
+   // 에이전트가 아예 돌지 않은 것은 판단이 없는 것이므로 같이 취급하면 안 된다.
+   // 검증되지 않은 결함은 사람에게 보여주는 쪽이 게이트에서 안전한 방향이다.
+   .catch(() => { failed.push(`verify:${d.id}`); return d }))))
   .filter(Boolean)
 
 // ── 5) 수정 패치 (설계 D24) ──────────────────────────────────────
@@ -141,7 +162,11 @@ const withPatch = await pipeline(
     `anchor 는 **task_id 로 지정한 태스크 본문 안에 실제로 존재하는 한 줄**이어야 한다.\n` +
     `text 는 그 자리에 들어갈 내용을 그대로 쓴다 — 사람이 승인한 텍스트가 그대로 삽입된다.`,
     { label: `fix:${d.id}`, phase: 'Fix', schema: PATCH_SCHEMA, model: 'sonnet' },
-  ).then((patch) => ({ ...d, patch: patch ?? undefined })).catch(() => d),
+  ).then((patch) => ({ ...d, patch: patch ?? undefined }))
+   // 패치 생성 실패는 결함을 없애지 않는다 — 패치 없이 넘기되 기록은 남긴다.
+   // 사람은 patch 없는 결함을 손으로 처리할 수 있지만, 기록이 없으면 왜 patch 가
+   // 비었는지 알 수 없다.
+   .catch(() => { failed.push(`fix:${d.id}`); return d }),
 )
 
 // 출처별로 되돌려 쓴다 — criticIds 에 있으면 critic.additional_defects, 없으면

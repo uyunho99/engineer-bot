@@ -106,9 +106,33 @@ if (mode === "--record") {
     now: new Date().toISOString(),
   });
   writeFileSync(p.preflight, JSON.stringify(result, null, 2), "utf8");
-  console.log(`${result.verdict} — 결함 ${result.defects.length}건 · 관계 ${result.relations.declared}개 검사`);
+  // 판정 줄은 **판정했을 때만** 찍는다. 단위가 실패했으면 아래 BLOCKED 분기로 가는데,
+  // 그 앞에 `REJECTED — 결함 0건` 이 찍히면 사람이 그 줄만 보고 오해한다.
+  if (!result.relations.not_examined.length) {
+    console.log(
+      `${result.verdict} — 결함 ${result.defects.length}건 · 관계 ${result.relations.declared}개 검사`,
+    );
+  }
+  // 검사 단위가 하나라도 실패했으면 **판정한 것이 아니다** — BLOCKED 다.
+  //
+  // preflightVerdict 는 not_examined 가 있으면 REJECTED 를 내는데, Verdict 타입에
+  // BLOCKED 이 없어서 그렇다 (CLEAN | REJECTED). 그대로 exit 1 을 내면 스킬이
+  // 사람에게 "계획서를 고치세요"라고 안내한다 — **계획서는 멀쩡하고 검사기가
+  // 죽은 것인데도.** 종료 코드 층에서 바로잡는다 (하드룰 #4).
+  //
+  // 2026-09-04 실측: 사용량 한도로 검증 에이전트 15개가 실패했다. 그때 워크플로우가
+  // 실패를 기록조차 하지 않아 not_examined 가 비었고, 발견 44건 중 1건만 보고되면서
+  // 나머지 14건이 조용히 사라졌다 (완결성 검사관 5건 전부 포함). 워크플로우 쪽은
+  // 고쳤고, 이 분기는 그 기록이 판정까지 도달하게 만드는 나머지 절반이다.
   if (result.relations.not_examined.length) {
-    console.log(`검사 안 한 것: ${result.relations.not_examined.join(", ")}`);
+    console.error(
+      `BLOCKED: 검사 단위 ${result.relations.not_examined.length}개가 실패했습니다 — ` +
+        `판정하지 못했습니다`,
+    );
+    console.error(`  실패한 단위: ${result.relations.not_examined.join(", ")}`);
+    console.error(`  계획서를 고치지 마십시오. 2단계부터 다시 실행하십시오.`);
+    console.error(`  (부분 결과는 ${p.preflight} 에 남아 있습니다 — 결함 ${result.defects.length}건)`);
+    process.exit(4);
   }
   // 1 = 판정했고 REJECTED. 위의 4(BLOCKED)와 다른 값이어야 한다.
   process.exit(result.verdict === "CLEAN" ? 0 : 1);
