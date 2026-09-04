@@ -1,0 +1,308 @@
+{
+  "schema": 1,
+  "branch": "feature/preflight-cluster",
+  "plan_sha256": "c694d6bf800ee0e07ce02266f484948b4cee3dda86cd0bfd9fd4494f610ec8a9",
+  "scope": "interface-graph+file-overlap",
+  "verdict": "REJECTED",
+  "relations": {
+    "declared": 9,
+    "examined_stage1": 9,
+    "examined_stage2": 7,
+    "not_examined": []
+  },
+  "examined": [
+    {
+      "kind": "relation",
+      "label": "ParsedTask` (기존 — `controller/contract.ts`) (Task ? → Task 1)",
+      "task_ids": [
+        "1"
+      ],
+      "result": "defect"
+    },
+    {
+      "kind": "relation",
+      "label": "parseFiles` (기존 — `controller/contract.ts`) (Task ? → Task 1)",
+      "task_ids": [
+        "1"
+      ],
+      "result": "defect"
+    },
+    {
+      "kind": "relation",
+      "label": "PreflightDefect` (기존 — `controller/preflight.ts`) (Task ? → Task 2)",
+      "task_ids": [
+        "2"
+      ],
+      "result": "defect"
+    },
+    {
+      "kind": "relation",
+      "label": "overlappingClusters (Task 1 → Task 3)",
+      "task_ids": [
+        "1",
+        "3"
+      ],
+      "result": "defect"
+    },
+    {
+      "kind": "relation",
+      "label": "concernsUnit (Task 2 → Task 3)",
+      "task_ids": [
+        "2",
+        "3"
+      ],
+      "result": "defect"
+    },
+    {
+      "kind": "relation",
+      "label": "FileCluster (Task 1 → Task 4)",
+      "task_ids": [
+        "1",
+        "4"
+      ],
+      "result": "clean"
+    },
+    {
+      "kind": "relation",
+      "label": "CLUSTER_WARN_SIZE (Task 1 → Task 4)",
+      "task_ids": [
+        "1",
+        "4"
+      ],
+      "result": "clean"
+    },
+    {
+      "kind": "relation",
+      "label": "overlappingClusters (Task 1 → Task 5)",
+      "task_ids": [
+        "1",
+        "5"
+      ],
+      "result": "clean"
+    },
+    {
+      "kind": "relation",
+      "label": "oversizedClusterWarnings (Task 4 → Task 5)",
+      "task_ids": [
+        "4",
+        "5"
+      ],
+      "result": "defect"
+    },
+    {
+      "kind": "pair",
+      "label": "controller/preflight.ts",
+      "task_ids": [
+        "1",
+        "2"
+      ],
+      "result": "defect"
+    },
+    {
+      "kind": "pair",
+      "label": "controller/preflight.ts",
+      "task_ids": [
+        "1",
+        "3"
+      ],
+      "result": "defect"
+    },
+    {
+      "kind": "pair",
+      "label": "controller/preflight.ts",
+      "task_ids": [
+        "1",
+        "4"
+      ],
+      "result": "clean"
+    },
+    {
+      "kind": "pair",
+      "label": "controller/preflight.ts",
+      "task_ids": [
+        "2",
+        "3"
+      ],
+      "result": "defect"
+    },
+    {
+      "kind": "pair",
+      "label": "controller/preflight.ts",
+      "task_ids": [
+        "2",
+        "4"
+      ],
+      "result": "defect"
+    },
+    {
+      "kind": "pair",
+      "label": "controller/preflight.ts",
+      "task_ids": [
+        "3",
+        "4"
+      ],
+      "result": "defect"
+    }
+  ],
+  "defects": [
+    {
+      "id": "pair:1x2-1",
+      "kind": "undeclared_conflict",
+      "task_ids": [
+        "1",
+        "2"
+      ],
+      "relation": "FileCluster.file ↔ concernsUnit(unitTaskIds)",
+      "plan_text": "Task 1: `- Produces: `interface FileCluster { file: string; task_ids: string[] }`` / Task 2: `- Produces: `concernsUnit(defects: PreflightDefect[], unitTaskIds: string[]): \"clean\" | \"defect\"``",
+      "conflict": "Task 1 은 클러스터의 정체를 **(file, task_ids) 두 조각**으로 저장한다. DC1 이 연결 성분을 거부했으므로 같은 태스크가 여러 클러스터에 중복 소속되는 것이 정상 상태다 (설계 DC1: \"preflight.ts 와 contract.ts 를 둘 다 쓰는 태스크가 있으면\"). 그런데 Task 2 의 판정 서명은 `unitTaskIds: string[]` 뿐이라 **file 조각을 판정 시점에 버린다**. `PreflightDefect`(contract.ts:479) 에도 파일 필드가 없으므로 결함이 어느 파일에서 나왔는지 복원할 방법이 없다. 결과: `contract.ts` 클러스터를 본 에이전트가 태스크 {A,B} 를 지명한 결함을 내면, A·B 가 둘 다 `preflight.ts` 도 쓰는 순간 `preflight.ts` 클러스터까지 `\"defect\"` 가 된다 — 그 파일에서는 아무 결함도 보고되지 않았는데도. Task 2 의 증명 목록은 \"클러스터 **밖** 태스크를 지명한 결함\" 만 막는데, 두 클러스터에 모두 든 태스크는 정의상 밖이 아니라 이 경로를 하나도 덮지 못한다. 사람이 읽는 `examined[]`(부모 D9)가 결함을 엉뚱한 파일에 귀속시킨다.",
+      "stage": 2,
+      "patch": {
+        "op": "replace",
+        "task_id": "2",
+        "anchor": "- Produces: `concernsUnit(defects: PreflightDefect[], unitTaskIds: string[]): \"clean\" | \"defect\"`",
+        "text": "- Consumes: `FileCluster` from Task 1 — `file` 필드까지 받는다. 판정 시점에 버리면 안 된다 (이번 결함의 원인)\n- Produces: `PreflightDefect.file?: string` — `controller/contract.ts` 도 함께 고친다 (기존 필드에 옵셔널 추가라 하위 호환). 어느 파일 클러스터에서 난 결함인지 담는다\n- Produces: `concernsUnit(defects: PreflightDefect[], unit: { task_ids: string[]; file?: string }): \"clean\" | \"defect\"`\n  (DC1 수정 — 한 태스크가 두 파일을 쓰면 두 클러스터에 중복 소속된다. `task_ids` 만으로 판정하면 한 클러스터를 지명한 결함이, 그 태스크들을 공유하는 다른 클러스터까지 `\"defect\"` 로 오염시킨다. `unit.file` 과 `d.file` 이 둘 다 있고 서로 다르면 그 결함은 세지 않는다 — 판정 이전에 파일로 먼저 거른다. `d.file` 이 없는 결함(1단계 관계 등 파일 개념이 없는 단위)은 지금처럼 `task_ids` 만으로 판정해 하위 호환을 지킨다. 아래 \"테스트로 증명할 것\"에 추가한다: 같은 `task_ids` 를 지명해도 `file` 이 다른 결함은 그 클러스터를 오염시키지 않는다 — 이번 결함의 회귀 테스트)"
+      }
+    },
+    {
+      "id": "pair:1x3-2",
+      "kind": "undeclared_conflict",
+      "task_ids": [
+        "1",
+        "3"
+      ],
+      "stage": 2,
+      "plan_text": "Task 1 테스트: \"한 태스크가 두 파일을 쓰면 두 클러스터에 각각 나온다 (DC1 — 연결 성분이 아니다)\"  /  Task 3 — Consumes: `concernsUnit` from Task 2, Produces: `assembleResult`; 테스트: \"`label` 이 파일 경로를 담는다\"",
+      "conflict": "Task 1 은 파일 단위로 클러스터를 쪼갠다(DC1). 두 태스크가 파일 2개를 함께 쓰면 `task_ids` 가 **완전히 동일한** 클러스터 2개가 나오고, 구별 정보는 오직 `file` 필드에 있다. 그런데 Task 3 이 결함을 단위에 귀속시키는 통로인 `concernsUnit(defects, unitTaskIds)` 는 `task_ids` 만 받는다 — `file` 은 인자에 없다(preflight.ts:447). 따라서 두 클러스터의 `result` 는 항상 같은 값이 되고, 파일 A 에서만 발견된 `undeclared_conflict` 가 파일 B 의 `examined[]` 항목에도 `\"defect\"` 로 찍힌다. 파일 단위로 쓰고(Task 1) 태스크집합 단위로 읽는(Task 3) 형식 불일치이며, `DC1` 이 만든 세분화가 읽는 쪽에서 소멸한다. 짝 단위였을 때는 `sharedFiles` 를 한 항목에 모았으므로 이 이중 계산 자체가 없었다.",
+      "patch": {
+        "op": "insert_after",
+        "task_id": "3",
+        "anchor": "- [ ] 결함 0건이면 `verdict` 가 `\"CLEAN\"` — 클러스터화가 판정 규칙을 바꾸지 않는다",
+        "text": "- [ ] 파일 클러스터 2개가 `task_ids` 는 완전히 같고 `file` 만 다를 때(같은 태스크\n      집합이 파일 2개를 함께 쓰는 경우), 한쪽 파일에서만 발견된\n      `undeclared_conflict` 가 다른 쪽 클러스터의 `result` 를 오염시키지 않는다.\n      `concernsUnit` 은 `task_ids` 만 보고 `file` 을 받지 않으므로(파일 단위로\n      쓰고(Task 1) 태스크집합 단위로 읽는(Task 3) 형식 불일치), 클러스터 매핑에서\n      **`concernsUnit` 에 넘기기 전에 결함을 `file` 로 먼저 좁힌다**: 클러스터\n      `c` 의 `result` 를 계산할 때, `kind: \"undeclared_conflict\"` 이면서\n      `relation` 이 `c.file` 과 다른 결함은 제외하고 넘긴다. `relation` 은\n      `PreflightDefect` 에 이미 있는 선택 필드를 파일 식별자로 재사용하는 것이지\n      새 필드가 아니다 — 계약 파일(`controller/contract.ts`)도 워크플로우\n      `DEFECT_SCHEMA` 도 고치지 않는다. `relation` 이 없는 결함은 배제하지\n      않는다 — 어느 클러스터에도 걸리게 두는 것이 기존 `concernsUnit` 주석의\n      안전한 과다 표시 방향과 같다. **Task 5 가 반환하는 모든 stage-2\n      `undeclared_conflict` 결함에는 `relation` 을 그 클러스터의 `file` 로\n      채워야 한다** — 이 값이 없으면 이 필터는 갈라지지 않고 예전처럼\n      과다 표시로 되돌아간다(짝 단위였을 때는 `sharedFiles` 를 한 항목에\n      모았으므로 이 이중 계산 자체가 없었다)"
+      }
+    },
+    {
+      "id": "pair:2x3-2",
+      "kind": "undeclared_conflict",
+      "task_ids": [
+        "2",
+        "3"
+      ],
+      "stage": 2,
+      "relation": "concernsUnit(defects, unitTaskIds)",
+      "plan_text": "Task 2: \"`concernsUnit` 의 부분집합 방향을 뒤집는다\" · \"1단계 `\"relation\"` 단위(태스크 2개)에서 부모와 같은 답을 낸다 — 회귀 없음\" / Task 3 Interfaces: \"Consumes: `concernsUnit` from Task 2\"",
+      "conflict": "Task 2 는 회귀 없음을 **태스크 2개짜리 relation 단위**로만 정의했는데, Task 3 이 계속 만들어내는 relation 행에는 **태스크 1개짜리** 가 있다. `assembleResult` 는 `task_ids: r.declaredFrom ? [r.declaredFrom, r.consumer] : [r.consumer]` 로 행을 만들고(preflight.ts:465-471), `declaredFrom` 은 `from Task N` 절이 없는 Consumes 에서 null 이 된다 (contract.ts:245). 이 플랜 자신의 `- Consumes: \\`PreflightDefect\\` (기존 — controller/preflight.ts)` 같은 줄이 정확히 그 경우다. 방향을 뒤집으면 판정식이 `d.task_ids.every(id => unitTaskIds.includes(id))` 가 되는데, `checkDefectShape` 는 `task_ids` 가 2개 미만인 결함을 전부 거부하므로(preflight.ts:307) **원소 1개짜리 단위의 부분집합이 될 수 있는 결함은 원리적으로 존재하지 않는다.** 즉 `from Task N` 이 없는 모든 relation 행이 어떤 결함이 그 태스크를 지목하든 영원히 `\"clean\"` 으로 기록된다. 뒤집기 전에는 그 태스크를 포함한 결함이 `\"defect\"` 를 만들었다. 거짓 음성이고, preflight.ts:310 주석이 \"이 기능에서 가장 위험한 방향\" 이라고 못박은 바로 그 방향이다. 두 태스크의 어떤 테스트 항목도 이 경우를 보지 않는다.",
+      "patch": {
+        "op": "insert_after",
+        "task_id": "2",
+        "anchor": "- [ ] 부분집합 방향이 뒤집히지 않았다 — 클러스터가 결함의 부분집합인 경우는 `\"clean\"`",
+        "text": "- [ ] `declaredFrom` 이 없는 relation 단위(`task_ids` 원소 1개 — `assembleResult` 가 `from Task N`\n      절 없는 `Consumes` 에서 만드는 `[r.consumer]`, 이 플랜 자신의\n      `Consumes: \\`PreflightDefect\\` (기존 — controller/preflight.ts)` 줄이 그 예다)에서,\n      그 태스크를 지목하는 결함이 있으면 `\"defect\"` 다 — 부분집합 방향을 무조건 뒤집으면\n      `checkDefectShape` 가 `task_ids` 2개 미만인 결함을 전부 거부하므로(D27) 원소 1개\n      단위는 어떤 결함의 부분집합도 될 수 없어, 그 태스크를 포함한 결함이 있어도 영원히\n      `\"clean\"` 으로 기록된다 (거짓 음성 — `checkDefectShape` 주석이 \"가장 위험한 방향\"\n      이라고 못박은 바로 그 경우). `concernsUnit` 은 `unitTaskIds.length === 1` 일 때만\n      `d.task_ids.includes(unitTaskIds[0])`(포함 여부)로 판정하고, 그 외(클러스터·페어,\n      원소 2개 이상)에는 `d.task_ids.every(id => unitTaskIds.includes(id))`(부분집합)를\n      적용한다 — 두 갈래를 나누지 않으면 이 새 케이스가 위 클러스터 부분집합 테스트와\n      동시에 통과할 수 없다."
+      }
+    },
+    {
+      "id": "pair:2x4-2",
+      "kind": "undeclared_conflict",
+      "task_ids": [
+        "2",
+        "4"
+      ],
+      "stage": 2,
+      "relation": "클러스터 판정의 저장 형식 — PreflightResult(persisted) vs Violation[](transient)",
+      "plan_text": "Task 4 — Produces: `oversizedClusterWarnings(clusters: FileCluster[]): Violation[]` … `Violation` 의 `file` 유니온에 값을 추가하지 마라 — `\"plan.md\"` 를 쓴다 // Task 2 — Produces: `concernsUnit(...): \"clean\" | \"defect\"`",
+      "conflict": "두 태스크가 controller/preflight.ts 안에서 '이 클러스터에 대한 검사기의 판단'을 각각 만들지만 저장 형식이 다르고, 그중 하나는 받아 줄 스키마가 없다. Task 2 의 판단은 PreflightResult.examined[].result 로 preflight.json 에 영구 기록된다. Task 4 의 판단은 contract.ts 의 Violation(severity/file/rule/message) 인데, PreflightResult 에는 violations/warnings 필드가 없고(controller/preflight.ts:406-419) 그 스키마를 넓히는 태스크도 없다. Task 5 는 preflight-raw.json 에도 싣지 말라고 못박고 '경고는 --record 단계에서 컨트롤러가 낸다'고 미루지만, --record 를 구현한 controller/preflight-cli.ts 를 Files 에 넣은 태스크가 하나도 없다.",
+      "failure_scenario": "13개 태스크가 한 파일을 쓰는 플랜에서 oversizedClusterWarnings 가 warn 1건을 계산한다. --record 는 assembleResult 결과만 preflight.json 에 쓰고 verdict 한 줄만 출력하므로 그 warn 은 어디에도 남지 않는다. 게이트(checkPreflightGate)와 사람이 읽는 preflight.json 에는 같은 클러스터가 result: \"clean\" 으로만 남는다 — 즉 Task 4 가 만든 값은 생산되자마자 버려지고, 같은 대상에 대해 Task 2 형식의 판단만 살아남아 '경고 없음'과 구분되지 않는다.",
+      "patch": {
+        "op": "insert_after",
+        "task_id": "4",
+        "anchor": "- Test: `controller/preflight.test.ts`",
+        "text": "- Modify: `controller/preflight-cli.ts` — `--record` 분기가 `oversizedClusterWarnings` 를 호출하고\n  그 결과를 `PreflightResult.warnings` 에 실어 `preflight.json` 에 영구 기록한다.\n\n**Interfaces (추가):**\n- Produces: `PreflightResult.warnings: Violation[]` — `PreflightResult`(controller/preflight.ts:406-419)를\n  확장하는 새 필드. Task 2 의 판단(`examined[].result`)과 저장 형식이 다르므로 별도 필드로 둔다 —\n  기존 `examined[]`/`defects` 에 끼워 넣지 않는다. 값이 없으면 `[]`(빈 배열), `undefined` 를 쓰지 않는다.\n\n**테스트로 증명할 것 (추가):**\n- [ ] `--record` 실행 후 `preflight.json` 의 `warnings` 배열에 `oversizedClusterWarnings` 의\n      결과가 그대로 들어있다\n- [ ] 클러스터 경고가 없으면 `warnings` 가 `[]` 다 — `undefined` 나 필드 누락이 아니다\n- [ ] `checkPreflightRaw` 가 검증하는 `preflight-raw.json` 스키마는 그대로다 — `warnings` 는\n      워크플로우 산출물이 아니라 `--record` 단계에서 컨트롤러가 계산해 얹는 값이다 (Task 5 의\n      \"워크플로우가 클러스터 팬아웃만 하고 경고는 신지 않는다\"는 전제와 모순 없음)\n\n**Step 3 보강:** `PreflightResult` 인터페이스에 `warnings: Violation[]` 필드를 추가한다.\n`controller/preflight-cli.ts` 의 `--record` 분기에서 클러스터 목록(`overlappingClusters` 결과)에\n`oversizedClusterWarnings` 를 적용하고, `assembleResult` 가 돌려준 결과 객체에\n`warnings: oversizedClusterWarnings(clusters)` 를 채워 `preflight.json` 에 쓴다. 이로써 Task 5 가\n\"경고는 --record 단계에서 컨트롤러가 낸다\"고 미루는 문장이 실제 구현을 갖는다 — 지금까지는\n그 단계를 구현하는 태스크가 없었다 (Files 에 `controller/preflight-cli.ts` 가 없었다)."
+      }
+    },
+    {
+      "id": "pair:3x4-1",
+      "kind": "undeclared_conflict",
+      "task_ids": [
+        "3",
+        "4"
+      ],
+      "stage": 2,
+      "relation": "oversizedClusterWarnings → assembleResult / PreflightResult",
+      "plan_text": "Task 3 **Interfaces:** Produces: `assembleResult` · Task 4 **Interfaces:** Produces: `oversizedClusterWarnings(clusters: FileCluster[]): Violation[]` · Task 5 Step 3: \"`oversizedClusterWarnings` 결과를 `preflight-raw.json` 에 싣지 마라 — 그것은 워크플로우 산출 스키마 밖이다. 경고는 `--record` 단계에서 컨트롤러가 낸다.\"",
+      "conflict": "Task 4 가 경고를 만드는 그릇과 Task 3 이 `--record` 단계에서 쓰는 그릇이 다르다. Task 3 은 `controller/preflight.ts` 안에서 `assembleResult`/`PreflightResult` 를 다시 쓰는 유일한 태스크인데, `PreflightResult` 에는 경고를 담을 자리가 없다 (현 스키마: schema/branch/plan_sha256/scope/verdict/relations/examined/defects/applied). Task 3 의 '테스트로 증명할 것' 7개 어디에도 경고 필드를 더한다는 요건이 없다. 반대로 Task 4 는 `Violation[]` 을 낸다 — 이것은 `checkPlan`/`CheckResult` 계열(계약 검사기)의 타입이고, `--record` 경로에서 `Violation` 을 읽는 코드는 하나뿐인데(`preflight-cli.ts:52` 의 `contractOk`) 거기서는 `severity === \"error\"` 만 세므로 `\"warn\"` 은 애초에 버려진다. 두 태스크가 끝나면 `oversizedClusterWarnings` 는 `controller/preflight.ts` 안에서 호출자도 출력 슬롯도 없는 함수가 되고, DC5 의 경고는 `preflight.json` 에 절대 도달하지 못한다. 콘솔 문자열로 흘리는 우회는 하드룰 #4(자유 텍스트 파싱 금지)에 막힌다. 어느 쪽 Interfaces 에도 이 생산자–소비자 관계가 선언되어 있지 않다.",
+      "patch": {
+        "op": "insert_after",
+        "task_id": "4",
+        "anchor": "- Produces: `oversizedClusterWarnings(clusters: FileCluster[]): Violation[]`",
+        "text": "- Consumes: `assembleResult` from Task 3\n- Produces: `PreflightResult.warnings: Violation[]`\n\n이 두 줄이 없으면 `oversizedClusterWarnings` 는 `controller/preflight.ts` 안에서 호출자도\n출력 슬롯도 없는 함수로 끝난다. `assembleResult`(Task 3)가 클러스터를 조립하는 과정에서\n`oversizedClusterWarnings(clusters)` 를 호출하고, 그 결과를 `PreflightResult` 의 새\n`warnings` 필드에 그대로 담는다. `--record` 단계(`preflight-cli.ts`)의 `assembleResult`\n호출이 이 함수의 유일한 호출자이자, DC5 의 경고가 `preflight.json` 에 닿는 유일한 경로다.\n\n**혼동하지 마라 —** `preflight-cli.ts:52` 의 `contractOk` 는 `checkPlan` 의 결과에서\n`severity === \"error\"` 만 세는 **계약 검사기**다. 그 `Violation` 은 plan.md 자체를 향하고,\n`oversizedClusterWarnings` 의 `Violation` 은 이 플랜이 만드는 클러스터를 향한다. 서로 다른\n그릇이니 `contractOk` 를 고쳐서 `\"warn\"` 을 통과시키는 방식으로 이 결함을 메우지 마라.\n\n**테스트로 증명할 것** 에 다음을 추가한다:\n- [ ] 태스크 13개짜리 클러스터로 `assembleResult` 를 호출하면, 결과의 `warnings` 에\n      `oversizedClusterWarnings` 가 낸 경고가 그대로 담긴다 — 경고를 만드는 그릇과\n      `--record` 가 쓰는 그릇이 같다는 것을 증명한다\n- [ ] 오버사이즈 클러스터가 없으면 `assembleResult` 결과의 `warnings` 는 빈 배열이다\n\nStep 3 구현 시 `warnings` 를 빈 배열로 초기화만 하고 끝내지 마라 —\n`oversizedClusterWarnings` 호출까지 마쳐야 이 태스크가 끝난다."
+      }
+    },
+    {
+      "id": "critic-1",
+      "kind": "undeclared_conflict",
+      "task_ids": [
+        "3",
+        "5"
+      ],
+      "plan_text": "### Task 3 ... **Files:** - Modify: `controller/preflight.ts` ... **Step 3: Implement** `ExaminedUnit.kind` 에서 `\"pair\"` 를 제거하고, `assembleResult` 가 클러스터를 받도록 바꾼다. `overlappingPairs` 의 마지막 호출자가 없어지면 **함수와 그 테스트를 함께 지운다** — 죽은 코드를 남기지 않는다.  /  ### Task 5 ... **Files:** - Modify: `workflows/plan-preflight.js`",
+      "conflict": "짝→클러스터 전환의 실제 배선 지점인 `controller/preflight-cli.ts` 를 어느 태스크도 Files 에 넣지 않았다. 이 파일이 `overlappingPairs` 의 **유일한 호출자**(66행 `const pairs = overlappingPairs(tasks);`, 104행 `pairs: overlappingPairs(tasks)`)이자 워크플로우가 읽는 `args.pairs` 의 **유일한 생산자**(`--plan` 출력의 `pairs` 필드)이며 `assembleResult` 의 유일한 호출자다. 결과: (a) Task 3 이 `overlappingPairs` 를 지우는 순간 `preflight-cli.ts` 의 import(19~20행)가 깨져 Task 3 Step 4 의 `bun run typecheck` 가 TS2305 로 실패한다 — Task 3 이 스스로 GREEN 을 만들 수 없다. (b) Task 3 이 `assembleResult` 를 클러스터 입력으로 바꿔도 CLI 는 계속 `pairs: overlappingPairs(tasks)` 를 넘기므로 시그니처가 안 맞는다. (c) Task 5 가 워크플로우를 클러스터 팬아웃으로 바꿔도 `--plan` 이 여전히 `pairs` 만 내보내므로 `args.clusters` 는 undefined 이고 2단계 검사 단위가 0개가 된다 — 그러면 `/preflight` 실행(수용 기준 7)이 '아무것도 안 본 CLEAN' 을 남긴다. 두 태스크 중 어느 쪽도 CLI 를 고칠 권한이 없다.",
+      "stage": 2,
+      "patch": {
+        "op": "insert_after",
+        "task_id": "3",
+        "anchor": "- Test: `controller/preflight.test.ts`",
+        "text": "- Modify: `controller/preflight-cli.ts`\n\n**이 파일이 짝→클러스터 전환의 실제 배선 지점이다.** `overlappingPairs` 의 유일한\n호출자(66행 `--plan`, 104행 `--record`)이자 `args.pairs` 의 유일한 생산자(`--plan`\n출력의 `pairs` 필드)이며 `assembleResult` 의 유일한 호출자다. 이 태스크가 두 호출\n지점을 전부 `overlappingClusters` 기반으로 옮긴다.\n`--plan` 모드는 `pairs: overlappingPairs(tasks)` 를 `clusters: overlappingClusters(tasks)`\n로 바꾸고 출력 필드 이름도 `pairs` 에서 `clusters` 로 바꾼다 — Task 5 의 워크플로우가\n`args.clusters` 를 그대로 읽을 수 있어야 하며, Task 5 는 이 파일을 다시 건드리지 않는다.\n`--record` 모드는 `assembleResult` 호출의 `pairs: overlappingPairs(tasks)` 인자를\n`clusters: overlappingClusters(tasks)` 로 바꾼다.\n두 지점을 모두 옮기면 `overlappingPairs` 는 진짜로 호출자가 없다 — Step 3 의 기존\n규칙대로 그 함수와 `preflight.test.ts` 의 `describe(\"overlappingPairs\", ...)` 를 함께\n지운다. `tsconfig.json` 의 `include` 에 `controller/**/*.ts` 가 있어 `bun run typecheck`\n가 이 파일도 검사한다 — 이 수정 없이는 Step 4 의 GREEN 을 이 태스크 스스로 만들 수 없다."
+      }
+    },
+    {
+      "id": "critic-2",
+      "kind": "undeclared_conflict",
+      "task_ids": [
+        "3",
+        "5"
+      ],
+      "plan_text": "### Task 3 **테스트로 증명할 것:** - [ ] `relations.examined_stage2` 가 클러스터 수를 센다  /  ### Task 5 ... **Files:** - Modify: `workflows/plan-preflight.js`",
+      "conflict": "`examined_stage2` 는 `relationCoverage()` 가 `raw.stage2.units_examined.length` 로 계산한다. 그런데 그 배열은 워크플로우가 채우며, 클러스터 단위 말고도 Candidates 단계의 `sig:<id>` 단위(79행 `examined.push(\\`sig:${c.id}\\`)`)와 Critic 단계의 `'critic'`(114행 `examined.push('critic')`)을 **같은 배열에** 넣는다. 따라서 실제 값은 `서명 후보 수 + 클러스터 수 + 1` 이다. Task 3 은 `controller/preflight.ts` 만 고치므로 이 배열의 구성을 바꿀 수 없고, Task 5 는 워크플로우를 고치지만 `examined` 배열을 분리하라는 지시도 그런 테스트 항목도 없다(Task 5 의 6개 단언 어디에도 없다). 결국 Task 3 의 이 단언은 픽스처 안에서만 참이고 실제 파이프라인에서는 항상 거짓이다 — 설계 D25('커버리지는 무엇을 봤는지 정확히 센다')가 겨냥한 바로 그 거짓 안심이 남는다.",
+      "stage": 2,
+      "patch": {
+        "op": "replace",
+        "task_id": "3",
+        "anchor": "- [ ] `relations.examined_stage2` 가 클러스터 수를 센다",
+        "text": "- [ ] `relations.examined_stage2` 는 `units_examined` 에서 `cluster:` 접두사 라벨만\n      센다 — 그 배열은 워크플로우가 채우며 Candidates 단계의 `sig:<id>`(79행)와\n      Critic 단계의 `'critic'`(114행)도 같은 배열에 담는다. 접두사로 거르지 않으면\n      실제 값은 \"서명 후보 수 + 클러스터 수 + 1\"이 되어 D25가 막으려는 거짓 안심이\n      그대로 남는다\n- [ ] `sig:`·`critic` 라벨이 섞여도 `examined_stage2`가 부풀지 않는다 — 클러스터 3개·\n      서명 후보 2개·critic 1개가 섞인 픽스처에서 값이 3이어야 한다\n- [ ] `not_examined` 도 같은 접두사로 거른다 — 실패한 `sig:`/`critic` 단위가 클러스터\n      실패로 잘못 집계되지 않는다. 기존 `pair:1x2` 류 픽스처 라벨은 `cluster:1x2`로\n      바꾼다(Task 3이 \"pair\" kind를 걷어내는 것과 같은 리네이밍이다)\n\nStep 3 구현에 추가한다: `relationCoverage`는 `examinedStage2`·`failed`를 받는 즉시\n`u.startsWith(\"cluster:\")`로 걸러서 세고 담는다. 이 접두사는 두 태스크가 공유하는\n계약이다 — **Task 5는 클러스터 팬아웃 단위를 `cluster:${c.id}`로 라벨링해야 한다**\n(지금 `pair:` 가 있던 자리를 대체). Task 5의 \"테스트로 증명할 것\"에 다음 항목을\n추가한다: \"클러스터 examined/failed 라벨이 `cluster:` 로 시작한다 — 접두사가 어긋나면\n`examined_stage2`가 항상 0이 된다\"."
+      }
+    },
+    {
+      "id": "critic-3",
+      "kind": "undeclared_conflict",
+      "task_ids": [
+        "4",
+        "5"
+      ],
+      "plan_text": "### Task 5 **Interfaces:** - Consumes: `oversizedClusterWarnings` from Task 4  /  ### Task 5 **Step 3: Implement** ... `oversizedClusterWarnings` 결과를 `preflight-raw.json` 에 싣지 마라 — 그것은 워크플로우 산출 스키마 밖이다. 경고는 `--record` 단계에서 컨트롤러가 낸다.",
+      "conflict": "Task 5 는 `oversizedClusterWarnings` 를 Consumes 로 선언해 놓고, 같은 태스크의 Step 3 이 그 결과를 산출에 싣는 것을 금지하고 '경고는 --record 단계에서 컨트롤러가 낸다' 고 책임을 다른 곳으로 넘긴다. 그런데 (a) `workflows/plan-preflight.js` 는 `controller/*` 를 import 할 수 없다(파일 상단 17~19행: '이 스크립트는 파일을 읽을 수 없다 … 판단 로직도 두지 않는다', 설계 D1) — 소비할 방법 자체가 없고, (b) `--record` 경로는 `controller/preflight-cli.ts` 에 있는데 어느 태스크도 그 파일을 Files 에 넣지 않았으며, (c) `oversizedClusterWarnings` 가 돌려주는 `Violation[]` 을 담을 자리가 `PreflightResult` 에 없고 Task 3 의 Interfaces·테스트 어디에도 경고 이야기가 없다. 결과적으로 Task 4 의 산출물은 호출자가 0인 죽은 코드가 되고(Task 3 Step 3 의 '죽은 코드를 남기지 않는다' 와도 어긋난다), 수용 기준 5('12 개 넘으면 warn 이 나온다')는 단위 테스트 밖에서 성립하지 않는다.",
+      "stage": 2,
+      "patch": {
+        "op": "insert_after",
+        "task_id": "5",
+        "anchor": "- Modify: `workflows/plan-preflight.js`",
+        "text": "- Modify: `controller/preflight-cli.ts`"
+      }
+    },
+    {
+      "id": "critic-5",
+      "kind": "undeclared_conflict",
+      "task_ids": [
+        "2",
+        "5"
+      ],
+      "plan_text": "### Task 2 **테스트로 증명할 것:** - [ ] 클러스터 밖 태스크를 하나라도 지명한 결함은 그 클러스터를 오염시키지 않는다 / - [ ] 1단계 `\"relation\"` 단위(태스크 2개)에서 부모와 같은 답을 낸다 — 회귀 없음  /  ### Task 5 (워크플로우) `task_ids 는 모순에 관련된 태스크 번호를 2개 이상 그대로 적는다.`",
+      "conflict": "Task 2 는 `concernsUnit` 의 부분집합 방향을 '결함 ⊆ 단위' 로 뒤집는데, 같은 함수가 1단계 `relation` 단위에도 그대로 쓰인다(assembleResult 가 relation·cluster 양쪽에 같은 함수를 호출한다). 워크플로우의 완결성 검사관 프롬프트는 `task_ids` 를 '2개 이상' 으로만 못박고 상한이 없으며 DEFECT_SCHEMA 도 `minItems: 2` 뿐이라, 태스크 3개 이상을 지명한 결함이 정상적으로 나온다(설계 비스코프: '완결성 검사관 수정 — 클러스터와 무관하게 플랜 전체를 본다'). 그런 결함 `{1,3,5}` 에 대해 부모 규칙(단위 ⊆ 결함)은 relation 단위 `{1,3}` 을 `\"defect\"` 로 표시했지만 뒤집은 규칙에서는 `\"clean\"` 이 된다 — Task 2 가 같은 목록에서 약속한 '1단계 relation 단위에서 부모와 같은 답 · 회귀 없음' 과 정면으로 충돌하는 거짓 음성이다. 클러스터 단위를 위해 방향을 뒤집으면서 relation 단위에도 같은 규칙을 계속 쓰는 것을 어느 태스크도 다루지 않는다.",
+      "stage": 2,
+      "patch": {
+        "op": "insert_after",
+        "task_id": "2",
+        "anchor": "- Produces: `concernsUnit(defects: PreflightDefect[], unitTaskIds: string[]): \"clean\" | \"defect\"`",
+        "text": "\n> **[5회전 반송 수정 — 방향은 단위 종류로 분기한다]**\n> 시그니처를 `concernsUnit(defects: PreflightDefect[], unitTaskIds: string[], unitKind: \"relation\" | \"cluster\"): \"clean\" | \"defect\"` 로 바꾼다.\n> `unitKind === \"relation\"` 이면 부모 규칙(단위 ⊆ 결함)을 그대로 쓰고, `unitKind === \"cluster\"` 일 때만 뒤집힌 규칙(결함 ⊆ 단위)을 쓴다.\n> `assembleResult`(Task 3)는 1단계 호출에 `\"relation\"`, 2단계 호출에 `\"cluster\"` 를 넘긴다 — Task 3 의 `concernsUnit` 소비 코드는 이 세 번째 인자를 필수로 채운다.\n>\n> 근거: 완결성 검사관의 `task_ids` 는 2개 이상이면 상한이 없다(검사관 자체를 고치는 것은 설계 비스코프다 — 클러스터와 무관하게 플랜 전체를 보게 만드는 변경은 하지 않는다). 그래서 결함 하나가 3개 이상의 태스크를 지명할 수 있다.\n> 결함 `{1,3,5}` 는 relation 단위 `{1,3}` 에 대해 부모 규칙으로 `\"defect\"` 다 (`{1,3} ⊆ {1,3,5}`). 방향을 무조건(`unitKind` 분기 없이) 뒤집으면 같은 결함이 `{1,3,5} ⊆ {1,3}` 을 요구하게 되어 `\"clean\"` 이 되어버리고, 이는 바로 아래 \"1단계 `relation` 단위에서 부모와 같은 답을 낸다 — 회귀 없음\" 항목과 정면으로 충돌하는 거짓 음성이다. `unitKind` 분기 없이는 클러스터용 방향 전환과 relation 회귀가 동시에 성립할 수 없다.\n>\n> **테스트 추가:** 결함 `{1,3,5}` 를 relation 단위 `{1,3}` 에 대해 `unitKind: \"relation\"` 으로 판정하면 여전히 `\"defect\"` 다 — 위 회귀 항목이 실제로 잡아야 했던 반례를 명시적으로 고정한다.\n>\n> **Step 3 정정:** 아래 \"`concernsUnit` 의 부분집합 방향을 뒤집는다\" 지시는 **`unitKind === \"cluster\"` 분기에만** 적용한다. `unitKind === \"relation\"` 분기는 기존(뒤집기 전) 로직을 그대로 둔다.\n"
+      }
+    }
+  ],
+  "applied": []
+}
