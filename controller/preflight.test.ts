@@ -1079,9 +1079,14 @@ describe("워크플로우 산출 형식 왕복", () => {
     const checked = checkPreflightRaw(JSON.stringify(withFail), SHA);
     expect(checked.ok).toBe(true);
     const g = graphOf(planOf(task(1, ["- Produces: `a()`"]), task(2, ["- Consumes: `a()` from Task 1"])));
+    // `clusters` 를 `units_examined` 의 클러스터 항목 수(1개)와 맞춘다 — 그렇지
+    // 않으면 Task 8 의 개수 비교가 이 픽스처를 "커버리지 부족"으로도 잡아 별도의
+    // `not_examined` 항목을 더 넣는다. 이 테스트가 보려는 것은 `units_failed` 하나가
+    // `not_examined` 로 그대로 전달되는지이지, 개수 불일치가 아니다.
     const r = assembleResult({
       branch: "feature/x", planSha256: SHA, raw: checked.data!, graph: g,
-      clusters: [], previousApplied: [], now: "2026-09-03T00:00:00Z",
+      clusters: [{ file: "pair:1x2", task_ids: ["1", "2"] }],
+      previousApplied: [], now: "2026-09-03T00:00:00Z",
     });
     expect(r.relations.not_examined).toEqual(["pair:1x2"]);
     expect(r.verdict).toBe("REJECTED");
@@ -1599,7 +1604,15 @@ describe("assembleResult — 2단계 단위가 클러스터다 (Task 6)", () => 
     const r = assembleResult({
       ...base6,
       clusters: [{ file: "controller/preflight.ts", task_ids: ["1", "2"] }],
-      raw: raw6(),
+      // Task 8: units_examined 를 clusters.length 와 맞춘다 — 안 맞으면 이
+      // 픽스처가 "1클러스터 + units_examined: []" 라는, Task 8 이 못박은
+      // "verdict 는 CLEAN 이 아니다" 케이스와 글자 그대로 같은 입력이 된다.
+      raw: raw6({
+        stage2: {
+          units_examined: [{ kind: "cluster", label: "controller/preflight.ts" }],
+          units_failed: [], defects: [],
+        },
+      }),
     });
     const stage2 = r.examined.filter((u) => u.kind !== "relation");
     expect(stage2).toHaveLength(1);
@@ -1628,7 +1641,14 @@ describe("assembleResult — 2단계 단위가 클러스터다 (Task 6)", () => 
     const r = assembleResult({
       ...base6,
       clusters: [{ file: "src/a.ts", task_ids: ["1", "2"] }],
-      raw: raw6(),
+      // Task 8: units_examined 를 clusters.length 와 맞춘다 (커버리지 회귀와
+      // 별개 입력을 유지하려면 이 픽스처가 "봤다"고 정직하게 말해야 한다).
+      raw: raw6({
+        stage2: {
+          units_examined: [{ kind: "cluster", label: "src/a.ts" }],
+          units_failed: [], defects: [],
+        },
+      }),
     });
     expect(r.defects).toEqual([]);
     expect(r.verdict).toBe("CLEAN");
@@ -1673,7 +1693,18 @@ describe("assembleResult — 2단계 단위가 클러스터다 (Task 6)", () => 
       file: "src/big.ts",
       task_ids: Array.from({ length: CLUSTER_WARN_SIZE + 1 }, (_, i) => String(i + 1)),
     };
-    const r = assembleResult({ ...base6, clusters: [big], raw: raw6() });
+    // Task 8: units_examined 를 clusters.length(1) 와 맞춘다 — 이 단언도 결함
+    // 0건 픽스처로 verdict === "CLEAN" 을 함께 확인하므로, 커버리지가 맞아야 한다.
+    const r = assembleResult({
+      ...base6,
+      clusters: [big],
+      raw: raw6({
+        stage2: {
+          units_examined: [{ kind: "cluster", label: "src/big.ts" }],
+          units_failed: [], defects: [],
+        },
+      }),
+    });
     expect(r.warnings).toEqual(oversizedClusterWarnings([big]));
     expect(r.warnings).toHaveLength(1);
     // DC5 — 경고는 판정을 바꾸지 않는다.
@@ -1779,7 +1810,27 @@ describe("bin/preflight — 클러스터 배선 (Task 6)", () => {
     return { code: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
   };
 
-  const rawFor = (planText: string) => JSON.stringify({
+  // Task 8: `units_examined` 를 plan.md 에서 다시 계산한 클러스터 수와 맞춘다.
+  // 그렇지 않으면 이 헬퍼를 쓰는 모든 테스트가 "커버리지 부족"으로 BLOCKED(exit 4)
+  // 를 받는다 — 이 파일의 다른 테스트들이 보려는 것(warnings 배선, 콘솔 출력)과
+  // 무관한 실패다. 커버리지 부족 자체를 보려면 아래 `rawWithNoStage2Coverage` 를 쓴다.
+  const rawFor = (planText: string) => {
+    const clusters = overlappingClusters(parseTasks(planText));
+    return JSON.stringify({
+      schema: 1,
+      plan_sha256: planSha256(planText),
+      stage1: { relations_declared: 0, defects: [] },
+      stage2: {
+        units_examined: clusters.map((c) => ({ kind: "cluster" as const, label: c.file })),
+        units_failed: [],
+        defects: [],
+      },
+    });
+  };
+
+  // 3판이 못박았던 상태 — 워크플로우가 클러스터 에이전트를 하나도 못 띄운 것과
+  // 같은 모양이다: 클러스터는 있는데 `units_examined` 는 비어 있다.
+  const rawWithNoStage2Coverage = (planText: string) => JSON.stringify({
     schema: 1,
     plan_sha256: planSha256(planText),
     stage1: { relations_declared: 0, defects: [] },
@@ -1826,6 +1877,28 @@ describe("bin/preflight — 클러스터 배선 (Task 6)", () => {
     const written = JSON.parse(readFileSync(join(dir, "preflight.json"), "utf8"));
     expect(written.warnings).toEqual([]);
     expect(written.examined.filter((u: ExaminedUnit) => u.kind === "cluster")).toHaveLength(1);
+  });
+
+  /**
+   * Task 8 — 3판이 이 상태(클러스터 1개 · `units_examined: []`)를 exit 0 과
+   * "cluster 행이 생긴다"로 함께 못박고 있었다. **여기서 뒤집는다.**
+   *
+   * 클러스터 행이 `examined[]` 에 나온다는 관찰 자체는 여전히 유효하다 — 이
+   * 태스크는 판정만 고치고 `examined[]` 의 구성은 건드리지 않는다. 바뀐 것은
+   * exit 코드와 verdict: 워크플로우가 클러스터 에이전트를 하나도 못 띄운 것과
+   * 같은 이 입력은 이제 BLOCKED(exit 4) 다 — CLEAN 이 아니다.
+   */
+  test("units_examined 가 clusters 에 못 미치면 exit 4 다 — cluster 행 자체는 여전히 기록된다 (Task 8, 3판 반전)", () => {
+    const { root, dir } = mkRepo(twoTaskPlan);
+    writeFileSync(join(dir, "preflight-raw.json"), rawWithNoStage2Coverage(twoTaskPlan), "utf8");
+    const r = run(root, "--record");
+    expect(r.code).toBe(4);
+    expect(r.stderr).toContain("BLOCKED");
+    const written = JSON.parse(readFileSync(join(dir, "preflight.json"), "utf8"));
+    expect(written.warnings).toEqual([]);
+    expect(written.examined.filter((u: ExaminedUnit) => u.kind === "cluster")).toHaveLength(1);
+    expect(written.relations.not_examined.length).toBeGreaterThan(0);
+    expect(written.verdict).not.toBe("CLEAN");
   });
 
   test("경고가 사람이 읽는 콘솔에 닿는다 — 판정 줄의 경고 절과 message 줄 (pair:4x6-3)", () => {
@@ -1879,5 +1952,132 @@ describe("bin/preflight — 클러스터 배선 (Task 6)", () => {
     const written = JSON.parse(readFileSync(join(dir, "preflight.json"), "utf8"));
     expect(written.warnings).toEqual([]);
     expect(written.applied).toHaveLength(1);
+  });
+});
+
+// ─── Task 8 — 안 본 단위를 봤다고 주장하지 않는다 (설계 §7.4) ──────────────
+//
+// `examined[]` 는 plan.md 에서 **다시 계산한** 클러스터로 만들고
+// `relations.examined_stage2` 는 `raw.stage2.units_examined` 에서 오는데, 그 둘을
+// 비교하는 곳이 없었다. 그래서 워크플로우가 클러스터 에이전트를 하나도 못 띄워도
+// (핸드오프에서 clusters 유실, raw 파일 절단 …) `examined_stage2: 0` ·
+// `not_examined: []` 로 CLEAN 이 났다 — 안 본 것을 봤다고 주장하는, 이 기능의
+// 최악 실패다 (실측: 3판 빌드 후).
+//
+// **개수만 비교한다. 라벨은 대조하지 않는다** — 워크플로우는 단위를
+// `cluster:${c.file}` 로 라벨링하고 `ExaminedUnit.label` 은 맨 `c.file` 이라
+// 접두사가 다르다. 그 접두사를 떼는 것은 이 태스크의 범위가 아니다 (별도 과제).
+describe("assembleResult — 커버리지 개수 불일치는 not_examined 에 남는다 (Task 8)", () => {
+  const g8 = graphOf(planOf(
+    task(1, ["- Produces: `a()`"]),
+    task(2, ["- Consumes: `a()` from Task 1"]),
+  ));
+  const base8 = {
+    branch: "feature/x",
+    planSha256: "a".repeat(64),
+    graph: g8,
+    previousApplied: [],
+    now: "2026-09-04T00:00:00Z",
+    clusters: [] as FileCluster[],
+  };
+  const raw8 = (over: Partial<PreflightRaw> = {}): PreflightRaw => ({
+    schema: 1,
+    plan_sha256: "a".repeat(64),
+    stage1: { relations_declared: 1, defects: [] },
+    stage2: { units_examined: [], units_failed: [], defects: [] },
+    ...over,
+  });
+
+  test("클러스터 1개 · units_examined: [] → verdict 가 CLEAN 이 아니다 (3판이 못박았던 상태를 뒤집는다)", () => {
+    const r = assembleResult({
+      ...base8,
+      clusters: [{ file: "src/a.ts", task_ids: ["1", "2"] }],
+      raw: raw8(),
+    });
+    expect(r.verdict).not.toBe("CLEAN");
+    expect(r.relations.not_examined.length).toBeGreaterThan(0);
+  });
+
+  test("개수가 같으면 not_examined 에 아무것도 추가하지 않는다 — 정상 경로를 벌하지 않는다", () => {
+    const r = assembleResult({
+      ...base8,
+      clusters: [{ file: "src/a.ts", task_ids: ["1", "2"] }],
+      raw: raw8({
+        stage2: { units_examined: [{ kind: "cluster", label: "src/a.ts" }], units_failed: [], defects: [] },
+      }),
+    });
+    expect(r.relations.not_examined).toEqual([]);
+    expect(r.verdict).toBe("CLEAN");
+  });
+
+  test("units_examined 가 clusters.length 보다 많으면 그것도 not_examined 에 기록한다 — 있을 수 없는 상태다", () => {
+    const r = assembleResult({
+      ...base8,
+      clusters: [{ file: "src/a.ts", task_ids: ["1", "2"] }],
+      raw: raw8({
+        stage2: {
+          units_examined: [
+            { kind: "cluster", label: "src/a.ts" },
+            { kind: "cluster", label: "src/ghost.ts" },
+          ],
+          units_failed: [],
+          defects: [],
+        },
+      }),
+    });
+    expect(r.relations.not_examined.length).toBeGreaterThan(0);
+    expect(r.verdict).not.toBe("CLEAN");
+  });
+
+  test("failed 로 들어온 항목과 개수 불일치가 함께 있으면 둘 다 not_examined 에 남는다", () => {
+    const r = assembleResult({
+      ...base8,
+      clusters: [
+        { file: "src/a.ts", task_ids: ["1", "2"] },
+        { file: "src/b.ts", task_ids: ["1", "2"] },
+      ],
+      raw: raw8({
+        stage2: { units_examined: [], units_failed: ["cluster:src/a.ts"], defects: [] },
+      }),
+    });
+    expect(r.relations.not_examined).toContain("cluster:src/a.ts");
+    expect(r.relations.not_examined.length).toBeGreaterThan(1);
+    expect(r.verdict).not.toBe("CLEAN");
+  });
+
+  test("클러스터가 0개면 불일치가 없다 — examined_stage2 도 0 이어야 정상이다", () => {
+    const r = assembleResult({ ...base8, clusters: [], raw: raw8() });
+    expect(r.relations.examined_stage2).toBe(0);
+    expect(r.relations.not_examined).toEqual([]);
+    expect(r.verdict).toBe("CLEAN");
+  });
+
+  test("examined[] 의 행 수는 여전히 클러스터 수다 — 이 태스크는 판정만 고치고 구성은 건드리지 않는다", () => {
+    const r = assembleResult({
+      ...base8,
+      clusters: [{ file: "src/a.ts", task_ids: ["1", "2"] }],
+      raw: raw8(),
+    });
+    expect(r.examined.filter((u) => u.kind === "cluster")).toHaveLength(1);
+  });
+
+  test("signature/critic 종류는 클러스터 개수 비교에 섞이지 않는다 — relationCoverage 와 같은 cluster-only 규칙", () => {
+    const r = assembleResult({
+      ...base8,
+      clusters: [{ file: "src/a.ts", task_ids: ["1", "2"] }],
+      raw: raw8({
+        stage2: {
+          units_examined: [
+            { kind: "signature", label: "a() (Task 1 -> Task 2)" },
+            { kind: "critic", label: "completeness" },
+            { kind: "cluster", label: "src/a.ts" },
+          ],
+          units_failed: [],
+          defects: [],
+        },
+      }),
+    });
+    expect(r.relations.not_examined).toEqual([]);
+    expect(r.verdict).toBe("CLEAN");
   });
 });

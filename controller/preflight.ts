@@ -642,6 +642,37 @@ export function concernsUnit(defects: PreflightDefect[], unit: JudgedUnit): "cle
     : "clean";
 }
 
+/**
+ * 2단계가 실제로 몇 클러스터를 봤는지(`examinedClusters`, `relationCoverage` 가
+ * 이미 `kind === "cluster"` 만 세어 낸 값)와, plan.md 에서 **다시 계산한** 클러스터
+ * 수(`actualClusters`)를 비교한다 (설계 §7.4 · 이 기능의 최악 실패에 대한 조치).
+ *
+ * **왜 필요한가.** `examined[]` 는 `clusters` 인자(재계산 값)로 만들고
+ * `relations.examined_stage2` 는 워크플로우가 보고한 `units_examined` 에서 오는데,
+ * 이전에는 그 둘을 비교하는 곳이 없었다. 그래서 워크플로우가 클러스터 에이전트를
+ * 하나도 못 띄워도(핸드오프에서 `args.clusters` 유실, raw 파일 절단 — 에이전트가
+ * "던지지" 않는 모든 경우) `examined_stage2: 0` · `not_examined: []` 로 CLEAN 이
+ * 났다 — 안 본 단위를 봤다고 주장하는 것이다 (2026-09-04 실측, 3판 빌드 후).
+ *
+ * **개수만 비교한다. 라벨은 대조하지 않는다.** 워크플로우는 단위를
+ * `cluster:${c.file}` 로 라벨링하고 `ExaminedUnit.label`(및 `FileCluster.file`)은
+ * 맨 `c.file` 이라 접두사가 다르다 — 라벨을 대조하면 정상 경로까지 항상 불일치로
+ * 오판한다. 그 접두사를 떼는 것은 이 함수의 범위가 아니다 (DC6 이 없애려던 자유
+ * 텍스트 접두사 모양이라 별도로 다룬다).
+ *
+ * 반환값은 `not_examined` 에 얹을 문자열 0~1개다. **어떤 클러스터를 놓쳤는지는
+ * 말하지 않는다** — 라벨이 대응하지 않는 이상 그건 실제로 모르는 정보이고, 모르는
+ * 것을 안다고 꾸미면 이 함수가 막으려는 실패와 같은 모양이 된다. 부족(shortfall)과
+ * 초과(surplus)를 다른 문자열로 구분한다 — 초과는 있을 수 없는 상태이므로(워크플로우가
+ * 보고하지 않은 클러스터를 봤다고 말할 수는 없다) 조용히 넘기지 않는다.
+ */
+function clusterCoverageGap(examinedClusters: number, actualClusters: number): string[] {
+  if (examinedClusters === actualClusters) return [];
+  return examinedClusters < actualClusters
+    ? [`cluster_coverage_shortfall:${examinedClusters}/${actualClusters}`]
+    : [`cluster_coverage_surplus:${examinedClusters}/${actualClusters}`];
+}
+
 export function assembleResult(input: AssembleInput): PreflightResult {
   const { raw, graph, clusters, previousApplied } = input;
 
@@ -682,11 +713,21 @@ export function assembleResult(input: AssembleInput): PreflightResult {
     })),
   ];
 
-  const relations = relationCoverage(
+  const coverage = relationCoverage(
     graph,
     raw.stage2.units_examined,
     raw.stage2.units_failed,
   );
+  // 안 본 단위를 봤다고 주장하지 않는다 (Task 8 · 설계 §7.4) — coverage.not_examined
+  // 는 여기서 워크플로우가 스스로 보고한 실패(failed)만 담고 있다. 여기에 "보고된
+  // 실패는 없는데 실제로 본 클러스터 수가 다시 계산한 클러스터 수와 다르다"는
+  // 경우까지 얹는다. `not_examined` 가 비지 않으면 `preflightVerdict` 가 REJECTED
+  // 를 내고, `preflight-cli.ts` 의 기존 분기가 그것을 BLOCKED(exit 4)로 라우팅한다
+  // — 새 신호선을 만들지 않는다.
+  const gap = clusterCoverageGap(coverage.examined_stage2, clusters.length);
+  const relations: RelationCoverage = gap.length
+    ? { ...coverage, not_examined: [...coverage.not_examined, ...gap] }
+    : coverage;
 
   return {
     schema: 1,
