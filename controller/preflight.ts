@@ -357,6 +357,13 @@ function checkDefectShape(d: unknown, where: string, v: Violation[]): void {
     // 위험한 방향이다 (안 본 것을 통과로 쓰는 것과 같은 실패).
     bad("task_ids 의 원소가 문자열이 아닙니다 — 태스크 번호는 문자열로 적습니다", "D27");
   }
+  // file 은 선택 필드다 (설계 DC3) — 없으면 하위 호환이고, 있으면 문자열이어야
+  // 한다. 빈 문자열도 거부한다: `id`/`patch.anchor` 와 같은 방향이다. 여기서
+  // 안 막으면 `""` 가 Task 3 의 클러스터별 필터에서 "없음"(`d.file &&`)으로도
+  // "있음"(`!== undefined`)으로도 읽혀 두 구현이 정반대 안전 방향으로 갈린다.
+  if (o.file !== undefined && (typeof o.file !== "string" || !o.file)) {
+    bad("file 이 문자열이 아니거나 비어 있습니다");
+  }
   if (typeof o.plan_text !== "string") bad("plan_text 가 없습니다");
   if (typeof o.conflict !== "string") bad("conflict 가 없습니다");
   if (o.stage !== 1 && o.stage !== 2) bad("stage 가 1 또는 2 가 아닙니다");

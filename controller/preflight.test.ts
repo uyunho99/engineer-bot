@@ -523,6 +523,25 @@ describe("checkPreflightRaw", () => {
     expect(patchV.some((v) => v.rule === "D28" && v.message.includes("patch.op"))).toBe(true);
     expect(patchV.some((v) => v.rule === "D27")).toBe(false);
   });
+
+  // ── file (DC3: 중복 클러스터 소속 때문에 task_ids 만으로는 결함의 출처
+  // 클러스터를 복원할 수 없다. 결함이 자기 파일을 들고 다닌다) ─────────────
+
+  test("file 이 있는 결함은 통과한다", () => {
+    expect(checkPreflightRaw(withDefect({ file: "src/a.ts" }), SHA).ok).toBe(true);
+  });
+
+  test("file 이 없는 결함도 통과한다 — 옵셔널이므로 하위 호환이다 (DC3)", () => {
+    expect(checkPreflightRaw(withDefect({}), SHA).ok).toBe(true);
+  });
+
+  test("file 이 문자열이 아니면 ok:false", () => {
+    expect(checkPreflightRaw(withDefect({ file: 42 }), SHA).ok).toBe(false);
+  });
+
+  test("file 이 빈 문자열이면 ok:false — 없음과 구분되지 않으면 Task 3 필터가 반대 방향으로 갈린다 (pair:2x3-4)", () => {
+    expect(checkPreflightRaw(withDefect({ file: "" }), SHA).ok).toBe(false);
+  });
 });
 
 describe("assembleResult", () => {
