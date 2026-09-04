@@ -12,7 +12,9 @@ export const meta = {
 
 // args = bin/preflight <branch> --plan 의 출력
 // { planPath, rawPath, planSha256, relationsDeclared,
-//   stage1Defects[], stage2Candidates[], pairs[] }
+//   stage1Defects[], stage2Candidates[], clusters[] }
+// clusters[] 의 원소는 { file, task_ids } 다 — 짝(O(n²))이 아니라 파일 클러스터
+// (O(n))다. 2단계 팬아웃은 이제 이 배열을 돈다 (설계 DC1, controller/preflight.ts).
 //
 // **이 스크립트는 파일을 읽지도 쓰지도 못한다** (플랫폼 제약, 2026-09-04 실측):
 //   전역      : globalThis 뿐 — process·Bun·fetch·require 가 전부 없다
@@ -46,6 +48,10 @@ const DEFECT_SCHEMA = {
           kind: { enum: ['dangling_ref', 'order_violation', 'signature_mismatch', 'undeclared_conflict'] },
           task_ids: { type: 'array', items: { type: 'string' }, minItems: 2 },
           relation: { type: 'string' },
+          // 클러스터 결함 전용 (설계 DC3) — 어느 클러스터에서 났는지 못박아
+          // Task 3 의 concernsUnit 이 파일별로 결함을 갈라 볼 수 있게 한다.
+          // 선택 필드다: sig·critic 프롬프트는 채우지 않는다.
+          file: { type: 'string' },
           plan_text: { type: 'string' },
           conflict: { type: 'string' },
           stage: { enum: [1, 2] },
@@ -86,27 +92,39 @@ const sigResults = await parallel((args.stage2Candidates ?? []).map((c) => () =>
     `보고할 때 id 는 "${c.id}" 를 그대로 쓰고, kind 는 "signature_mismatch", stage 는 2,\n` +
     `task_ids 는 ["${c.task_ids[0]}", "${c.task_ids[1]}"] 로 한다.`,
     { label: `sig:${c.id}`, phase: 'Candidates', schema: DEFECT_SCHEMA, model: 'sonnet' },
-  ).then((r) => { examined.push(`sig:${c.id}`); return r })
+  ).then((r) => { examined.push({ kind: 'signature', label: `sig:${c.id}` }); return r })
     .catch(() => { failed.push(`sig:${c.id}`); return null })))
 
-// ── 2) 선언되지 않은 충돌 탐색 (파일 겹침 짝마다) ────────────────
+// ── 2) 선언되지 않은 충돌 탐색 (파일 클러스터마다) ────────────────
+//
+// 짝(O(n²), Task a×Task b)이 아니라 파일 클러스터(O(n), 파일 하나 + 그 파일을
+// 쓰는 태스크 전부)다. 짝 시절보다 정보가 많다 — 태스크들이 같은 파일을
+// **순차로 확장**해 온 맥락 전체를 한 프롬프트에 주므로, 에이전트는 그중
+// 실제로 부딪히는 조합만 골라낼 수 있다 (DC4). 클러스터 전체를 결함의
+// task_ids 로 못박으면 안 된다 — 클러스터가 12개까지 태스크를 담을 수 있는데
+// 그중 2개만 충돌해도 나머지 태스크가 죄 없이 딸려 나온다.
 phase('Undeclared')
-const pairResults = await parallel((args.pairs ?? []).map((p) => () => {
-  const unit = `pair:${p.a}x${p.b}`
+const clusterResults = await parallel((args.clusters ?? []).map((c) => () => {
+  const unit = `cluster:${c.file}`
   return agent(
-    `${PLAN} 의 Task ${p.a} 와 Task ${p.b} 는 다음 파일을 함께 건드린다:\n` +
-    `${p.sharedFiles.join(', ')}\n\n` +
-    `**Interfaces:** 에 선언되지 않았지만 실제로 충돌하는 것이 있는가?\n` +
-    `예: 한쪽이 값을 어떤 형식으로 저장하고 다른 쪽이 다른 형식으로 읽는 경우.\n` +
-    `선언된 관계는 이미 기계가 검사했으니 중복 보고하지 마라.\n` +
+    `${PLAN} 에서 다음 태스크들이 파일 \`${c.file}\` 을 함께 건드린다 — 플랜에\n` +
+    `등장하는 순서 그대로 이 파일을 순차로 확장한다:\n` +
+    `${c.task_ids.map((id) => `Task ${id}`).join(' → ')}\n\n` +
+    `각 태스크가 이 파일에 무엇을 더하는지 순서대로 파악한 뒤, **Interfaces:** 에\n` +
+    `선언되지 않았지만 실제로 충돌하는 조합이 있는지 찾아라.\n` +
+    `예: 한 태스크가 값을 어떤 형식으로 저장하고 다른 태스크가 다른 형식으로 읽는 경우.\n` +
+    `선언된 관계는 이미 기계가 검사했으니 중복 보고하지 마라.\n\n` +
+    `**task_ids 는 실제로 충돌하는 태스크만 담는다** — 이 클러스터에 태스크가\n` +
+    `${c.task_ids.length}개 있어도 그중 2개만 부딪히면 그 2개만 지명한다.\n` +
+    `클러스터 전체를 나열하지 마라.\n` +
     `id 는 "${unit}-<번호>" 형식으로, kind 는 "undeclared_conflict", stage 는 2,\n` +
-    `task_ids 는 ["${p.a}", "${p.b}"] 로 한다.`,
+    `file 은 "${c.file}" 로 채운다 — 비워두거나 생략하지 마라.`,
     { label: unit, phase: 'Undeclared', schema: DEFECT_SCHEMA, model: 'opus' },
-  ).then((r) => { examined.push(unit); return r })
+  ).then((r) => { examined.push({ kind: 'cluster', label: unit }); return r })
     .catch(() => { failed.push(unit); return null })
 }))
 
-const found = [...sigResults, ...pairResults]
+const found = [...sigResults, ...clusterResults]
   .filter(Boolean)
   .flatMap((r) => r.defects ?? [])
 
@@ -115,13 +133,13 @@ phase('Critic')
 log(`검사 단위 ${examined.length}개 · 실패 ${failed.length}개 · 발견 ${found.length}건`)
 const critic = await agent(
   `${PLAN} 전문을 읽어라. 지금까지 검사한 단위와 발견한 결함은 이렇다:\n` +
-  `검사 단위: ${examined.join(', ') || '(없음)'}\n` +
+  `검사 단위: ${examined.map((u) => u.label).join(', ') || '(없음)'}\n` +
   `발견: ${found.map((d) => `${d.id}(${d.task_ids.join('×')})`).join(', ') || '(없음)'}\n\n` +
   `**놓친 관계가 있는가?** 위 단위에 포함되지 않은 태스크 조합에서 모순을 찾아라.\n` +
   `id 는 "critic-<번호>", kind 는 "undeclared_conflict", stage 는 2,\n` +
   `task_ids 는 모순에 관련된 태스크 번호를 2개 이상 그대로 적는다.`,
   { label: 'critic', phase: 'Critic', schema: DEFECT_SCHEMA, model: 'opus' },
-).then((r) => { examined.push('critic'); return r })
+).then((r) => { examined.push({ kind: 'critic', label: 'critic' }); return r })
   .catch(() => { failed.push('critic'); return null })
 
 // 검사관이 낸 결함의 id 를 기억해 둔다 — Fix 단계 이후 출처별로 되돌려 쓰려면

@@ -950,6 +950,90 @@ describe("워크플로우 스크립트 (Task 12)", () => {
   });
 });
 
+describe("워크플로우가 클러스터마다 에이전트 1개를 띄운다 (Task 7)", () => {
+  // 이 describe 는 부모 Task 12 블록의 헬퍼(src)를 재사용하지 않고 새로
+  // 읽는다 — 두 블록이 서로 다른 describe 스코프라 자기 것을 따로 갖는 편이
+  // 안전하다(모듈 스코프 이름 충돌을 피한다, task-7-brief 의 사실 메모).
+  const src = readFileSync("workflows/plan-preflight.js", "utf8");
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+
+  // 클러스터 팬아웃 섹션(2번)만 도려낸다. 이 파일은 실행할 수 없으니(브리핑의
+  // "기계 검사가 0" 경고) 문자열 검사가 전부이고, 정확히 클러스터 프롬프트를
+  // 겨냥하려면 섹션 경계로 잘라야 한다 — 안 그러면 다른 프롬프트(sig, critic)
+  // 안의 우연한 일치가 단언을 무의미하게 통과시킬 수 있다.
+  const sectionStart = src.indexOf("파일 클러스터마다");
+  const sectionEnd = src.indexOf("// ── 3)");
+  const clusterSection = src.slice(sectionStart, sectionEnd);
+
+  test("클러스터 섹션 마커가 소스에 있다 (전제 조건)", () => {
+    expect(sectionStart).toBeGreaterThan(-1);
+    expect(sectionEnd).toBeGreaterThan(sectionStart);
+  });
+
+  test("워크플로우 소스에 overlappingPairs 도 args.pairs 도 없다", () => {
+    expect(src).not.toContain("overlappingPairs");
+    expect(src).not.toContain("args.pairs");
+  });
+
+  test("args.clusters 를 읽는다", () => {
+    expect(src).toContain("args.clusters");
+  });
+
+  test("agent() 호출 수와 model: 지정 수가 정확히 같다 (하드룰 #3)", () => {
+    const calls = (code.match(/\bagent\(/g) ?? []).length;
+    const models = (code.match(/\bmodel\s*:/g) ?? []).length;
+    expect(calls).toBeGreaterThan(0);
+    expect(models).toBe(calls);
+  });
+
+  test("클러스터 프롬프트가 kind 를 undeclared_conflict 로 못박는다 (하드룰 #4)", () => {
+    expect(clusterSection).toContain('"undeclared_conflict"');
+  });
+
+  test("클러스터 프롬프트가 file 을 그 클러스터의 실제 파일로 채우라고 못박는다 (DC3)", () => {
+    // `${c.file}` 는 소스 텍스트 그대로 검사한다 — 이 파일은 실행할 수 없으므로
+    // 템플릿이 평가된 값이 아니라 리터럴 문자열을 찾는다.
+    expect(clusterSection).toMatch(/file\s*은\s*["'`]\$\{c\.file\}["'`]/);
+    expect(clusterSection).toMatch(/비워두거나 생략하지 마라/);
+  });
+
+  test("클러스터 프롬프트가 충돌하는 태스크만 task_ids 에 담으라고 지시한다 (DC4)", () => {
+    expect(clusterSection).toMatch(/충돌하는 태스크만/);
+  });
+
+  test("클러스터 프롬프트가 태스크들이 순차로 확장한다는 맥락을 준다 (DC4 근거)", () => {
+    expect(clusterSection).toContain("순차로 확장");
+  });
+
+  test("units_examined 에 넣는 값이 { kind, label } 객체다 — 세 단계 모두 (DC6)", () => {
+    // sig · cluster · critic 세 곳의 examined.push 호출 전부가 객체 리터럴을
+    // 넣어야 한다. 문자열 하나를 그대로 넣는 옛 형태가 하나라도 남으면
+    // checkPreflightRaw(DC6)가 그 산출 전체를 거부한다.
+    const pushes = code.match(/examined\.push\([^)]*\)/g) ?? [];
+    expect(pushes.length).toBe(3);
+    for (const p of pushes) {
+      expect(p).toMatch(/\{\s*kind\s*:/);
+      expect(p).toMatch(/label\s*:/);
+    }
+    // kind 세 종류가 각각 정확히 한 번씩 등장해야 한다 — signature/cluster/critic.
+    expect(pushes.filter((p) => p.includes("'signature'")).length).toBe(1);
+    expect(pushes.filter((p) => p.includes("'cluster'")).length).toBe(1);
+    expect(pushes.filter((p) => p.includes("'critic'")).length).toBe(1);
+  });
+
+  test("meta.phases 가 실제 phase() 호출과 일치한다", () => {
+    const metaBlock = src.slice(
+      src.indexOf("phases:"),
+      src.indexOf("\n}", src.indexOf("phases:")),
+    );
+    const declaredTitles = [...metaBlock.matchAll(/title:\s*'([^']+)'/g)].map((m) => m[1]);
+    const calledPhases = [...code.matchAll(/\bphase\('([^']+)'\)/g)].map((m) => m[1]);
+    expect(declaredTitles).toEqual(calledPhases);
+  });
+});
+
 describe("워크플로우 산출 형식 왕복", () => {
   const SHA = "a".repeat(64);
   const asWorkflowWrites = {
