@@ -254,6 +254,33 @@ export function overlappingClusters(tasks: ParsedTask[]): FileCluster[] {
 }
 
 /**
+ * 클러스터가 `CLUSTER_WARN_SIZE` 를 넘으면 플랜이 잘못 쪼개졌다는 신호다 —
+ * 하지만 검사기의 일은 검사이지 일을 거부하는 것이 아니다 (DC5). 그래서
+ * `error` 가 아니라 `warn` 을 낸다: `preflightVerdict` 는 `defects` 와
+ * `coverage` 만 보고 `warnings` 를 인자로도 받지 않으므로, 이 경고는 `verdict`
+ * 를 절대 바꾸지 않는다.
+ *
+ * `file` 은 클러스터가 가리키는 실제 소스 파일이 아니라 항상 `"plan.md"` 다.
+ * `Violation.file` 은 닫힌 유니온이고 임의의 소스 경로를 담을 자리가 없다 —
+ * 여기서 새 값을 추가하지 않는다(그러면 계약이 열린 문자열이 되어 이 파일이
+ * 지키는 "닫힌 유니온" 보장이 깨진다). 근본 원인도 사실 plan.md 의 태스크
+ * 분해이지 클러스터가 가리키는 소스 파일 자체가 아니다. 실제 파일 경로와
+ * 태스크 수는 `message` 에 담아 사람이 찾게 한다.
+ */
+export function oversizedClusterWarnings(clusters: FileCluster[]): Violation[] {
+  return clusters
+    .filter((c) => c.task_ids.length > CLUSTER_WARN_SIZE)
+    .map((c) => ({
+      severity: "warn" as const,
+      file: "plan.md" as const,
+      rule: "DC5",
+      message:
+        `파일 \`${c.file}\` 을 태스크 ${c.task_ids.length}개가 쓴다 ` +
+        `(경고선 ${CLUSTER_WARN_SIZE}개 초과) — 플랜을 더 작은 단위로 쪼개는 것을 검토하세요.`,
+    }));
+}
+
+/**
  * 커버리지는 **관계** 단위로 센다. 태스크 단위로 세지 않는다 (설계 D25).
  *
  * 태스크 전부가 어떤 묶음에 한 번씩 들어가도 묶음 간 관계는 하나도 안 봤을 수 있다.
@@ -467,6 +494,13 @@ export interface PreflightResult {
   defects: PreflightDefect[];
   /** 사람이 승인해 반영한 수정. **재검사를 넘어 누적된다** (설계 D29) */
   applied: AppliedEntry[];
+  /**
+   * 판정을 바꾸지 않는 경고 (예: 오버사이즈 클러스터 — DC5). Task 4 는 자리와
+   * 기본값 `[]` 만 보장한다 — `oversizedClusterWarnings` 를 실제로 불러 채우는
+   * 것은 Task 6 이다. `undefined` 도 필드 누락도 아니다: 소비자가 매번
+   * `?? []` 로 방어할 필요가 없어야 한다.
+   */
+  warnings: Violation[];
 }
 
 export interface AssembleInput {
@@ -595,6 +629,9 @@ export function assembleResult(input: AssembleInput): PreflightResult {
     examined,
     defects,
     applied: [...previousApplied],
+    // 클러스터를 아직 넘겨받지 않는다(AssembleInput 에 없다) — 값을 채우는
+    // 것은 Task 6. 여기서는 필드가 항상 존재하고 빈 배열임을 보장한다.
+    warnings: [],
   };
 }
 

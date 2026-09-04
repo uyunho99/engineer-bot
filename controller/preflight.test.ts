@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { parseTasks } from "./contract";
-import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, overlappingClusters, CLUSTER_WARN_SIZE, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, parsePreviousResult, planSha256, concernsUnit, type PreflightRaw, type JudgedUnit } from "./preflight";
+import { buildRelationGraph, danglingRefs, orderViolations, signatureCandidates, stage1Defects, overlappingPairs, overlappingClusters, CLUSTER_WARN_SIZE, oversizedClusterWarnings, relationCoverage, preflightVerdict, checkPreflightRaw, assembleResult, findFixSites, applyPatch, gateDecision, checkPreflightGate, parsePreviousResult, planSha256, concernsUnit, type PreflightRaw, type JudgedUnit } from "./preflight";
 // PreflightRaw 를 함께 import 하라 — 아래 raw() 헬퍼가 그 타입을 쓴다.
 // tsconfig 의 include 가 controller/**/*.ts 이고 noUnusedLocals: true 라
 // 테스트 파일도 타입체크 대상이다 (2026-09-03 봇 지적).
@@ -356,6 +356,70 @@ describe("overlappingClusters", () => {
   });
 });
 
+describe("oversizedClusterWarnings", () => {
+  const clusterOfSize = (n: number, file = "src/big.ts") => ({
+    file,
+    task_ids: Array.from({ length: n }, (_, i) => String(i + 1)),
+  });
+
+  test("태스크 13개가 한 파일을 쓰면 warn 1건", () => {
+    const w = oversizedClusterWarnings([clusterOfSize(13)]);
+    expect(w).toHaveLength(1);
+  });
+
+  test("정확히 12개면 경고가 없다 — 경계값", () => {
+    expect(oversizedClusterWarnings([clusterOfSize(12)])).toEqual([]);
+  });
+
+  test("severity 는 warn 이다 — error 가 아니다 (DC5: 검사기가 일을 거부하지 않는다)", () => {
+    const [w] = oversizedClusterWarnings([clusterOfSize(13)]);
+    expect(w.severity).toBe("warn");
+  });
+
+  test("file 필드가 plan.md 다 — Violation 유니온에 값을 새로 추가하지 않는다", () => {
+    const [w] = oversizedClusterWarnings([clusterOfSize(13, "src/big.ts")]);
+    expect(w.file).toBe("plan.md");
+  });
+
+  test("메시지에 파일 경로와 태스크 수가 들어가고, 다음 행동이 드러난다", () => {
+    const [w] = oversizedClusterWarnings([clusterOfSize(13, "src/big.ts")]);
+    expect(w.message).toContain("src/big.ts");
+    expect(w.message).toContain("13");
+    // 진단(사실)만으로 끝나지 않는다 — checkPreflightGate 의 REDO 패턴과 같은 이유:
+    // 다음 행동이 없으면 사람이 엉뚱한 곳을 고치려 든다.
+    expect(w.message).toMatch(/쪼개|나누/);
+  });
+
+  test("부모 플랜의 최대 클러스터(9)에서는 경고가 없다", () => {
+    const w = oversizedClusterWarnings([clusterOfSize(9, "controller/preflight.ts")]);
+    expect(w).toEqual([]);
+  });
+
+  test("여러 클러스터 중 경고선을 넘는 것만 낸다", () => {
+    const w = oversizedClusterWarnings([clusterOfSize(9), clusterOfSize(13)]);
+    expect(w).toHaveLength(1);
+  });
+
+  test("클러스터가 0개면 빈 배열, 예외 없음", () => {
+    expect(oversizedClusterWarnings([])).toEqual([]);
+  });
+});
+
+describe("경고와 verdict 의 독립성 (DC5)", () => {
+  test("클러스터 경고가 있어도 verdict 는 결함 수로만 정해진다", () => {
+    const bigCluster = {
+      file: "src/big.ts",
+      task_ids: Array.from({ length: 13 }, (_, i) => String(i + 1)),
+    };
+    const warnings = oversizedClusterWarnings([bigCluster]);
+    expect(warnings).toHaveLength(1);
+    // preflightVerdict 는 warnings 를 인자로도 받지 않는다 — 결함(defects)과
+    // coverage 만으로 정해진다. 경고가 존재해도 이 계산에 끼어들 통로가 없다.
+    const coverage = { declared: 0, examined_stage1: 0, examined_stage2: 0, not_examined: [] };
+    expect(preflightVerdict([], coverage)).toBe("CLEAN");
+  });
+});
+
 describe("relationCoverage", () => {
   const g = graphOf(planOf(
     task(1, ["- Produces: `a()`"]),
@@ -660,6 +724,12 @@ describe("assembleResult", () => {
     }) });
     expect(r.relations.not_examined).toEqual(["pair:1x2"]);
     expect(r.verdict).toBe("REJECTED");
+  });
+
+  // Task 4 (Ⓓ 회귀): 값을 채우는 것은 Task 6 이다 — 여기서는 자리와 기본값만 본다.
+  test("warnings 필드가 있고 기본값은 [] 다 — undefined 도 필드 누락도 아니다", () => {
+    const r = assembleResult({ ...base, raw: raw() });
+    expect(r.warnings).toEqual([]);
   });
 });
 
