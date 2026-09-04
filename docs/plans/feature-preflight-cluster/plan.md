@@ -3,11 +3,20 @@
 설계: [design-doc.md](design-doc.md) — 결정 DC1~DC7.
 부모 기능: [feature-plan-preflight](../feature-plan-preflight/design-doc.md) (머지됨, PR #1).
 
-> **이 계획서는 3판이다.** 2판은 재검사에서 결함 5건으로 다시 반송당했다.
-> 그중 2건(`pair:2x5-2` · `pair:2x6-1`)은 **계획서가 아니라 이미 머지된 코드의
-> 결함**을 지목했다 — `checkPreflightRaw` 가 `critic.additional_defects` 를
-> 검증하지 않는데 `assembleResult` 는 그것을 결과에 합쳤다. 그 결함은 별도
-> 커밋으로 고쳤으므로 이 계획서가 다룰 일이 아니다. 나머지 3건은 아래에 반영했다.
+> **이 계획서는 4판이다.**
+>
+> 3판은 빌드 자체는 7/7 완주했지만 **계획서 결함 6건으로 반송당했다**
+> (`build-result.json`). 그중 셋이 무겁다:
+>
+> - **3판 서문이 없는 커밋을 근거로 결함 2건을 각하했다.** 최종 리뷰어가
+>   `git log -S"additional_defects" -- controller/preflight.ts` 로 확인했다 —
+>   각하 근거로 가리킨 커밋은 이 브랜치에 없었다. `fix/d28-raw-write` 에만 있고
+>   합병 시점이 그 커밋보다 앞이었다. **각하를 철회한다.** 지금은 다시 합병해
+>   `checkPreflightRaw` 가 critic 버킷도 검증한다 (검증: `cr.additional_defects.forEach`).
+> - **수용 기준 6을 구현하는 태스크가 없었다** — 아래 Task 8 로 신설한다.
+> - **Task 6 의 `warnings` 지시가 자기 근거보다 넓었다** — 아래에서 좁혔다.
+>
+> 나머지 3건(Task 2 매니페스트 · Task 4 오기 · SKILL.md)도 반영했다.
 >
 > **이 계획서는 2판이다.** 초판을 `/preflight` 에 돌려 결함 9건으로 반송당했고
 > ([preflight-raw.json](preflight-raw.json)), 그 9건을 전부 요건으로 흡수했다.
@@ -79,6 +88,7 @@
 
 **Files:**
 - Modify: `controller/preflight.ts`
+- Modify: `controller/contract.ts`
 - Test: `controller/preflight.test.ts`
 
 **Interfaces:**
@@ -177,7 +187,7 @@
 - [ ] **Step 1: Write the failing test**
 - [ ] **Step 2: Run — RED**
 - [ ] **Step 3: Implement**
-      `PreflightResult` 에 `warnings` 를 더한다. 값을 채우는 것은 Task 7 이다 —
+      `PreflightResult` 에 `warnings` 를 더한다. 값을 채우는 것은 Task 6 이다 —
       여기서는 **자리를 만들고 기본값 `[]` 을 보장**한다.
 - [ ] **Step 4: Run — GREEN**
       `bun run typecheck && bun test` 통과.
@@ -249,7 +259,12 @@
       `parsePreviousResult` 는 `schema`·`applied`·`defects` 세 필드만 보고
       `as PreflightResult` 로 캐스팅하므로, 이 기능 이전에 쓰인 schema 1 파일에는
       `warnings` 가 없는데 스키마 번호는 그대로 `1` 이라 읽는 쪽이 구분할 수 없다.
-      `warnings` 가 배열이 아니면 `[]` 로 채운 뒤 캐스팅한다. 픽스처로 `warnings`
+      **`warnings` 가 없으면 `[]` 로 채운다. 배열이 아니면 `broken` 이다** —
+      두 경우를 한 분기로 뭉개지 마라. 없는 것은 정상적인 구버전 파일이고,
+      타입이 틀린 것은 손상이다. 형제 필드 `applied`·`defects` 가 정확히 그
+      조건에서 `{ status: "broken" }` 을 낸다. 뭉개면 `warnings: "경고 3건"` 인
+      파일이 통과하고 `--apply` 가 `[]` 로 다시 써서 **손상 신호를 지운다** —
+      검증 실패는 BLOCKED 이지 성공이 아니다 (하드룰 #4 · 3판 반송 사유). 픽스처로 `warnings`
       없는 구 파일을 두고 `--apply` 를 돌려 결과에 `[]` 가 채워지는 것을 확인한다
       (2판 반송 사유 `pair:4x6-2`)
 - [ ] **`--plan` 출력에도 `warnings` 가 있다** — `oversizedClusterWarnings` 는
@@ -282,6 +297,7 @@
 
 **Files:**
 - Modify: `workflows/plan-preflight.js`
+- Modify: `.claude/skills/preflight/SKILL.md`
 - Test: `controller/preflight.test.ts`
 
 **Interfaces:**
@@ -300,6 +316,11 @@
 - [ ] 프롬프트가 "순차로 확장한다"는 맥락을 준다 — 짝 프롬프트보다 정보가 많은 것이 DC4 의 근거다
 - [ ] `units_examined` 에 넣는 값이 `{ kind, label }` 객체다 — 세 단계 모두 (DC6)
 - [ ] `meta` 블록의 `phases` 가 실제 `phase()` 호출과 일치한다
+- [ ] **`.claude/skills/preflight/SKILL.md` 의 규모 산식이 "짝" 이 아니라 "클러스터" 를
+      말한다** — 그 줄은 사람이 토큰을 쓰기 전에 규모를 예고하는 데 쓰는 산식이고,
+      이 브랜치가 그 코드 경로를 없앴다. **`39 에이전트` 실측 인용(같은 파일 아래)은
+      건드리지 마라** — 그것은 2026-09-04 자 경고성 기록이고 테스트가 못박고 있다
+      (3판 반송 사유)
 
 **주의 — 이 파일은 기계 검사가 0이다.** tsconfig `include` 밖이고, 파일을 **읽지도 쓰지도**
 못하며(AMENDMENTS B7) 워크플로우 런타임 전역에 의존해 실행할 수 없다. 위 단언은 전부
@@ -311,5 +332,65 @@
 - [ ] **Step 3: Implement**
       짝 팬아웃을 클러스터 팬아웃으로 바꾸고 프롬프트를 DC4 대로 다시 쓴다.
       `examined.push` 세 곳을 전부 객체로 바꾼다 (Candidates · 클러스터 · Critic).
+- [ ] **Step 4: Run — GREEN**
+      `bun run typecheck && bun test && bun run check` 통과.
+
+---
+
+### Task 8: 안 본 단위를 봤다고 주장하지 않는다
+
+**Tags:** verification=deterministic validation=invisible
+
+**Files:**
+- Modify: `controller/preflight.ts`
+- Test: `controller/preflight.test.ts`
+
+**Interfaces:**
+- Consumes: `FileCluster` from Task 1
+- Consumes: `relationCoverage` from Task 5
+- Produces: `assembleResult`
+
+**왜 이 태스크가 필요한가.** `examined[]` 는 `plan.md` 에서 **다시 계산한** 클러스터로
+만들고 `relations.examined_stage2` 는 `raw.stage2.units_examined` 에서 가져오는데,
+**그 둘을 비교하는 곳이 없다.** 그래서 워크플로우가 클러스터 에이전트를 하나도 띄우지
+못하면(핸드오프에서 `args.clusters` 유실, raw 파일 절단 — 에이전트가 "던지지" 않는
+모든 경우) `failed` 가 비고 `not_examined` 가 비어서 이런 보고가 나온다:
+
+```
+verdict         : CLEAN
+examined_stage2 : 0                                       ← 아무것도 안 봤다
+not_examined    : []                                      ← 실패한 것도 없다
+examined[]      : [{ cluster, "preflight.ts", "clean" }]   ← 봤다고 주장
+```
+
+실측했다 (3판 빌드 후). **설계 §7.4 가 "이 기능의 최악 실패" 라고 부른 것이다** —
+사람이 고른 "자세히" 옵션(부모 D9)이 정확히 거짓말을 하는 자리다.
+
+3판은 이 상태를 **테스트로 못박고 있었다** (`units_examined: []` + 클러스터 1개에서
+exit 0 과 cluster 행을 함께 단언). 그 테스트를 뒤집는 것이 이 태스크의 일부다.
+
+**테스트로 증명할 것:**
+- [ ] `units_examined` 의 클러스터 수가 `clusters.length` 보다 **적으면** 그 차이가
+      `not_examined` 에 들어간다 — `preflight-cli.ts` 의 기존 분기가 그것을 BLOCKED
+      (exit 4)로 라우팅한다. 자유 텍스트 파싱이 필요 없다
+- [ ] 클러스터 1개 · `units_examined: []` → `verdict` 가 `CLEAN` 이 **아니다**
+      (3판이 못박았던 상태를 뒤집는다)
+- [ ] 개수가 같으면 `not_examined` 에 아무것도 추가하지 않는다 — 정상 경로를 벌하지 않는다
+- [ ] `units_examined` 가 `clusters.length` 보다 **많으면** 그것도 `not_examined` 에
+      기록한다 — 있을 수 없는 상태이므로 조용히 넘기지 않는다
+- [ ] `failed` 로 들어온 항목과 개수 불일치가 **함께** 있으면 둘 다 `not_examined` 에 남는다
+- [ ] 클러스터가 0개면 불일치가 없다 — `examined_stage2` 도 0 이어야 정상이다
+- [ ] `examined[]` 의 행 수는 여전히 클러스터 수다 — 이 태스크는 **판정**을 고치고
+      `examined[]` 의 구성은 건드리지 않는다
+
+- [ ] **Step 1: Write the failing test**
+      3판이 못박은 `--record` spawn 케이스를 찾아 기대를 뒤집는다. **지우지 말고 고쳐라** —
+      그 테스트가 관찰하려던 것(클러스터 행이 생긴다)은 여전히 유효하다.
+- [ ] **Step 2: Run — RED**
+- [ ] **Step 3: Implement**
+      `assembleResult` 에서 순수 개수 비교를 한다. 라벨 대조는 하지 마라 —
+      워크플로우는 단위를 `cluster:${c.file}` 로 라벨링하고 `ExaminedUnit.label` 은
+      맨 `c.file` 이라 접두사가 다르다. **그 접두사를 떼는 것은 이 태스크의 범위가
+      아니다** (DC6 이 없애려던 자유 텍스트 접두사 모양이므로 별도로 다룬다).
 - [ ] **Step 4: Run — GREEN**
       `bun run typecheck && bun test && bun run check` 통과.
