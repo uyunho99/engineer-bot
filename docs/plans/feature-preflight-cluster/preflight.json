@@ -1,13 +1,13 @@
 {
   "schema": 1,
   "branch": "feature/preflight-cluster",
-  "plan_sha256": "07f7f0e30115874ffb6763e75d5f8c78aee67090956c24b83a6623b3721d0448",
+  "plan_sha256": "5ca1c683980b19787fe0f6c6148a186d8495f9e4ddde89708f0824c446b76926",
   "scope": "interface-graph+file-overlap",
   "verdict": "REJECTED",
   "relations": {
-    "declared": 13,
-    "examined_stage1": 13,
-    "examined_stage2": 16,
+    "declared": 15,
+    "examined_stage1": 15,
+    "examined_stage2": 1,
     "not_examined": []
   },
   "examined": [
@@ -33,7 +33,7 @@
       "task_ids": [
         "2"
       ],
-      "result": "defect"
+      "result": "clean"
     },
     {
       "kind": "relation",
@@ -51,7 +51,7 @@
         "2",
         "3"
       ],
-      "result": "defect"
+      "result": "clean"
     },
     {
       "kind": "relation",
@@ -96,7 +96,7 @@
         "4",
         "6"
       ],
-      "result": "defect"
+      "result": "clean"
     },
     {
       "kind": "relation",
@@ -126,232 +126,66 @@
       "result": "clean"
     },
     {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
+      "kind": "relation",
+      "label": "FileCluster (Task 1 → Task 8)",
       "task_ids": [
         "1",
-        "2"
+        "8"
       ],
       "result": "clean"
     },
     {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
-      "task_ids": [
-        "1",
-        "3"
-      ],
-      "result": "clean"
-    },
-    {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
-      "task_ids": [
-        "1",
-        "4"
-      ],
-      "result": "clean"
-    },
-    {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
-      "task_ids": [
-        "1",
-        "5"
-      ],
-      "result": "clean"
-    },
-    {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
-      "task_ids": [
-        "1",
-        "6"
-      ],
-      "result": "clean"
-    },
-    {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
-      "task_ids": [
-        "2",
-        "3"
-      ],
-      "result": "defect"
-    },
-    {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
-      "task_ids": [
-        "2",
-        "4"
-      ],
-      "result": "clean"
-    },
-    {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
-      "task_ids": [
-        "2",
-        "5"
-      ],
-      "result": "defect"
-    },
-    {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
-      "task_ids": [
-        "2",
-        "6"
-      ],
-      "result": "defect"
-    },
-    {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
-      "task_ids": [
-        "3",
-        "4"
-      ],
-      "result": "clean"
-    },
-    {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
-      "task_ids": [
-        "3",
-        "5"
-      ],
-      "result": "clean"
-    },
-    {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
-      "task_ids": [
-        "3",
-        "6"
-      ],
-      "result": "clean"
-    },
-    {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
-      "task_ids": [
-        "4",
-        "5"
-      ],
-      "result": "clean"
-    },
-    {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
-      "task_ids": [
-        "4",
-        "6"
-      ],
-      "result": "defect"
-    },
-    {
-      "kind": "pair",
-      "label": "controller/preflight.ts",
+      "kind": "relation",
+      "label": "relationCoverage (Task 5 → Task 8)",
       "task_ids": [
         "5",
-        "6"
+        "8"
       ],
       "result": "clean"
+    },
+    {
+      "kind": "cluster",
+      "label": "controller/preflight.ts",
+      "task_ids": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "8"
+      ],
+      "result": "defect"
     }
   ],
   "defects": [
     {
-      "id": "pair:2x3-4",
+      "id": "cluster:controller/preflight.ts-1",
       "kind": "undeclared_conflict",
-      "task_ids": [
-        "2",
-        "3"
-      ],
-      "relation": "PreflightDefect.file (빈 문자열)",
-      "plan_text": "Task 2 — `file` 이 없는 결함도 통과한다 — 옵셔널이므로 하위 호환이다 (DC3) / Task 3 — `kind: \"cluster\"` — 결함에 `file` 이 없으면 거르지 않는다. 과다 표시 쪽으로 안전하게 둔다",
-      "conflict": "`file: \"\"` 이 두 태스크 사이의 정의 공백에 빠진다. Task 2 의 증명 목록은 '문자열이 아니면 거부'뿐이라 빈 문자열을 명시적으로 허용한다 — 같은 함수가 `id` 는 `!o.id` 로, `patch.anchor` 는 `!p.anchor.trim()` 으로 빈 값을 거부하는 것과 대조된다. Task 3 은 `file` 이 **없는** 경우만 규정했고 빈 문자열은 규정하지 않았다. 그래서 구현이 `if (d.file && d.file !== unit.file)` 이면 `\"\"` 는 falsy 라 '없음'으로 취급돼 모든 클러스터를 오염시키고(과다 표시), `if (d.file !== undefined && d.file !== unit.file)` 이면 '있음'으로 취급돼 어느 클러스터와도 일치하지 않아 그 결함이 모든 클러스터에서 사라진다(거짓 음성). 두 구현 다 Task 2·Task 3 의 증명 목록을 전부 만족시키므로 어느 쪽이 나와도 테스트가 GREEN 이고, 안전 방향이 정반대로 갈린다.",
       "stage": 2,
+      "file": "controller/preflight.ts",
+      "task_ids": [
+        "6",
+        "8"
+      ],
+      "relation": "assembleResult",
+      "plan_text": "Task 6 증명 목록: \"- [ ] 결함 0건이면 `verdict` 가 `\\\"CLEAN\\\"` — 클러스터화가 판정 규칙을 바꾸지 않는다\"  ·  Task 8 증명 목록: \"- [ ] 클러스터 1개 · `units_examined: []` → `verdict` 가 `CLEAN` 이 **아니다** (3판이 못박았던 상태를 뒤집는다)\"",
+      "conflict": "두 태스크가 같은 함수 `assembleResult` 를 Produces 로 선언하는데(플랜 245행·351행), Task 8 의 **Interfaces:** 는 Task 1·Task 5 만 Consumes 로 적고 **Task 6 을 전혀 언급하지 않는다**. 그런데 두 태스크의 증명 목록이 같은 입력에 정반대 답을 요구한다.\n\nTask 6 은 `raw.stage2.units_examined` 에 아무 제약을 걸지 않은 채 \"클러스터가 있고 결함 0건이면 verdict 가 CLEAN\" 을 못박는다. Task 6 의 픽스처는 `units_examined` 를 채울 이유가 없으므로 자연히 `units_examined: []` 이 된다 (3판 산출 `controller/preflight.test.ts:1571-1578` 의 `raw6()` 헬퍼가 정확히 그 모양이다: `stage2: { units_examined: [], units_failed: [], defects: [] }`, 그 위에 `clusters: [{ file: \"src/a.ts\", task_ids: [\"1\",\"2\"] }]`). 그 상태가 Task 8 이 `not_examined` 에 불일치를 기록해 `preflightVerdict` 로 REJECTED 를 내라고 요구하는 상태와 **글자 그대로 같다** — 클러스터 1개, `units_examined` 의 cluster 원소 0개.\n\nTask 8 의 Step 1 은 \"3판이 못박은 `--record` spawn 케이스를 찾아 기대를 뒤집는다\" 만 지시한다. spawn 케이스가 아닌 Task 6 의 순수 함수 단언 3건(`2단계 항목의 kind 가 'cluster' 다`, `결함 0건이면 verdict 가 CLEAN`, `warnings 를 oversizedClusterWarnings 결과로 채운다` — 후자는 `expect(r.verdict).toBe(\"CLEAN\")` 을 함께 단언한다)은 시야에 없다. Task 8 을 구현한 서브에이전트는 Task 6 이 무엇을 못박았는지 알 수 없고, Task 6 을 구현한 서브에이전트는 픽스처의 `units_examined` 를 클러스터마다 하나씩 채워야 한다는 것을 알 수 없다 — 어느 태스크도 다른 쪽을 선언하지 않았으므로 조정 지점이 플랜에 없다.\n\n결과는 둘 중 하나다. (a) Task 8 이 Task 6 의 단언을 그대로 두면 `bun test` 가 깨지고 Step 4 GREEN 이 불가능하다. (b) Task 8 의 서브에이전트가 Task 6 의 단언을 \"뒤집을 대상\"으로 오인해 `결함 0건이면 verdict 가 CLEAN` 을 REJECTED 기대로 고치면, **Task 6 이 요건으로 명시한 \"클러스터화가 판정 규칙을 바꾸지 않는다\" 회귀 가드가 사라진다** — 하드룰 #2 아래서 어느 쪽도 현장 판단으로 고를 문제가 아니다.",
       "patch": {
         "op": "insert_after",
-        "task_id": "2",
-        "anchor": "- [ ] `file` 이 문자열이 아니면 거부한다",
-        "text": "- [ ] `file` 이 빈 문자열이면 거부한다 — `id` 를 `!o.id` 로, `patch.anchor` 를 `!p.anchor.trim()` 으로 거르는 것과 같은 방향이다. 이 규칙이 있으면 `checkDefectShape` 를 통과한 결함의 `file` 은 `undefined` 이거나 비어있지 않은 문자열만 가질 수 있다 — 그 결과 Task 3 의 `concernsUnit` 을 `if (d.file && d.file !== unit.file)` 로 구현하든 `if (d.file !== undefined && d.file !== unit.file)` 로 구현하든 입력 공간에 `\"\"` 가 존재하지 않으므로 두 구현이 동일하게 동작한다. 두 태스크 사이의 정의 공백은 여기서 닫힌다."
-      }
-    },
-    {
-      "id": "pair:2x5-2",
-      "kind": "undeclared_conflict",
-      "task_ids": [
-        "2",
-        "5"
-      ],
-      "stage": 2,
-      "relation": "critic.additional_defects 의 file 계약",
-      "plan_text": "Task 2: \"- [ ] `file` 이 문자열이 아니면 거부한다\"  /  Task 5: \"- Produces: `interface ExaminedRawUnit { kind: \\\"signature\\\" | \\\"cluster\\\" | \\\"critic\\\"; label: string }`\"",
-      "conflict": "Task 2 는 `file` 이 문자열이 아니면 거부한다는 보장을 `checkDefectShape` 에 건다. 그러나 `checkPreflightRaw` 는 그 검사기를 `stage1.defects` 와 `stage2.defects` 에만 돌린다 (controller/preflight.ts:375, 382). `critic.additional_defects` 는 검증을 통과하지 않고 `assembleResult` 에서 곧장 `defects` 로 합쳐진다 (controller/preflight.ts:455-462). Task 5 는 바로 그 critic 을 `ExaminedRawUnit.kind` 의 정식 값으로 승격시키면서 그 단위가 낸 결함의 형태 검증에는 손대지 않는다. 즉 Task 5 는 critic 을 '검사 단위'로 **등록**하고 Task 2 는 그 단위의 산출을 **검증 대상에서 뺀 채** file 보장을 선언한다. 구체 실패: 완결성 검사관이 `file: 42` 또는 경로가 아닌 `file: \"preflight.ts\"` 를 담은 undeclared_conflict 를 내면 raw 검증을 통과하고, Task 3 의 `file` 필터가 어느 클러스터와도 매치되지 않아 `examined[]` 전 항목이 `\"clean\"` 인데 `verdict` 는 `REJECTED` 인 자기모순 보고서가 나온다 — 사람은 어느 단위가 문제인지 찾을 수 없다.",
-      "patch": {
-        "op": "insert_after",
-        "task_id": "5",
-        "anchor": "- [ ] `units_failed` 의 라벨이 `not_examined` 에 그대로 들어간다 — 기존 실패 경로 보존",
-        "text": "- [ ] **`critic.additional_defects` 의 원소도 `checkDefectShape` 를 통과해야 한다** —\n      `checkPreflightRaw` 가 `stage1.defects`/`stage2.defects` 와 동일하게\n      `critic?.additional_defects` 를 순회하며 형태를 검증한다 (Ⓕ 회귀 — 2판에서 새로\n      드러난 결함: 완결성 검사관이 낸 `undeclared_conflict` 가 `file: 42` 나 존재하지\n      않는 경로명을 담아도 raw 검증을 그냥 통과했다). Task 2 가 `checkDefectShape` 에\n      건 `file` 보장은 호출자가 실제로 그 검사기에 물려야만 의미가 있다 — critic 을\n      `ExaminedRawUnit.kind` 의 정식값으로 승격시키는 바로 이 태스크에서 그 검증 공백을\n      닫는다. Interfaces 에 `- Consumes: checkDefectShape from Task 2` 를 추가한다.\n- [ ] critic 결함이 형태 위반이면 `checkPreflightRaw` 가 `ok: false` 를 반환한다 —\n      `assembleResult` 가 검증을 통과하지 않은 `critic.additional_defects` 를 그대로\n      `defects` 에 합치는 일이 없다는 뜻이다"
-      }
-    },
-    {
-      "id": "pair:2x6-1",
-      "kind": "undeclared_conflict",
-      "task_ids": [
-        "2",
-        "6"
-      ],
-      "stage": 2,
-      "relation": "controller/preflight.ts — PreflightDefect.file / assembleResult",
-      "plan_text": "Task 2 Step 3: \"`PreflightDefect` 에 `file?: string` 을 더하고 `checkDefectShape` 가 그 타입을 본다.\" · Task 2 테스트: \"`file` 이 문자열이 아니면 거부한다\" / Task 6 Produces: `assembleResult`",
-      "conflict": "Task 2 가 세우는 \"`file` 은 문자열이거나 없다\" 불변식이, Task 6 이 소비하는 경로에서는 성립하지 않는다. `checkPreflightRaw`(controller/preflight.ts:370-382)는 `stage1.defects` 와 `stage2.defects` 에만 `checkDefectShape` 를 돌리고 `raw.critic.additional_defects` 에는 **한 번도 돌리지 않는다**. 그런데 `assembleResult` 는 `const all = [...raw.stage1.defects, ...raw.stage2.defects, ...(raw.critic?.additional_defects ?? [])]` 로 critic 버킷을 그대로 결함 목록에 합친다. 즉 완결성 검사관이 `file: 123` 이나 `file: [\"a\",\"b\"]` 같은 값을 내면 Task 2 의 거부 규칙을 통과하지 못한 채 `defects` 에 들어가고, Task 3 의 클러스터 필터가 `unit.file !== d.file` 로 비교하면 어떤 클러스터와도 같지 않으므로 **그 결함이 모든 클러스터에서 걸러진다** — 진짜 결함이 전 클러스터 `clean` 으로 기록되는 거짓 음성이다. Task 2 는 검증 범위를, Task 6 은 소비 범위를 각각 정의하는데 두 범위가 어긋나고, 어느 쪽 **Interfaces:** 에도 상대가 없다.",
-      "patch": {
-        "op": "insert_after",
-        "task_id": "6",
-        "anchor": "- [ ] `--record` 가 쓴 `preflight.json` 에 `warnings` 배열이 있다",
-        "text": "- [ ] **`raw.critic?.additional_defects` 의 결함도 `checkDefectShape` 를 통과해야 `defects` 에 들어간다** — Task 2 가 세운 `file: string | undefined` 불변식은 `stage1`·`stage2` 뿐 아니라 critic 버킷에도 적용된다. 지금은 `checkPreflightRaw`(controller/preflight.ts:370-382) 가 `stage1.defects`·`stage2.defects` 에만 `checkDefectShape` 를 돌리고 critic 버킷은 검사 없이 통과시켜, `assembleResult` 의 `const all = [...raw.stage1.defects, ...raw.stage2.defects, ...(raw.critic?.additional_defects ?? [])]` 가 그 결함을 그대로 병합한다 — `file` 이 문자열도 `undefined` 도 아닌 critic 결함이 들어오면 Task 3 의 `unit.file !== d.file` 비교가 어떤 클러스터와도 같지 않아 전 클러스터가 `clean` 으로 거짓 판정된다(거짓 음성). `checkPreflightRaw` 가 critic 버킷에도 `checkDefectShape` 를 돌리도록 고치고, 형태가 나쁜 critic 결함은 `assembleResult` 가 병합하기 전에 BLOCKED 로 거부한다 — 파싱 실패를 CLEAN 으로 흘리지 않는다(하드룰 #4). Interfaces 에 `Consumes: checkDefectShape from Task 2` 를 추가한다."
-      }
-    },
-    {
-      "id": "pair:4x6-2",
-      "kind": "undeclared_conflict",
-      "task_ids": [
-        "4",
-        "6"
-      ],
-      "relation": "PreflightResult (preflight.json 왕복)",
-      "plan_text": "Task 4 테스트: \"**경고가 없으면 `warnings` 가 `[]` 다** — `undefined` 도 필드 누락도 아니다\"  /  Task 6 테스트: \"`--record` 가 쓴 `preflight.json` 에 `warnings` 배열이 있다\"",
-      "conflict": "Task 4 는 `PreflightResult` 에 **필드 누락이 없는** 필수 `warnings` 를 세우지만, 그 불변식을 깨는 쓰기 경로가 Task 6 만 만질 수 있는 `controller/preflight-cli.ts` 안에 있고 Task 6 은 `--record` 경로만 요건으로 잡는다. `--apply` 는 `writeFileSync(p.preflight, JSON.stringify({ ...previous, applied }, null, 2))` 로 preflight.json 을 다시 쓴다. `previous` 는 `parsePreviousResult` 가 `schema`·`applied`·`defects` 세 가지만 보고 `parsed as PreflightResult` 로 캐스팅한 값이다 — 이 기능 이전에 쓰인 schema 1 파일에는 `warnings` 가 없고 스키마 번호는 여전히 `1` 이라 읽는 쪽이 두 형식을 구분할 수 없다. 결과적으로 `--apply` 는 `warnings` 가 통째로 빠진 `PreflightResult` 를 디스크에 쓰고 타입은 있다고 주장한다. Task 4 는 `preflight-cli.ts` 가 **Files:** 에 없어 스스로 막을 수 없고, Task 6 은 이 경로를 요건으로 들고 있지 않다.",
-      "stage": 2,
-      "patch": {
-        "op": "insert_after",
-        "task_id": "6",
-        "anchor": "- [ ] `--record` 가 쓴 `preflight.json` 에 `warnings` 배열이 있다",
-        "text": "- [ ] **`--apply` 가 다시 쓰는 `preflight.json` 도 `PreflightResult` 불변식을 지킨다 — `warnings` 배열이 항상 존재한다** (Ⓕ 회귀 — Task 4 가 세운 \"필드 누락 없음\" 불변식을 `--apply` 경로가 깨서는 안 된다). `parsePreviousResult` 는 `schema`·`applied`·`defects` 세 필드만 보고 `parsed as PreflightResult` 로 캐스팅하던 것을 멈춘다: `warnings` 가 `Violation[]` 이 아니면(스키마 번호가 그대로인 구 schema 1 파일 포함) `[]` 로 채워 넣은 뒤에 캐스팅한다. `writeFileSync(p.preflight, JSON.stringify({ ...previous, applied }, null, 2))` 가 실행되는 시점에는 `previous.warnings` 가 항상 배열이어야 한다 — 픽스처로 `warnings` 필드가 없는 구 schema 1 `preflight.json` 을 두고 `--apply` 를 돌려, 결과 파일의 `warnings` 가 `[]` 로 채워짐을 확인한다"
-      }
-    },
-    {
-      "id": "pair:4x6-3",
-      "kind": "undeclared_conflict",
-      "task_ids": [
-        "4",
-        "6"
-      ],
-      "relation": "oversizedClusterWarnings → 사람이 읽는 출력",
-      "plan_text": "Task 4 테스트: \"메시지에 파일 경로와 태스크 수가 들어가고, 다음 행동이 드러난다\" · \"`severity` 가 `\"warn\"` 이다. `\"error\"` 가 아니다 (DC5)\"  /  Task 6 테스트: \"**`--plan` 출력에 `clusters` 가 있고 `pairs` 가 없다**\" · \"`--record` 가 쓴 `preflight.json` 에 `warnings` 배열이 있다\"",
-      "conflict": "Task 4 의 경고는 사람이 읽고 다음 행동을 하라고 만든 문자열인데, 사람에게 닿는 출력 경로를 가진 유일한 태스크인 Task 6 은 그것을 어디에도 내보내지 않는다. `--record` 의 콘솔 줄은 `${verdict} — 결함 N건 · 관계 M개 검사` 하나뿐이고 경고 수를 찍지 않는다. `--plan` JSON 은 워크플로우가 팬아웃 직전에 읽는 유일한 지점인데 Task 6 은 여기에 `clusters` 만 넣고 경고는 넣지 않는다. 그래서 12개 초과 클러스터 경고는 팬아웃이 이미 끝난 뒤 `--record` 시점에 계산되어 preflight.json 안에만 남고, 그 파일을 읽는 코드(`gateDecision`·`checkPreflightGate`·`--apply`)는 `warnings` 를 보지 않는다. `severity: \"warn\"` 이라 종료 코드도 바뀌지 않으므로 경고의 관측 가능한 효과가 0이다 — Task 4 가 요구한 \"다음 행동이 드러난다\" 가 두 태스크를 합쳐도 성립하지 않는다.",
-      "stage": 2,
-      "patch": {
-        "op": "insert_after",
-        "task_id": "6",
-        "anchor": "- [ ] `--record` 가 쓴 `preflight.json` 에 `warnings` 배열이 있다",
-        "text": "- [ ] **`--plan` 출력에도 `warnings` 가 있다** — `oversizedClusterWarnings` 는 클러스터만으로\n      계산되므로 팬아웃 전에도 낼 수 있다. 여기서 안 내면 12개 초과 클러스터 경고는\n      팬아웃이 이미 끝난 뒤 `--record` 시점에야 계산되어 `preflight.json` 안에만 남는다\n      (본 결함 — Task 4 의 경고가 관측 가능한 효과를 하나도 못 낸다)\n- [ ] **`--record` 콘솔 줄이 경고 건수를 찍는다** — `warn` 이 있으면\n      `${verdict} — 결함 N건 · 관계 M개 검사 · 경고 K건`, 없으면 `· 경고 K건` 을 붙이지\n      않는다 (0건을 억지로 찍지 않는다 — 기존 포맷과 그대로 호환)\n- [ ] **경고가 있으면 각 경고의 `message` 가 `--plan`·`--record` 콘솔에 한 줄씩 찍힌다**\n      (`console.error` 로). `severity: \"warn\"` 은 종료 코드를 바꾸지 않는다는 DC5 는\n      그대로 유지한다 — `gateDecision`·`checkPreflightGate`·`--apply` 는 여전히\n      `warnings` 를 읽지 않아도 된다 (두 게이트가 보는 것은 `error` 뿐이다). 경고가\n      사람에게 닿는 유일한 경로는 이 콘솔 출력이다 — Task 4 가 요구한 \"다음 행동이\n      드러난다\"는 이 줄이 없으면 두 태스크를 합쳐도 성립하지 않는다"
+        "task_id": "8",
+        "anchor": "- Produces: `assembleResult`",
+        "text": "- Consumes: `assembleResult` from Task 6\n\n**Task 6과 같은 입력에 정반대 답을 요구하는 충돌 — 조정 지점을 여기 못박는다.**\nTask 6(245행)이 `assembleResult`를 이미 Produces로 선언했고, 이 태스크는 신규 함수가\n아니라 **그 함수를 이어받아 고친다.** 그런데 Task 6의 순수 함수 테스트들 — 249행\n(`examined[]`의 2단계 항목이 `kind: \"cluster\"`다), 253행(결함 0건이면 `verdict`가\n`CLEAN`), 254행(`assembleResult`가 `warnings`를 채운다 — 이 단언도 결함 0건 픽스처를\n써서 함께 `verdict === \"CLEAN\"`을 검증한다) — 은 전부 `raw.stage2.units_examined`에\n아무 제약을 걸지 않는다. 그 픽스처들을 그대로 두면 `units_examined`는 자연히 `[]`가\n되고(3판 `raw6()` 헬퍼가 정확히 그 모양이었다), 클러스터 1개 · `units_examined: []`\n· 결함 0건이라는 입력이 남는다 — 이것은 바로 위 \"클러스터 1개 · `units_examined: []`\n→ `verdict`가 `CLEAN`이 **아니다**\" 단언과 **글자 그대로 같은 입력**이다.\n\nStep 1에서 3판이 못박은 `--record` spawn 케이스의 기대를 뒤집는 것만으로는 이 충돌이\n해소되지 않는다 — 그 케이스는 spawn 경로고, 위 세 단언은 순수 함수 경로다. **이 태스크는\nTask 6이 쓴 그 세 픽스처도 함께 고쳐야 한다**: `units_examined`에 클러스터마다 하나씩\n`{ kind: \"cluster\", label: <그 클러스터의 file> }`를 채워 원소 수를 `clusters.length`와\n맞춘다. `units_examined`를 비워둔 채로 Task 6의 \"결함 0건이면 CLEAN\" 기대 쪽을 뒤집어\nREJECTED로 바꾸는 것은 금지한다 — 그러면 Task 6이 요건으로 못박은 \"클러스터화가 판정\n규칙을 바꾸지 않는다\" 회귀 가드가 사라진다. 픽스처를 채우는 쪽으로 고치면 Task 6의\n회귀(\"결함 없음 + 커버리지 일치 → CLEAN\")와 Task 8의 회귀(\"커버리지 불일치 → CLEAN\n아님\")가 서로 다른 입력에서 각자 성립해 둘 다 살아남는다."
       }
     }
   ],
-  "applied": []
+  "applied": [
+    {
+      "defect_id": "cluster:controller/preflight.ts-1",
+      "at": "2026-09-04T09:48:44.622Z",
+      "sha256_before": "5ca1c683980b19787fe0f6c6148a186d8495f9e4ddde89708f0824c446b76926",
+      "sha256_after": "a014f384526426ca86bcd2af3db4ed6eadd1535207d46312390bb7f64f9f7ff1"
+    }
+  ],
+  "warnings": []
 }

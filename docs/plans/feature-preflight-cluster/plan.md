@@ -349,6 +349,28 @@
 - Consumes: `FileCluster` from Task 1
 - Consumes: `relationCoverage` from Task 5
 - Produces: `assembleResult`
+- Consumes: `assembleResult` from Task 6
+
+**Task 6과 같은 입력에 정반대 답을 요구하는 충돌 — 조정 지점을 여기 못박는다.**
+Task 6(245행)이 `assembleResult`를 이미 Produces로 선언했고, 이 태스크는 신규 함수가
+아니라 **그 함수를 이어받아 고친다.** 그런데 Task 6의 순수 함수 테스트들 — 249행
+(`examined[]`의 2단계 항목이 `kind: "cluster"`다), 253행(결함 0건이면 `verdict`가
+`CLEAN`), 254행(`assembleResult`가 `warnings`를 채운다 — 이 단언도 결함 0건 픽스처를
+써서 함께 `verdict === "CLEAN"`을 검증한다) — 은 전부 `raw.stage2.units_examined`에
+아무 제약을 걸지 않는다. 그 픽스처들을 그대로 두면 `units_examined`는 자연히 `[]`가
+되고(3판 `raw6()` 헬퍼가 정확히 그 모양이었다), 클러스터 1개 · `units_examined: []`
+· 결함 0건이라는 입력이 남는다 — 이것은 바로 위 "클러스터 1개 · `units_examined: []`
+→ `verdict`가 `CLEAN`이 **아니다**" 단언과 **글자 그대로 같은 입력**이다.
+
+Step 1에서 3판이 못박은 `--record` spawn 케이스의 기대를 뒤집는 것만으로는 이 충돌이
+해소되지 않는다 — 그 케이스는 spawn 경로고, 위 세 단언은 순수 함수 경로다. **이 태스크는
+Task 6이 쓴 그 세 픽스처도 함께 고쳐야 한다**: `units_examined`에 클러스터마다 하나씩
+`{ kind: "cluster", label: <그 클러스터의 file> }`를 채워 원소 수를 `clusters.length`와
+맞춘다. `units_examined`를 비워둔 채로 Task 6의 "결함 0건이면 CLEAN" 기대 쪽을 뒤집어
+REJECTED로 바꾸는 것은 금지한다 — 그러면 Task 6이 요건으로 못박은 "클러스터화가 판정
+규칙을 바꾸지 않는다" 회귀 가드가 사라진다. 픽스처를 채우는 쪽으로 고치면 Task 6의
+회귀("결함 없음 + 커버리지 일치 → CLEAN")와 Task 8의 회귀("커버리지 불일치 → CLEAN
+아님")가 서로 다른 입력에서 각자 성립해 둘 다 살아남는다.
 
 **왜 이 태스크가 필요한가.** `examined[]` 는 `plan.md` 에서 **다시 계산한** 클러스터로
 만들고 `relations.examined_stage2` 는 `raw.stage2.units_examined` 에서 가져오는데,
