@@ -917,6 +917,31 @@ describe("훅과 스킬 배선 (Task 13)", () => {
     expect(md).toContain("39");
   });
 
+  /**
+   * 2026-09-04 실측 결함의 회귀 가드 — **가장 비쌌던 거짓 안심.**
+   *
+   * 사용량 한도로 Verify 단계 에이전트 15개가 실패했다. 옛 코드는
+   * `.catch(() => null)` 로 그 결함들을 **버리면서 failed 에 기록도 하지 않았다.**
+   * 결과: 발견 44건 · 보고 1건 · units_failed 는 `[]`. 완결성 검사관이 낸 5건이
+   * 통째로 사라졌고, 보고서는 "전부 정상 검사됨"이라고 말했다.
+   *
+   * 프롬프트의 "불확실하면 refuted=true" 는 **모델의 판단**에 대한 정책이다.
+   * 에이전트가 아예 돌지 않은 것은 판단이 없는 것이므로 같이 취급하면 안 된다.
+   */
+  test("Verify·Fix 실패가 조용히 버려지지 않는다 (2026-09-04 회귀)", () => {
+    const js = readFileSync("workflows/plan-preflight.js", "utf8");
+    // 결함을 null 로 만들어 버리는 catch 가 없어야 한다.
+    expect(js).not.toMatch(/refuted \? d : null\)\)\.catch\(\(\) => null\)/);
+    // 두 단계 모두 실패를 기록해야 한다.
+    expect(js).toMatch(/failed\.push\(`verify:\$\{d\.id\}`\)/);
+    expect(js).toMatch(/failed\.push\(`fix:\$\{d\.id\}`\)/);
+  });
+
+  test("검사 단위가 실패하면 판정이 CLEAN 이 될 수 없다", () => {
+    const cov = { declared: 3, examined_stage1: 3, examined_stage2: 1, not_examined: ["verify:x-1"] };
+    expect(preflightVerdict([], cov)).toBe("REJECTED");
+  });
+
   test("스킬이 BLOCKED(exit 4)를 REJECTED(exit 1)와 구분한다 — 하드룰 #4", () => {
     const md = readFileSync(".claude/skills/preflight/SKILL.md", "utf8");
     expect(md).toContain("exit 4");
