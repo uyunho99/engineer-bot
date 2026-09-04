@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "plan_sha256": "5ca1c683980b19787fe0f6c6148a186d8495f9e4ddde89708f0824c446b76926",
+  "plan_sha256": "a014f384526426ca86bcd2af3db4ed6eadd1535207d46312390bb7f64f9f7ff1",
   "stage1": {
-    "relations_declared": 15,
+    "relations_declared": 16,
     "defects": []
   },
   "stage2": {
@@ -17,27 +17,7 @@
       }
     ],
     "units_failed": [],
-    "defects": [
-      {
-        "id": "cluster:controller/preflight.ts-1",
-        "kind": "undeclared_conflict",
-        "stage": 2,
-        "file": "controller/preflight.ts",
-        "task_ids": [
-          "6",
-          "8"
-        ],
-        "relation": "assembleResult",
-        "plan_text": "Task 6 증명 목록: \"- [ ] 결함 0건이면 `verdict` 가 `\\\"CLEAN\\\"` — 클러스터화가 판정 규칙을 바꾸지 않는다\"  ·  Task 8 증명 목록: \"- [ ] 클러스터 1개 · `units_examined: []` → `verdict` 가 `CLEAN` 이 **아니다** (3판이 못박았던 상태를 뒤집는다)\"",
-        "conflict": "두 태스크가 같은 함수 `assembleResult` 를 Produces 로 선언하는데(플랜 245행·351행), Task 8 의 **Interfaces:** 는 Task 1·Task 5 만 Consumes 로 적고 **Task 6 을 전혀 언급하지 않는다**. 그런데 두 태스크의 증명 목록이 같은 입력에 정반대 답을 요구한다.\n\nTask 6 은 `raw.stage2.units_examined` 에 아무 제약을 걸지 않은 채 \"클러스터가 있고 결함 0건이면 verdict 가 CLEAN\" 을 못박는다. Task 6 의 픽스처는 `units_examined` 를 채울 이유가 없으므로 자연히 `units_examined: []` 이 된다 (3판 산출 `controller/preflight.test.ts:1571-1578` 의 `raw6()` 헬퍼가 정확히 그 모양이다: `stage2: { units_examined: [], units_failed: [], defects: [] }`, 그 위에 `clusters: [{ file: \"src/a.ts\", task_ids: [\"1\",\"2\"] }]`). 그 상태가 Task 8 이 `not_examined` 에 불일치를 기록해 `preflightVerdict` 로 REJECTED 를 내라고 요구하는 상태와 **글자 그대로 같다** — 클러스터 1개, `units_examined` 의 cluster 원소 0개.\n\nTask 8 의 Step 1 은 \"3판이 못박은 `--record` spawn 케이스를 찾아 기대를 뒤집는다\" 만 지시한다. spawn 케이스가 아닌 Task 6 의 순수 함수 단언 3건(`2단계 항목의 kind 가 'cluster' 다`, `결함 0건이면 verdict 가 CLEAN`, `warnings 를 oversizedClusterWarnings 결과로 채운다` — 후자는 `expect(r.verdict).toBe(\"CLEAN\")` 을 함께 단언한다)은 시야에 없다. Task 8 을 구현한 서브에이전트는 Task 6 이 무엇을 못박았는지 알 수 없고, Task 6 을 구현한 서브에이전트는 픽스처의 `units_examined` 를 클러스터마다 하나씩 채워야 한다는 것을 알 수 없다 — 어느 태스크도 다른 쪽을 선언하지 않았으므로 조정 지점이 플랜에 없다.\n\n결과는 둘 중 하나다. (a) Task 8 이 Task 6 의 단언을 그대로 두면 `bun test` 가 깨지고 Step 4 GREEN 이 불가능하다. (b) Task 8 의 서브에이전트가 Task 6 의 단언을 \"뒤집을 대상\"으로 오인해 `결함 0건이면 verdict 가 CLEAN` 을 REJECTED 기대로 고치면, **Task 6 이 요건으로 명시한 \"클러스터화가 판정 규칙을 바꾸지 않는다\" 회귀 가드가 사라진다** — 하드룰 #2 아래서 어느 쪽도 현장 판단으로 고를 문제가 아니다.",
-        "patch": {
-          "op": "insert_after",
-          "task_id": "8",
-          "anchor": "- Produces: `assembleResult`",
-          "text": "- Consumes: `assembleResult` from Task 6\n\n**Task 6과 같은 입력에 정반대 답을 요구하는 충돌 — 조정 지점을 여기 못박는다.**\nTask 6(245행)이 `assembleResult`를 이미 Produces로 선언했고, 이 태스크는 신규 함수가\n아니라 **그 함수를 이어받아 고친다.** 그런데 Task 6의 순수 함수 테스트들 — 249행\n(`examined[]`의 2단계 항목이 `kind: \"cluster\"`다), 253행(결함 0건이면 `verdict`가\n`CLEAN`), 254행(`assembleResult`가 `warnings`를 채운다 — 이 단언도 결함 0건 픽스처를\n써서 함께 `verdict === \"CLEAN\"`을 검증한다) — 은 전부 `raw.stage2.units_examined`에\n아무 제약을 걸지 않는다. 그 픽스처들을 그대로 두면 `units_examined`는 자연히 `[]`가\n되고(3판 `raw6()` 헬퍼가 정확히 그 모양이었다), 클러스터 1개 · `units_examined: []`\n· 결함 0건이라는 입력이 남는다 — 이것은 바로 위 \"클러스터 1개 · `units_examined: []`\n→ `verdict`가 `CLEAN`이 **아니다**\" 단언과 **글자 그대로 같은 입력**이다.\n\nStep 1에서 3판이 못박은 `--record` spawn 케이스의 기대를 뒤집는 것만으로는 이 충돌이\n해소되지 않는다 — 그 케이스는 spawn 경로고, 위 세 단언은 순수 함수 경로다. **이 태스크는\nTask 6이 쓴 그 세 픽스처도 함께 고쳐야 한다**: `units_examined`에 클러스터마다 하나씩\n`{ kind: \"cluster\", label: <그 클러스터의 file> }`를 채워 원소 수를 `clusters.length`와\n맞춘다. `units_examined`를 비워둔 채로 Task 6의 \"결함 0건이면 CLEAN\" 기대 쪽을 뒤집어\nREJECTED로 바꾸는 것은 금지한다 — 그러면 Task 6이 요건으로 못박은 \"클러스터화가 판정\n규칙을 바꾸지 않는다\" 회귀 가드가 사라진다. 픽스처를 채우는 쪽으로 고치면 Task 6의\n회귀(\"결함 없음 + 커버리지 일치 → CLEAN\")와 Task 8의 회귀(\"커버리지 불일치 → CLEAN\n아님\")가 서로 다른 입력에서 각자 성립해 둘 다 살아남는다."
-        }
-      }
-    ]
+    "defects": []
   },
   "critic": {
     "additional_defects": []
