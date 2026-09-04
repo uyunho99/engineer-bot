@@ -334,6 +334,30 @@ describe("runBuilder — 사전 검사 게이트를 실행으로 관찰한다 (D
     expect(`${o.reason ?? ""}\n${o.contractViolations ?? ""}`).toContain("사전 검사");
   });
 
+  /**
+   * 2026-09-04 — 사람이 명시적으로 우회를 지시했다. 위조가 아니라 우회로 만든 이유:
+   * `preflight.json` 에 CLEAN 을 써넣으면 감사 흔적에 거짓말이 남는다. 나중에 이
+   * 브랜치를 보는 사람이 "검사를 통과했다"고 읽는다.
+   */
+  test("--skip-preflight 는 게이트를 통과시킨다 — 명시적 예외", async () => {
+    setPreflight(null);
+    const o = await runBuilder({
+      repoRoot: root, branch: FIXTURE_BRANCH, dryRun: true, skipPreflight: true,
+    });
+    expect(o.outcome).toBe("SUCCESS");
+  });
+
+  test("우회하지 않으면 여전히 막는다 — 기본값이 안전한 쪽이다", async () => {
+    setPreflight(null);
+    expect((await run()).outcome).toBe("REJECTED");
+  });
+
+  test("우회해도 preflight.json 을 만들지 않는다 — 위조가 아니다", async () => {
+    setPreflight(null);
+    await runBuilder({ repoRoot: root, branch: FIXTURE_BRANCH, dryRun: true, skipPreflight: true });
+    expect(existsSync(p.preflight)).toBe(false);
+  });
+
   test("CLEAN + 해시 일치면 SUCCESS — 전부 거부하는 게이트가 아니다", async () => {
     setPreflight(cleanResult(planSha));
     const o = await run();

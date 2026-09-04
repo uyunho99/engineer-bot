@@ -41,6 +41,18 @@ export interface BuilderOptions {
   model?: string;
   /** 실제로 claude를 띄우지 않고 계약 검증까지만 (CI·개발용) */
   dryRun?: boolean;
+  /**
+   * 사전 검사 게이트를 건너뛴다 (설계 D26 의 명시적 예외).
+   *
+   * **위조가 아니라 우회다.** `preflight.json` 에 CLEAN 을 손으로 써넣는 방법도
+   * 있지만 그것은 감사 흔적에 거짓말을 남긴다 — 나중에 이 브랜치를 보는 사람이
+   * "검사를 통과했다"고 읽는다. 게다가 그 파일은 `config/builder.settings.json`
+   * 이 deny 하는 대상이고 `checkDocIntegrity` 가 막으려는 계열의 행동이다.
+   *
+   * 그래서 우회를 **일급 값**으로 만든다. 사람이 명시적으로 지시했다는 사실이
+   * 로그와 결과에 남고, `preflight.json` 은 없는 그대로 남는다.
+   */
+  skipPreflight?: boolean;
 }
 
 export interface BuilderOutcome {
@@ -354,7 +366,15 @@ export async function runBuilder(opts: BuilderOptions): Promise<BuilderOutcome> 
     preflightRawText = null;
   }
   const gate = checkPreflightGate(preflightRawText, planSha);
-  if (!gate.ok) {
+  if (!gate.ok && opts.skipPreflight) {
+    // 우회했다는 사실을 크게 남긴다. 조용한 우회는 없는 게이트와 같다.
+    console.warn(
+      `\n⚠️  사전 검사 게이트를 건너뜁니다 — 사람이 명시적으로 지시했습니다 (--skip-preflight)\n` +
+        `    원래 판정: ${gate.outcome}\n` +
+        `    ${formatViolations(gate.violations).trim()}\n` +
+        `    이 빌드의 결과는 "검사를 통과한 플랜"이 아닙니다. PR 에 그 사실을 적으십시오.\n`,
+    );
+  } else if (!gate.ok) {
     return done({
       outcome: gate.outcome,
       contractViolations: formatViolations(gate.violations),
@@ -539,13 +559,15 @@ export async function runBuilder(opts: BuilderOptions): Promise<BuilderOutcome> 
 if (import.meta.main) {
   const branch = process.argv[2];
   if (!branch) {
-    console.error("usage: bun controller/builder.ts <branch> [--dry-run]");
+    console.error("usage: bun controller/builder.ts <branch> [--dry-run] [--skip-preflight]");
     process.exit(2);
   }
   const outcome = await runBuilder({
     repoRoot: process.env.TARGET_REPO ?? process.cwd(),
     branch,
     dryRun: process.argv.includes("--dry-run"),
+    // 환경변수로는 켜지지 않는다 — 실수로 켜지면 게이트가 없는 것과 같다.
+    skipPreflight: process.argv.includes("--skip-preflight"),
     timeoutMs: process.env.BUILDER_TIMEOUT_MS ? Number(process.env.BUILDER_TIMEOUT_MS) : undefined,
     model: process.env.BUILDER_MODEL,
   });
