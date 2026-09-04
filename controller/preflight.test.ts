@@ -966,6 +966,13 @@ describe("워크플로우가 클러스터마다 에이전트 1개를 띄운다 (
   const sectionStart = src.indexOf("파일 클러스터마다");
   const sectionEnd = src.indexOf("// ── 3)");
   const clusterSection = src.slice(sectionStart, sectionEnd);
+  // 주석을 벗긴 버전으로 단언한다. `clusterSection` 은 (다른 프롬프트와
+  // 섞이지 않게) 섹션 경계로만 자른 것이라 아직 주석을 포함한다 — 이 섹션의
+  // 헤더 주석이 프롬프트와 같은 문구("순차로 확장")를 설명 삼아 반복하므로,
+  // 주석을 벗기지 않으면 프롬프트에서 그 문구를 지워도 헤더 주석만으로
+  // 테스트가 계속 통과한다(2026-09-04 리뷰 1라운드 지적 — 이 파일은 소스
+  // 문자열 검사가 유일한 검증이라 그 구멍이 곧 무방비다).
+  const clusterPrompt = clusterSection.replace(/^\s*\/\/.*$/gm, "");
 
   test("클러스터 섹션 마커가 소스에 있다 (전제 조건)", () => {
     expect(sectionStart).toBeGreaterThan(-1);
@@ -989,38 +996,45 @@ describe("워크플로우가 클러스터마다 에이전트 1개를 띄운다 (
   });
 
   test("클러스터 프롬프트가 kind 를 undeclared_conflict 로 못박는다 (하드룰 #4)", () => {
-    expect(clusterSection).toContain('"undeclared_conflict"');
+    expect(clusterPrompt).toContain('"undeclared_conflict"');
   });
 
   test("클러스터 프롬프트가 file 을 그 클러스터의 실제 파일로 채우라고 못박는다 (DC3)", () => {
     // `${c.file}` 는 소스 텍스트 그대로 검사한다 — 이 파일은 실행할 수 없으므로
     // 템플릿이 평가된 값이 아니라 리터럴 문자열을 찾는다.
-    expect(clusterSection).toMatch(/file\s*은\s*["'`]\$\{c\.file\}["'`]/);
-    expect(clusterSection).toMatch(/비워두거나 생략하지 마라/);
+    expect(clusterPrompt).toMatch(/file\s*은\s*["'`]\$\{c\.file\}["'`]/);
+    expect(clusterPrompt).toMatch(/비워두거나 생략하지 마라/);
   });
 
   test("클러스터 프롬프트가 충돌하는 태스크만 task_ids 에 담으라고 지시한다 (DC4)", () => {
-    expect(clusterSection).toMatch(/충돌하는 태스크만/);
+    expect(clusterPrompt).toMatch(/충돌하는 태스크만/);
   });
 
   test("클러스터 프롬프트가 태스크들이 순차로 확장한다는 맥락을 준다 (DC4 근거)", () => {
-    expect(clusterSection).toContain("순차로 확장");
+    expect(clusterPrompt).toContain("순차로 확장");
   });
 
   test("units_examined 에 넣는 값이 { kind, label } 객체다 — 세 단계 모두 (DC6)", () => {
     // sig · cluster · critic 세 곳의 examined.push 호출 전부가 객체 리터럴을
     // 넣어야 한다. 문자열 하나를 그대로 넣는 옛 형태가 하나라도 남으면
     // checkPreflightRaw(DC6)가 그 산출 전체를 거부한다.
-    const pushes = code.match(/examined\.push\([^)]*\)/g) ?? [];
+    // `{...}` 로 경계를 잡는다 — `[^)]*` 로 괄호까지 경계를 잡으면 라벨 안에
+    // `label: \`sig:${fn(c)}\`` 처럼 괄호 있는 호출이 하나만 생겨도 조용히
+    // 잘못된 경계에서 멈춘다(2026-09-04 리뷰 1라운드 지적). 이 스크립트의
+    // push 는 전부 중첩 `{}` 없는 단순 객체 리터럴이므로 비탐욕 매치로 충분하다.
+    const pushes = code.match(/examined\.push\(\{[\s\S]*?\}\)/g) ?? [];
     expect(pushes.length).toBe(3);
     for (const p of pushes) {
       expect(p).toMatch(/\{\s*kind\s*:/);
       expect(p).toMatch(/label\s*:/);
     }
     // kind 세 종류가 각각 정확히 한 번씩 등장해야 한다 — signature/cluster/critic.
-    expect(pushes.filter((p) => p.includes("'signature'")).length).toBe(1);
-    expect(pushes.filter((p) => p.includes("'cluster'")).length).toBe(1);
-    expect(pushes.filter((p) => p.includes("'critic'")).length).toBe(1);
+    // `kind:` 뒤에 오는 값만 본다 — `p.includes("'signature'")` 는 값이 아니라
+    // 어디에 있든 그 리터럴만 있으면 통과해, `{ kind: 'cluster', label: 'signature' }`
+    // 같은 오조합도 속일 수 있다(2026-09-04 리뷰 1라운드 지적).
+    expect(pushes.filter((p) => /kind:\s*'signature'/.test(p)).length).toBe(1);
+    expect(pushes.filter((p) => /kind:\s*'cluster'/.test(p)).length).toBe(1);
+    expect(pushes.filter((p) => /kind:\s*'critic'/.test(p)).length).toBe(1);
   });
 
   test("meta.phases 가 실제 phase() 호출과 일치한다", () => {
@@ -1031,6 +1045,15 @@ describe("워크플로우가 클러스터마다 에이전트 1개를 띄운다 (
     const declaredTitles = [...metaBlock.matchAll(/title:\s*'([^']+)'/g)].map((m) => m[1]);
     const calledPhases = [...code.matchAll(/\bphase\('([^']+)'\)/g)].map((m) => m[1]);
     expect(declaredTitles).toEqual(calledPhases);
+  });
+
+  test("critic 프롬프트가 examined 를 그대로 join 하지 않는다 — 객체 배열이라 [object Object] 가 나간다", () => {
+    // examined 원소가 { kind, label } 객체가 된 뒤(DC6) `examined.join(...)` 을
+    // 그대로 쓰면 critic 에게 "검사 단위: [object Object], [object Object]" 가
+    // 나간다 — 완결성 검사(D17)의 근거 자체가 깨지는데 문자열 검사로는
+    // 눈에 띄지 않는다. `.map((u) => u.label)` 을 거치는지 최소한으로 고정한다.
+    expect(code).not.toMatch(/examined\.join\(/);
+    expect(code).toMatch(/examined\.map\(\s*\(?\w+\)?\s*=>\s*\w+\.label\)\.join\(/);
   });
 });
 
