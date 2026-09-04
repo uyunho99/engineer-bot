@@ -14,9 +14,19 @@ export const meta = {
 // { planPath, rawPath, planSha256, relationsDeclared,
 //   stage1Defects[], stage2Candidates[], pairs[] }
 //
-// 이 스크립트는 파일을 읽을 수 없다 (플랫폼 제약). 판단 로직도 두지 않는다 —
-// controller/preflight.ts 가 그것을 갖는다 (설계 D1). 여기 있는 것은
-// agent() 호출과 결과 수집뿐이다.
+// **이 스크립트는 파일을 읽지도 쓰지도 못한다** (플랫폼 제약, 2026-09-04 실측):
+//   전역      : globalThis 뿐 — process·Bun·fetch·require 가 전부 없다
+//   require   : throw "require is not defined"
+//   import()  : 구문 오류 "import() is not available in workflow scripts"
+//
+// 그래서 `args.rawPath` 는 **이 스크립트가 쓰라는 뜻이 아니다.** 세션이 반환값을
+// 저장할 자리를 알려 주는 값이고, 저장은 세션이 한다 (AMENDMENTS B7 — 설계 D28
+// 개정). 스크립트 안에서 쓸 수 있는 유일한 방법은 agent() 로 Claude 를 띄우는
+// 것인데, 그것은 **LLM 이 큰 JSON 을 다시 타이핑하는 것**이라 D28 이 막으려던
+// 위험 그 자체다.
+//
+// 판단 로직도 두지 않는다 — controller/preflight.ts 가 그것을 갖는다 (설계 D1).
+// 여기 있는 것은 agent() 호출과 결과 수집뿐이다.
 //
 // 모델은 모든 호출에 명시한다 (하드룰 #3 · 설계 D19). 워크플로우 레퍼런스는
 // 생략을 기본으로 하지만, 에이전트가 20개 넘게 뜨는 곳에서 생략하면 세션

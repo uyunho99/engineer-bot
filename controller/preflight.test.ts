@@ -884,6 +884,39 @@ describe("훅과 스킬 배선 (Task 13)", () => {
     expect(cmd).toContain("$CLAUDE_PROJECT_DIR/bin/preflight");
   });
 
+  /**
+   * AMENDMENTS B7 — 설계 D28 의 회귀 가드.
+   *
+   * D28 은 "워크플로우가 preflight-raw.json 을 직접 쓴다"였는데 **플랫폼이 그것을
+   * 허용하지 않는다** (2026-09-04 실측: 전역이 globalThis 뿐, require 없음,
+   * import() 구문 오류). 스크립트 안에서 쓰는 유일한 방법인 agent() 는 LLM 이 큰
+   * JSON 을 다시 타이핑하는 것이라 D28 의 목적에 반한다.
+   *
+   * 그래서 저장 책임이 세션으로 옮겨졌다. 이 테스트는 그 계약이 **글로 남아 있는지**
+   * 만 볼 수 있다 — 워크플로우는 실행할 수 없고 세션의 행동은 테스트가 도달할 수
+   * 없다. 실제 강제는 `checkPreflightRaw` 의 스키마 + 해시 검증이다 (아래 테스트).
+   */
+  test("스킬이 raw 저장 책임을 세션에 두고 기계적 추출을 지시한다 (B7)", () => {
+    const md = readFileSync(".claude/skills/preflight/SKILL.md", "utf8");
+    expect(md).toContain("세션이");
+    expect(md).toMatch(/손으로 옮기지 마라/);
+    expect(md).toMatch(/파일에서 파일로/);
+  });
+
+  test("워크플로우가 rawPath 를 자기가 쓴다고 주장하지 않는다 (B7)", () => {
+    const js = readFileSync("workflows/plan-preflight.js", "utf8");
+    // 쓰기 시도가 없어야 한다 — 있으면 플랫폼이 막으므로 조용히 실패한다.
+    expect(js).not.toMatch(/writeFileSync|Bun\.write|require\(/);
+    // 그리고 왜 못 쓰는지가 적혀 있어야 한다 — 다음 사람이 다시 시도하지 않게.
+    expect(js).toMatch(/읽지도 쓰지도 못한다/);
+  });
+
+  test("스킬이 에이전트 총수를 단정하지 말라고 지시한다 — 2026-09-04 예고가 5배 틀렸다", () => {
+    const md = readFileSync(".claude/skills/preflight/SKILL.md", "utf8");
+    expect(md).toMatch(/에이전트 총수를 미리 단정하지 마라/);
+    expect(md).toContain("39");
+  });
+
   test("스킬이 BLOCKED(exit 4)를 REJECTED(exit 1)와 구분한다 — 하드룰 #4", () => {
     const md = readFileSync(".claude/skills/preflight/SKILL.md", "utf8");
     expect(md).toContain("exit 4");
