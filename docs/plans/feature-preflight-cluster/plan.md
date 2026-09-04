@@ -3,6 +3,12 @@
 설계: [design-doc.md](design-doc.md) — 결정 DC1~DC7.
 부모 기능: [feature-plan-preflight](../feature-plan-preflight/design-doc.md) (머지됨, PR #1).
 
+> **이 계획서는 3판이다.** 2판은 재검사에서 결함 5건으로 다시 반송당했다.
+> 그중 2건(`pair:2x5-2` · `pair:2x6-1`)은 **계획서가 아니라 이미 머지된 코드의
+> 결함**을 지목했다 — `checkPreflightRaw` 가 `critic.additional_defects` 를
+> 검증하지 않는데 `assembleResult` 는 그것을 결과에 합쳤다. 그 결함은 별도
+> 커밋으로 고쳤으므로 이 계획서가 다룰 일이 아니다. 나머지 3건은 아래에 반영했다.
+>
 > **이 계획서는 2판이다.** 초판을 `/preflight` 에 돌려 결함 9건으로 반송당했고
 > ([preflight-raw.json](preflight-raw.json)), 그 9건을 전부 요건으로 흡수했다.
 > 태스크 5개 → 7개로 늘어난 것은 배선 파일(`preflight-cli.ts`)과 raw 스키마 변경이
@@ -83,6 +89,11 @@
 - [ ] `file` 이 있는 결함이 형태 검증을 통과한다
 - [ ] `file` 이 없는 결함도 통과한다 — 옵셔널이므로 하위 호환이다 (DC3)
 - [ ] `file` 이 문자열이 아니면 거부한다
+- [ ] **`file` 이 빈 문자열이면 거부한다** — `id` 를 `!o.id` 로, `patch.anchor` 를
+      `!p.anchor.trim()` 으로 거르는 것과 같은 방향이다. 이 규칙이 없으면 `""` 가
+      Task 3 의 필터에서 "없음"(`d.file &&`)으로도 "있음"(`!== undefined`)으로도
+      해석될 수 있고, **두 구현이 둘 다 이 태스크와 Task 3 의 증명 목록을 통과하면서
+      안전 방향이 정반대로 갈린다** (2판 반송 사유 `pair:2x3-4`)
 - [ ] `task_ids` 가 2개 미만이면 여전히 거부한다 — 기존 규칙 회귀 없음 (D27)
 - [ ] 기존 결함 픽스처가 전부 그대로 통과한다
 
@@ -234,6 +245,21 @@
 - [ ] **`--plan` 출력에 `clusters` 가 있고 `pairs` 가 없다** (Ⓐc — 없으면 검사 단위 0개가 된다)
 - [ ] **소스 전체에 `overlappingPairs` 참조가 남아 있지 않다** (Ⓐa — 죽은 코드를 남기지 않는다)
 - [ ] `--record` 가 쓴 `preflight.json` 에 `warnings` 배열이 있다
+- [ ] **`--apply` 가 다시 쓰는 `preflight.json` 에도 `warnings` 가 남는다** —
+      `parsePreviousResult` 는 `schema`·`applied`·`defects` 세 필드만 보고
+      `as PreflightResult` 로 캐스팅하므로, 이 기능 이전에 쓰인 schema 1 파일에는
+      `warnings` 가 없는데 스키마 번호는 그대로 `1` 이라 읽는 쪽이 구분할 수 없다.
+      `warnings` 가 배열이 아니면 `[]` 로 채운 뒤 캐스팅한다. 픽스처로 `warnings`
+      없는 구 파일을 두고 `--apply` 를 돌려 결과에 `[]` 가 채워지는 것을 확인한다
+      (2판 반송 사유 `pair:4x6-2`)
+- [ ] **`--plan` 출력에도 `warnings` 가 있다** — `oversizedClusterWarnings` 는
+      클러스터만으로 계산되므로 팬아웃 **전**에 낼 수 있다. 여기서 안 내면 경고가
+      팬아웃이 끝난 뒤에야 계산되어 파일 안에만 남는다
+- [ ] **경고가 있으면 사람이 읽는 콘솔에 닿는다** — `--record` 판정 줄에 `· 경고 K건`
+      을 붙이고(0건이면 붙이지 않는다), 각 경고의 `message` 를 `console.error` 로
+      한 줄씩 찍는다. `severity: "warn"` 이 종료 코드를 바꾸지 않는다는 DC5 는 그대로다 —
+      **콘솔이 경고가 사람에게 닿는 유일한 경로다.** 이것이 없으면 Task 4 가 요구한
+      "다음 행동이 드러난다"가 두 태스크를 합쳐도 성립하지 않는다 (2판 반송 사유 `pair:4x6-3`)
 
 - [ ] **Step 1: Write the failing test**
       `--plan` 출력 검사는 `bin/preflight` 를 실제로 spawn 해서 본다 —
