@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "plan_sha256": "a014f384526426ca86bcd2af3db4ed6eadd1535207d46312390bb7f64f9f7ff1",
+  "plan_sha256": "67d3624901d31b0c3bb5c320fc8a7bce55e6209e9647032815592c516823e792",
   "stage1": {
     "relations_declared": 16,
     "defects": []
@@ -20,6 +20,25 @@
     "defects": []
   },
   "critic": {
-    "additional_defects": []
+    "additional_defects": [
+      {
+        "id": "critic-4",
+        "kind": "undeclared_conflict",
+        "task_ids": [
+          "6",
+          "7"
+        ],
+        "stage": 2,
+        "plan_text": "Task 6: \"**`--plan` 출력에도 `warnings` 가 있다** — `oversizedClusterWarnings` 는 클러스터만으로 계산되므로 팬아웃 **전**에 낼 수 있다. 여기서 안 내면 경고가 팬아웃이 끝난 뒤에야 계산되어 파일 안에만 남는다\" / Task 6: \"**경고가 있으면 사람이 읽는 콘솔에 닿는다** — `--record` 판정 줄에 `· 경고 K건` 을 붙이고 … **콘솔이 경고가 사람에게 닿는 유일한 경로다.**\" / Task 7 의 증명 목록(워크플로우가 읽는 것은 `args.clusters` 뿐)",
+        "conflict": "Task 6 은 `--plan` 출력에 `warnings` 를 넣는 이유를 \"팬아웃 **전**에 사람에게 낼 수 있다\"로 적었지만, `--plan` 출력은 사람이 아니라 워크플로우가 먹는 JSON 이고, 사람이 읽는 콘솔 경로는 Task 6 이 스스로 `--record`(팬아웃 **후**)에만 못박았다. 팬아웃 전에 그 값을 사람에게 보여줄 수 있는 유일한 지점은 워크플로우의 `log()` 이고 그 파일을 고치는 태스크는 Task 7 인데, Task 7 의 증명 목록에는 `args.clusters` 를 읽는 요건만 있고 `warnings` 를 읽거나 로그하라는 요건이 전혀 없다. 두 태스크를 합쳐도 경고는 여전히 에이전트 수십 개가 다 돈 뒤에야 사람에게 닿는다 — Task 6 이 `--plan` 필드를 정당화한 근거가 성립하지 않고, 필드는 아무도 읽지 않는 죽은 값이 된다(Task 6 이 같은 플랜에서 `overlappingPairs` 죽은 코드를 금지한 것과 같은 모양이다). Task 6·7 어디에도 이 인계 지점이 선언되지 않았다.",
+        "relation": "--plan 출력의 warnings ↔ 워크플로우 args",
+        "patch": {
+          "op": "insert_after",
+          "task_id": "6",
+          "anchor": "- [ ] `args.clusters` 를 읽는다",
+          "text": "- [ ] **`args.warnings` 를 읽어, 클러스터 팬아웃 루프(`agent(` 호출들)에 들어가기 **전**에 `log()` 로 경고를 사람에게 찍는다** — 팬아웃 전에 사람에게 닿을 수 있는 유일한 지점이 이 워크플로우의 `log()` 다. Task 6 이 `--plan` 출력에 `warnings` 를 넣은 근거가 \"팬아웃 전에 사람에게 낼 수 있다\"인데, 그 값을 실제로 읽어 찍는 코드가 없으면 근거가 성립하지 않고 필드는 아무도 읽지 않는 죽은 값이 된다 (같은 플랜이 `overlappingPairs` 죽은 코드를 금지한 것과 같은 결함 모양). 경고가 0건이면 아무것도 찍지 않는다. `--record` 판정 줄의 `· 경고 K건` 및 `console.error` 출력(Task 6)은 팬아웃이 끝난 뒤의 별도 경로이므로 이 요건을 대신하지 못한다."
+        }
+      }
+    ]
   }
 }
