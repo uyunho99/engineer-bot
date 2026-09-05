@@ -74,7 +74,7 @@ Claude에서 `/development-harness-native` 뒤에 개발 요청을 입력하세�
 | 2 | 설계 → 설계 승인 | Main Claude → 사용자 | `02-design.md` 검토 |
 | 3 | 구현·QA 계획 → 계획 승인 | Main Claude → 사용자 | `03-plan.md`에 두 계획 포함 |
 | 4 | 작업 공간 분리 | Main Claude | 승인 자료 커밋 후 새 worktree |
-| 5 | TDD 구현 | 구현 하위 에이전트 | 실패 → 통과 로그, 개별 리뷰 |
+| 5 | TDD 구현 | Codex (플러그인으로 위임) | 실패 → 통과 로그, 개별 리뷰 |
 | 6 | 독립 리뷰 → 브라우저 QA | 리뷰·QA 담당 | `review.json`, `qa.json` |
 | 7 | 최종 검증 → UAT 승인 | 검증 담당 → 사용자 | `verification.json`, 변경 내용 검토 |
 | 8 | 마무리 | Main Claude | 승인된 결과 커밋, 브랜치 유지 |
@@ -122,7 +122,15 @@ claude
 원래 체크아웃의 실행 상태는 `transferred`로 바뀝니다. 이후에는 새 worktree로 복사된 실행을 이어갑니다.
 경로나 브랜치가 이미 존재하면 Git이 생성을 거부합니다. 이 명령은 브랜치를 merge하거나 worktree를 삭제하지 않습니다.
 
-### 4. 구현 결과 확인
+### 4. Codex 구현 위임과 결과 확인
+
+Claude는 기획·관리·리뷰만 맡습니다. 모든 코드 구현, 테스트 작성, 버그 수정, 리팩터링은
+`codex:codex-rescue`에 위임합니다. 승인된 worktree에서 `--wait --fresh`로 새 Task를 보내고,
+쓰기 가능한 구현 작업임을 명시합니다. wrapper는 전달만 하며 실제 개발은 Codex runtime이 수행합니다.
+Task별 소유 파일, 계획, 수용 기준, RED/GREEN 명령과 보고서 경로를 전달하세요.
+Codex 실패·빈 출력은 완료가 아니며 Claude가 대신 구현하지 않습니다.
+리뷰·브라우저 QA에서 발견한 수정도 `retry` 후 Codex에게 다시 맡깁니다.
+
 
 > 다음 명령의 JSON 파일은 실제 구현·리뷰·QA 결과를 기록한 보고서입니다. 형식은 [보고서 작성](#보고서-작성)을 참고하세요.
 
@@ -184,6 +192,8 @@ claude
   "tasks": [
     {
       "id": "T1",
+      "executor": "codex",
+      "dispatch": "실제 Codex runtime 작업 ID 또는 실행 로그 경로",
       "red": "테스트 실패 로그",
       "green": "테스트 통과 로그",
       "review": "독립 리뷰 근거의 위치"
@@ -297,8 +307,11 @@ claude plugin install codex@openai-codex --scope user
 승인은 사용자가 자신의 터미널에서 기록합니다.
 
 전역 hook은 `harness.config.json`의 `mode`가 `claude-only`인 프로젝트에 적용됩니다.
-Hook은 `build` 단계 밖에서 구조화된 파일 편집 도구로 소스를 수정하는 행동과 에이전트가 사람 승인을 기록하는 행동을 차단합니다.
+Hook은 모든 단계에서 Claude의 구조화된 편집 도구를 통한 코드 수정을 차단합니다.
+Claude는 기획·리뷰 보고서를 작성하고 코드는 Codex에 위임합니다. 에이전트의 직접 승인 명령도 차단합니다.
+구현 보고서는 Task마다 Codex 실행자와 dispatch 근거를 요구합니다. 이는 보고서 검증이며 실행자 인증은 아닙니다.
 셸과 플러그인 하위 프로세스에는 기존 사용자 권한 정책이 적용되며, 승인된 작업 범위를 따라야 합니다.
 소스 지문은 리뷰 이후 코드가 변경됐는지 확인하는 데 사용합니다.
 이 장치는 운영 절차를 보조하며 OS 수준의 격리 환경을 제공하지 않습니다.
-Codex 하위 프로세스는 Claude hook을 상속하지 않으므로, Codex 리뷰에는 읽기 전용 범위를 명시하고 권한 우회 옵션을 사용하지 마세요.
+Codex 하위 프로세스는 Claude hook을 상속하지 않습니다. 구현에는 승인된 소유 파일과 worktree 범위를,
+리뷰에는 읽기 전용 범위를 명시합니다. 권한 우회 옵션은 사용하지 마세요.

@@ -5,7 +5,9 @@
 대상 프로젝트에서는 `~/.local/bin/development-harness` 명령을 사용하며 이 저장소의 소스를 복사하지 않습니다.
 
 규모가 있는 소프트웨어 작업에는 `.claude/skills/development-harness-native/SKILL.md`를 사용합니다.
-Main Claude가 네이티브 하위 에이전트를 조율합니다. 제품, 설계, 구현·QA 통합 계획, 최종 UAT
+Main Claude는 기획·관리·리뷰를 맡고 모든 구현·테스트 작성·리팩터링·버그 수정은
+`codex:codex-rescue`를 통해 Codex에 위임합니다. Claude 구현 에이전트를 만들거나 직접 소스를
+수정하지 않습니다. Codex 실행 실패 시 중단하며 Claude로 대체하지 않습니다. 제품, 설계, 구현·QA 통합 계획, 최종 UAT
 승인 게이트는 필수입니다. 명령어는 `docs/OPERATIONS.md`에서 확인합니다.
 
 계획 승인과 독립 worktree 준비 전에는 애플리케이션 코드를 수정하지 않습니다. 리뷰 담당은 보고서만

@@ -22,6 +22,8 @@ test("hook rejects source writes before approval and symlink parent escapes",()=
  const root=mkdtempSync(join(tmpdir(),"harness-hook-")),outside=mkdtempSync(join(tmpdir(),"harness-outside-"));
  try{
   expect(guard({tool_name:"Write",tool_input:{file_path:join(root,"code.ts")}},root)).toContain("approved plan");
+  const state=initial("sample");state.phase="build";save(root,state);
+  expect(guard({tool_name:"Edit",tool_input:{file_path:join(root,"code.ts")}},root)).toContain("Codex only");
   mkdirSync(join(root,"docs/development"),{recursive:true});
   expect(guard({tool_name:"Write",tool_input:{file_path:join(root,"docs/development/plan.md")}},root)).toBeUndefined();
   symlinkSync(outside,join(root,"docs/development/escape"));

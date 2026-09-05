@@ -9,8 +9,7 @@ export function guard(input:{tool_name?:string;tool_input?:Record<string,unknown
   let ancestor=path;while(!existsSync(ancestor))ancestor=dirname(ancestor);
   const actual=resolve(realpathSync(ancestor),relative(ancestor,path));
   if(!within(root,actual)||within(resolve(root,".harness"),actual)||within(resolve(root,".claude"),actual)||actual===resolve(root,"harness.config.json"))return "Harness configuration/state is coordinator-managed; use the harness CLI.";
-  let phase="";try{phase=load(root).phase;}catch{}
-  if(!["build"].includes(phase)&&!within(resolve(root,"docs/development"),actual))return "Application edits require approved plan and worktree; fixes require retry to build.";
+  if(!within(resolve(root,"docs/development"),actual))return "Application edits belong to Codex only, after approved plan and worktree. Claude coordinates and writes planning/review reports; delegate all code and test changes through codex:codex-rescue.";
  }
  if(["Agent","Task"].includes(tool)) {
   let phase="";try{phase=load(root).phase;}catch{}

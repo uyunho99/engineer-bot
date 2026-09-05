@@ -1,7 +1,10 @@
 # engineer-bot — claude-only
 
 설치된 Superpowers, gstack, codex-plugin-cc를 사용하는 독립적인 Claude Code 네이티브
-개발 하네스입니다. Main Claude가 네 차례의 사용자 승인과 구현·리뷰 에이전트를 조율합니다.
+개발 하네스입니다. **Claude는 기획·관리·리뷰, Codex는 모든 코드 구현·TDD·수정**을 맡습니다.
+Main Claude가 네 차례의 사용자 승인과 Codex 작업 위임·검증을 조율합니다.
+`claude-only`는 Orca 없이 Claude가 관리한다는 뜻이며, Claude가 코드를 구현한다는 뜻이 아닙니다.
+Codex 실행이 실패하면 중단하며 Claude 구현으로 대체하지 않습니다.
 
 ```text
 기획 → 제품 승인 → 설계 → 설계 승인 → 구현 계획 + QA 계획

@@ -4,7 +4,7 @@
 
 ## 현재 검증 결과
 
-- `bun run check`: TypeScript 엄격 타입 검사와 테스트 9개·단언 76개 통과.
+- `bun run check`: TypeScript 엄격 타입 검사와 테스트 9개·단언 78개 통과.
 - `bun run build`: Bun CLI 번들 생성 성공.
 - `bun run install:global`: 사용자 스킬·전역 실행 명령·hook 설치 성공.
 - `~/.local/bin/development-harness doctor`: Superpowers 6.2.0, gstack 1.6.1.0, 사용자 범위 Codex 플러그인과 실행 도구 확인.
@@ -39,3 +39,11 @@ Hook은 로컬 운영 절차를 보조하며 OS sandbox나 인증된 사용자 �
 - [개인 스킬과 적용 범위](https://code.claude.com/docs/en/skills)
 - [사용자 설정](https://code.claude.com/docs/en/settings)
 - [Hook 입출력과 차단 규칙](https://code.claude.com/docs/en/hooks)
+
+## 구현 담당 교정
+
+Claude는 기획·관리·리뷰만 맡고 모든 코드·테스트·수정은 Codex에 위임하도록 교정했습니다.
+개발 단계에서도 Claude의 직접 코드 편집이 거부되는지, Claude 실행자로 작성된 구현 보고서가
+거부되는지 회귀 검사했습니다. 이전 구현 보고서는 각 Task에 executor=codex 및 실제 dispatch
+근거가 필요하며, Claude가 수행한 결과를 Codex 결과로 바꿔 적어서는 안 됩니다.
+실제 Codex 모델로 새 기능 전체 실행은 아직 검증하지 않았습니다.

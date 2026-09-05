@@ -33,7 +33,10 @@ test("CLI blocks wrong phase, detects changed approved docs, and transfers an is
   expect(cli("plan","--execute").exitCode).toBe(1);
   const run=(...args:string[])=>Bun.spawnSync([process.execPath,join(import.meta.dir,"cli.ts"),...args],{cwd:wt});
   const reportPath="docs/development/sample/delivery.json";
-  const report={verdict:"PASS",head:git(wt,"rev-parse","HEAD"),fingerprint:fingerprint(wt),commands:[{command:"fixture assertion",exitCode:0}],findings:[],tasks:[{id:"T1",red:"fixture red",green:"fixture green",review:"independent fixture review"}],notApplicable:"CLI fixture, no browser surface"};
+  const report={verdict:"PASS",head:git(wt,"rev-parse","HEAD"),fingerprint:fingerprint(wt),commands:[{command:"fixture assertion",exitCode:0}],findings:[],tasks:[{id:"T1",executor:"codex",dispatch:"fixture Codex execution log",red:"fixture red",green:"fixture green",review:"independent fixture review"}],notApplicable:"CLI fixture, no browser surface"};
+  writeFileSync(join(wt,reportPath),JSON.stringify(report));
+  writeFileSync(join(wt,reportPath),JSON.stringify({...report,tasks:report.tasks.map(t=>({...t,executor:"claude"}))}));
+  expect(run("complete","build",reportPath).exitCode).toBe(1);
   writeFileSync(join(wt,reportPath),JSON.stringify(report));
   for(const phase of ["build","review","browser-qa","verification"])expect(run("complete",phase,reportPath).exitCode).toBe(0);
   expect(run("complete","finish",reportPath).exitCode).toBe(1);

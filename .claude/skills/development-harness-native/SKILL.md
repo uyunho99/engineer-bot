@@ -31,20 +31,25 @@ Main Claude가 전체 단계와 사용자 대화를 맡습니다. 새 실행을 
 4. 승인된 기획 자료를 커밋합니다. `superpowers:using-git-worktrees`와
    `~/.local/bin/development-harness worktree /absolute/path feature/name`으로 worktree를 만듭니다. 새 체크아웃에서
    Claude를 이어 실행하고 의존성을 설치한 뒤 기준 검사를 수행합니다. 다른 실행의 상태를 재사용하지 않습니다.
-5. 설치된 `superpowers:subagent-driven-development`와 TDD 지침을 읽습니다. 각 Task마다 새 Claude
-   구현 담당을 배정하고, 담당 파일·계획 발췌·수용 기준을 명시합니다. 다른 작업자도 같은 코드베이스에서
-   작업하므로 타인의 변경을 되돌리지 않습니다. 네이티브 Agent 도구를 사용하며 중첩 에이전트를 만들지
-   않습니다. 구현 전 실패하는 단언을 기록하고, GREEN 상태를 만든 뒤 리팩터링하고 다시 실행합니다.
-   **각 Task가 끝날 때마다** 명세 준수와 코드 품질을 독립적으로 리뷰합니다. 경로가 겹치는 Task는
-   순차 처리합니다. Task·리뷰 ID와 실행 명령을 구현 보고서에 기록합니다.
-6. 전체 브랜치에 gstack `review`와 독립 Claude 리뷰를 실행합니다. Codex의 두 번째 의견이 필요하면
-   설치된 `codex:codex-rescue`를 정확한 기준 ref, 현재 작업 경로, 읽기 전용 범위와 함께
-   `--wait --fresh`로 실행합니다. 이는 `/codex:review`가 아니라 진단·재검토 단계입니다.
-   실제 결과를 확인하고 wrapper의 빈 출력을 성공으로 인정하지 않습니다.
-   `/codex:review --wait --base <ref>`는 모델 호출이 비활성화된 사용자 직접 실행 명령입니다.
+5. 설치된 `superpowers:subagent-driven-development`와 TDD 지침을 읽되, 구현 담당은 **항상 Codex**입니다.
+   Main Claude는 작업 분해·위임·결과 확인을 맡고 직접 구현하거나 Claude 구현 에이전트를 만들지 않습니다.
+   각 Task를 네이티브 Agent 도구의 `codex:codex-rescue`에 `--wait --fresh`와 함께 위임합니다.
+   이 Claude wrapper는 플러그인 runtime으로 전달만 하며 코드를 구현하는 주체는 Codex입니다.
+   승인된 worktree에서 실행하고 정확한 cwd, 담당 파일, 계획 발췌, 수용 기준, 테스트 명령을 전달합니다.
+   구현 요청에는 쓰기 가능한 작업임을 명시해 runtime의 `--write` 경로를 사용합니다.
+   RED → GREEN → 리팩터링, 다른 작업자의 변경 보존, Task별 보고서 경로를 요구합니다.
+   Codex에게 필요한 TDD 규칙을 전달하고 Codex가 Claude 전용 스킬을 자동으로 읽는다고 가정하지 않습니다.
+   파일이 겹치는 작업은 순차 처리합니다. 구현 보고서의 각 tasks 항목에는 `executor: "codex"`,
+   `dispatch`(실제 runtime 작업 ID 또는 실행 로그 경로), `id`, `red`, `green`, `review`를 기록합니다.
+   실제 runtime 결과와 diff·테스트를 확인합니다. wrapper의 빈 출력이나 실행 오류는 실패로 취급합니다.
+   Codex를 사용할 수 없으면 중단하고 원인을 보고합니다. Claude 구현으로 대체하지 않습니다.
+6. 각 Task와 전체 브랜치의 명세·품질을 독립적으로 리뷰합니다. Claude는 리뷰와 관리만 수행하며,
+   gstack `review`도 읽기 전용으로 사용합니다. 리뷰 중 발견한 코드·테스트 수정은 모두 Codex에 재위임합니다.
+   추가 Codex 리뷰는 별도 `codex:codex-rescue` 실행에 읽기 전용 범위를 명시해 수행할 수 있습니다.
+   `/codex:review`는 사용자가 직접 호출하는 명령이므로 자동 구현 위임 경로로 사용하지 않습니다.
 7. 실제 테스트 URL과 승인된 브라우저 시나리오에 gstack `qa-only`를 적용합니다. 리뷰 담당은 보고서만
-   작성합니다. 실패하면 `harness retry <findings>`로 구현 단계로 돌아가 범위가 정해진 TDD 수정 담당을
-   배정합니다. 이후 리뷰, 브라우저 QA, 검증을 다시 수행합니다. 수정 시도가 세 차례 실패하면 근거와 함께
+   작성합니다. 실패하면 `harness retry <findings>`로 구현 단계로 돌아가 범위가 정해진 Codex TDD 수정 담당에게
+   다시 위임합니다. 작은 수정·테스트 추가·리팩터링도 Claude가 직접 수행하지 않습니다. 이후 리뷰, 브라우저 QA, 검증을 다시 수행합니다. 수정 시도가 세 차례 실패하면 근거와 함께
    중단하고 계획 수정을 요청합니다. `PASS`로 선언하면 안 됩니다.
 8. `superpowers:verification-before-completion`을 사용하고 `~/.local/bin/development-harness evidence`를 실행합니다. 출력을
    직접 확인한 뒤 검증 단계를 완료합니다. 최종 UAT에서 diff, QA 보고서, 최신 검사 결과, 남은 위험을
