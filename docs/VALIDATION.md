@@ -1,31 +1,32 @@
-# Validation — 2026-09-05
+# 검증 기록 — 2026-09-05
 
-Base: `b64004c` (existing `orca-autonomous-v2`). The original checkout remains unchanged.
-Both variants were created as independent Git worktrees from that same commit; no merge.
+기준 커밋은 기존 `orca-autonomous-v2`의 `b64004c`입니다. 원래 체크아웃은 변경하지 않았습니다.
+두 변형은 같은 커밋에서 독립된 Git worktree로 만들었으며 서로 merge하지 않았습니다.
 
-## Commands
+## 실행한 명령
 
-- `bun install --frozen-lockfile`: dependency reproducibility checked after generating lockfile.
-- `bun run check`: TypeScript strict typecheck and 11 tests / 46 assertions.
-- `bun run smoke`: 5 lifecycle tests, including all four gates and retry breaker.
-- `bun run build`: Bun CLI bundle generated successfully in ignored dist/.
-- `bun run harness doctor`: installed dependencies checked successfully.
-- Skill creator quick validation: SKILL.md frontmatter passed.
+- `bun install --frozen-lockfile`: lockfile 생성 후 의존성을 동일하게 설치할 수 있는지 확인했습니다.
+- `bun run check`: TypeScript 엄격 타입 검사와 테스트 11개, 단언 46개가 통과했습니다.
+- `bun run smoke`: 네 차례의 승인 게이트와 재시도 차단을 포함한 단계 테스트 5개가 통과했습니다.
+- `bun run build`: Bun CLI 번들을 Git 추적에서 제외된 `dist/`에 생성했습니다.
+- `bun run harness doctor`: 설치된 의존성을 확인했습니다.
+- Skill creator 빠른 검사: `SKILL.md` frontmatter 검사를 통과했습니다.
 
-Tests cover illegal phase transitions, human decision requirements, artifact changes,
-source fingerprinting, worktree isolation, locks and symlink escapes.
-The adapter integration test uses a simulated CLI with the installed response shapes;
-it checks Task/Dispatch/Gate persistence, completion and unsupported upgrade rejection.
-Actual installed app source was inspected for dispatch and terminal result schemas and
-JSON-string message payloads. Tests reject stale IDs, prose PASS and unrelated messages.
-Live runtime smoke created task `task_adac4e528637` and gate `gate_d8f56511de69`, resolved
-the test gate, and completed the coordinator-owned metadata task. No worker was dispatched
-for that smoke, and no actual human approval was represented. No global state was reset.
+테스트에서는 허용되지 않은 단계 전환, 사용자 결정 요구, 산출물 변경, 소스 지문, worktree 격리,
+잠금, 심볼릭 링크를 통한 경로 이탈을 확인했습니다.
+어댑터 통합 테스트는 설치본과 같은 응답 형식을 내는 모의 CLI를 사용합니다. Task·Dispatch·Gate 상태 보존,
+완료 처리, 지원하지 않는 업그레이드 거부를 확인했습니다. 설치된 앱 소스에서 dispatch와 터미널 결과 schema,
+JSON 문자열 메시지 payload 형식도 확인했습니다. 오래된 ID, 본문에만 적힌 `PASS`, 관련 없는 메시지는
+테스트에서 거부합니다.
 
-## Limits
+실제 런타임 smoke 검사에서는 Task `task_adac4e528637`와 Gate `gate_d8f56511de69`를 만들고 테스트 게이트를
+해결한 뒤 코디네이터 소유 메타데이터 Task를 완료했습니다. 이 검사에서는 워커를 배정하지 않았고 실제
+사용자 승인을 표현하지도 않았습니다. 전역 상태를 초기화하지 않았습니다.
 
-This repository has no web UI, so browser execution for the harness change is not applicable.
-The delivered workflow requires real browser QA for future UI features. No paid Claude/
-Codex worker was launched end-to-end. Hooks and state checks enforce a cooperative local
-protocol, not an OS sandbox or authenticated human-identity boundary. External tool
-permissions and real evidence review remain necessary. See OPERATIONS.md for exact usage.
+## 검증 범위
+
+이 저장소에는 웹 UI가 없어 이번 하네스 변경에는 브라우저 실행이 해당하지 않습니다.
+앞으로 UI 기능을 개발할 때는 제공된 workflow에 따라 실제 브라우저 QA를 수행해야 합니다.
+유료 Claude·Codex 워커의 전체 흐름은 실행하지 않았습니다. Hook과 상태 검사는 협업을 위한 로컬
+운영 규약을 강제하지만 OS sandbox나 인증된 사용자 식별 경계는 아닙니다. 외부 도구 권한 관리와
+실제 근거 검토는 계속 필요합니다. 정확한 사용법은 `OPERATIONS.md`에서 확인합니다.

@@ -82,7 +82,7 @@ bun run harness complete brainstorm docs/development/invite-team/01-brainstorm.m
 사용자가 산출물을 검토한 뒤 자신의 터미널에서 승인합니다. 에이전트가 승인을 만들어 기록하면 안 됩니다.
 
 ```bash
-bun run harness decide approve 'Product approved in message 12'
+bun run harness decide approve '대화 12번 메시지에서 제품 기획 승인'
 # 수정 요청은 revise, 취소는 cancel입니다. 각각 실제 결정 근거를 함께 적습니다.
 ```
 
@@ -99,7 +99,7 @@ bun run harness decide approve 'Product approved in message 12'
 
 ```bash
 git add docs/development
-git commit -m 'docs: approve implementation and QA plan'
+git commit -m 'docs: 구현과 QA 계획 승인'
 bun run harness worktree /absolute/feature/checkout feature/invite-team
 cd /absolute/feature/checkout
 bun install --frozen-lockfile
@@ -178,7 +178,7 @@ bun run harness complete verification docs/development/invite-team/verification.
 
 ```bash
 # 사용자가 변경 내용, QA 결과, 검증 근거를 검토한 뒤 승인합니다.
-bun run harness decide approve 'Final UAT accepted; retain branch'
+bun run harness decide approve '최종 UAT 승인, 브랜치 유지'
 ```
 
 ### 9. 브랜치 마무리
