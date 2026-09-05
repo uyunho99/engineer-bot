@@ -1,0 +1,43 @@
+import { test, expect } from "bun:test";
+import { initial, complete, decide, retry } from "./harness.ts";
+test("mandatory gates cannot be skipped or completed as work", () => {
+ let s = initial("test");
+ expect(() => decide(s, "approve", "user")).toThrow();
+ s = complete(s, "brainstorm", "digest", "PASS");
+ expect(s.phase).toBe("product-gate");
+ expect(() => complete(s, "product-gate", "digest", "PASS")).toThrow();
+ expect(() => complete(s, "design", "digest", "PASS")).toThrow();
+ expect(decide(s, "approve", "user message 1").phase).toBe("design");
+ expect(decide(s, "revise", "user message 2").phase).toBe("brainstorm");
+ expect(decide(s, "cancel", "user message 3").phase).toBe("cancelled");
+});
+test("full flow requires review QA verification and explicit UAT", () => {
+ let s = initial("test");
+ for (const p of ["brainstorm", "design", "plan"]) {
+  s=complete(s,p,"digest","PASS"); s=decide(s,"approve","human");
+ }
+ for (const p of ["worktree","build","review","browser-qa","verification"]) s=complete(s,p,"digest","PASS");
+ expect(s.phase).toBe("uat-gate");
+ expect(() => complete(s,"finish","digest","PASS")).toThrow();
+ s=decide(s,"approve","human");
+ expect(complete(s,"finish","digest","PASS").phase).toBe("done");
+});
+test("failed QA returns to build and invalidates later evidence", () => {
+ let s=initial("test"); s.phase="browser-qa";
+ expect(() => complete(s,"browser-qa","digest","FAIL")).toThrow();
+ s.evidence.review="old"; s.evidence.verification="stale";
+ s=retry(s,"regression");
+ expect(s.phase).toBe("build"); expect(s.evidence.review).toBeUndefined();
+ expect(s.evidence.verification).toBeUndefined();
+});
+test("empty approval and evidence cannot advance", () => {
+ expect(() => complete(initial("test"),"brainstorm","","PASS")).toThrow();
+ const s=complete(initial("test"),"brainstorm","digest","PASS");
+ expect(() => decide(s,"approve","")).toThrow();
+});
+
+test("fix circuit breaker stops a fourth automatic retry",()=>{
+ let s=initial("test");s.phase="build";
+ for(let i=0;i<3;i++)s=retry(s,"finding");
+ expect(()=>retry(s,"again")).toThrow("Three fix rounds");
+});
