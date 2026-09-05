@@ -6,13 +6,12 @@
     "moduleResolution": "bundler",
     "types": ["bun"],
     "strict": true,
-    "noUncheckedIndexedAccess": false,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["controller/**/*.ts", "*.ts"]
+  "include": ["src/**/*.ts"]
 }

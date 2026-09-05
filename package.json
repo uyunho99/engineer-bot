@@ -1,13 +1,15 @@
 {
   "name": "engineer-bot",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "planner-bot · builder-bot 하네스 — 의존성 0 (bun 런타임 내장 API만 사용)",
   "type": "module",
+  "description": "Orca 단일 scheduler 기반 Claude Code · Codex 자동 개발팀",
   "scripts": {
-    "test": "bun test",
+    "test": "bun test src",
     "typecheck": "tsc --noEmit",
-    "check": "bun run typecheck && bun test && ./bootstrap.sh check"
+    "check": "bun run typecheck && bun test src",
+    "plan": "bun run src/cli.ts plan --dry-run",
+    "smoke": "bun run src/cli.ts smoke --dry-run"
   },
   "devDependencies": {
     "@types/bun": "^1.3.0",

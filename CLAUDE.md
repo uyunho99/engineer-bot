@@ -1,86 +1,9 @@
-# engineer-bot
+# engineer-bot v2 정책
 
-planner-bot · builder-bot 하네스 레포. 명세는 [planner-builder-bot-spec.md](planner-builder-bot-spec.md),
-명세와 업스트림의 충돌 처리는 [AMENDMENTS.md](AMENDMENTS.md), 구축 순서는 [BUILD-PLAN.md](BUILD-PLAN.md).
+이 저장소는 Orca 단일 scheduler 기반 자동 개발팀의 coordinator입니다.
 
-**이 레포는 봇의 하네스다. 봇이 빌드하는 제품 코드가 아니다.** 여기서 작업할 때는 컨트롤러·오버레이·계약을 다룬다.
+저장소 변경 요청은 구현 전에 `claude-lead-router` skill을 거칩니다. Orca orchestration만 worker lifecycle과 scheduler를 소유합니다. Superpowers와 gstack의 내부 subagent spawning, native/background/generic subagent spawning은 사용하지 않습니다.
 
-## Skill routing
+Claude Lead는 기획·DAG·게이트만 맡으며 코드 수정은 하지 않습니다. Codex만 배정된 경로에서 구현·수정합니다. Claude reviewer/QA/final verifier는 `WRITE AUTHORITY: none`이며 소스를 수정하지 않습니다. 완료는 injected Orca preamble의 `taskId`와 `dispatchId`가 있는 `worker_done`만 인정합니다.
 
-> ⚠️ **이 섹션은 gstack이 자기 라우팅 블록을 삽입하지 않도록 선점한 것이다** (AMENDMENTS.md B3).
-> `plan-ceo-review`는 `grep -q "## Skill routing" CLAUDE.md` 로만 판정하고 내용은 보지 않는다.
-> **헤딩 문자열 `## Skill routing` 을 바꾸지 마라.** 바꾸면 gstack이 자기 테이블을 덧붙이고
-> 라우팅 소유권(명세 P6)이 깨진다.
-
-라우팅 소유권은 이 테이블 하나에 있다. gstack·superpowers의 자체 라우팅 지침은 따르지 않는다.
-
-### 기획 라우팅 — dispatcher 규칙 (명세 §3.3)
-
-판정은 **파일 존재 여부**로만 한다. LLM 판단 라우팅을 쓰지 않는다.
-
-```
-IF   docs/plans/<branch-slug>/design-doc.md 존재
-THEN 기획 스킬 발화 금지 → superpowers:writing-plans 직행
-ELSE 신규 기획 요청 → superpowers:brainstorming   (/office-hours 사용 안 함)
-```
-
-> **2026-09-03 변경** — 원 명세 §3.3은 반대였다 (`/office-hours`로 보내고 brainstorming 금지).
-> 근거와 대가는 [AMENDMENTS.md](AMENDMENTS.md) A14. 요약: 이 팀의 실제 작업이 "0에서 제품을
-> 발굴"이 아니라 "이미 있는 아이디어를 설계로" 쪽이고, brainstorming의 **경로 분류
-> (spike/bounded/architectural)** 와 **접근안 2~3개 제시**가 그 형태에 맞는다.
-
-브랜치 슬러그는 현재 브랜치의 `/`를 `-`로 바꾼 값이다 (`feature/foo` → `feature-foo`).
-확인: `bun controller/paths.ts` 또는 `bin/paths`.
-
-### 단계별 스킬
-
-| 요청 | 스킬 | 비고 |
-|---|---|---|
-| 신규 기능 기획 시작 | `superpowers:brainstorming` | 산출을 `docs/plans/<slug>/design-doc.md`에 직접 쓴다 (materialize 불필요). 필수 섹션은 명세 §4.2 |
-| 설계 차원 검토 | `/plan-design-review` | UI/UX가 있는 플랜용. 0~10 평가 후 **플랜을 직접 고친다** — 게이트 ① 앞이고 대화형이므로 하드룰 #2와 충돌하지 않는다 |
-| 아키텍처 검토 | `/plan-eng-review` | 입력 = gstack glob 탐색. `bin/setup-paths.sh` 선행 필요 |
-| 태스크 분해 | `superpowers:writing-plans` | **[2축 태깅 오버레이](overlay/writing-plans-tagging.md) 필수 적용** |
-| 계획서 모순 검사 | `/preflight` | 게이트 ① **앞**에 돈다. 통과하지 않은 플랜은 `bin/builder`가 거부한다 (설계 D26) |
-| 플랜 실행 | `superpowers:subagent-driven-development` | builder-bot 전용. [오버레이](overlay/CLAUDE.builder.md) |
-| 버그·에러 조사 | `superpowers:systematic-debugging` | |
-| PR 생성 | `superpowers:finishing-a-development-branch` | **머지 금지 · discard 금지** |
-
-### 이 레포에서 쓰지 않는 스킬
-
-| 스킬 | 이유 |
-|---|---|
-| `/office-hours` | 0에서 제품을 발굴하는 소크라테스 문답. 이 팀의 실제 작업 형태와 안 맞는다 (2026-09-03 · A14) |
-| `/plan-ceo-review` | 스코프·전제 도전 층을 brainstorming의 질문·접근안 제시가 흡수한다 (2026-09-03 · A14). **아쉬우면 이 행만 되돌리면 된다** |
-| `/ship`, `/land-and-deploy` | 봇은 머지·배포하지 않는다 (명세 §8) |
-| `/qa`, `/design-review` | 명세 §7 Phase 2로 연기 |
-| `/autoplan` | 라우팅 소유권 충돌 — 개별 스킬을 명시 호출한다 |
-
-## 경로 계약 (명세 §4.1 · AMENDMENTS.md B1/B2)
-
-```
-docs/gstack/                              gstack 산출 (자유 명명, glob 탐색 유지)
-  {user}-{branch}-design-{ts}.md            ← ~/.gstack/projects/engineer-bot 심링크 대상
-docs/plans/<branch-slug>/                 계약 경로 (고정 명명)
-  design-doc.md                             materialize 결과. builder 입력
-  plan.md                                   writing-plans 산출 (2축 태그 포함)
-  discoveries.md                            builder 누적 — SDD 워크스페이스에 두지 않는다 (A5)
-  build-result.json                         builder 세션 외부 보고 (A6)
-```
-
-경로 상수의 단일 진실은 `controller/paths.ts`다. 하드코딩하지 마라.
-
-## 하드 룰
-
-1. **봇은 머지하지 않는다.** PR 생성까지다 (명세 §8). `gh pr merge`를 쓰지 마라.
-2. **플랜은 현장에서 고치지 않는다.** 결함 발견 → `REJECTED` 반송 (명세 §6.3 · AMENDMENTS.md A3).
-3. **서브에이전트 디스패치 시 모델을 항상 명시한다.** 생략하면 세션 모델(최상위)을 상속해 비용 정책이 무력화된다 (A4).
-4. **자유 텍스트 파싱 금지.** 경계는 파일 + JSON 스키마다. 파싱 실패는 성공이 아니라 `BLOCKED`다 (A6).
-5. **`git clean -fdx` 금지** — SDD 워크스페이스(ledger)가 날아간다. 복구는 `git log`뿐이다.
-
-## 개발
-
-```bash
-bun test                    # 컨트롤러 단위 테스트
-./bootstrap.sh check        # 환경 검증
-bin/setup-paths.sh          # gstack 경로 심링크 (멱등)
-```
+파괴적·외부 실행, 프로덕션, 마이그레이션, 보안·인증, 유료 실행, 사용자가 요구한 승인, circuit-breaker 뒤 재시도는 Orca 사람 게이트가 필수입니다.
