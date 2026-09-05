@@ -1,9 +1,10 @@
-# engineer-bot — Claude native
+# engineer-bot — Claude 네이티브
 
-For nontrivial software requests use `.claude/skills/development-harness-native/SKILL.md`.
-Main Claude coordinates native subagents. Product, design, combined implementation/QA
-plan, and final UAT gates are mandatory. Read `docs/OPERATIONS.md` for commands.
-No application edits before plan approval and isolated worktree. Reviewers only write
-reports. Do not bypass hooks or fabricate human decisions, command evidence or reviews.
-An explicit user instruction can adjust scope; record that decision rather than silently
-skipping gates. This branch has no Orca scheduler. Never finish directly from SDD.
+규모가 있는 소프트웨어 작업에는 `.claude/skills/development-harness-native/SKILL.md`를 사용합니다.
+Main Claude가 네이티브 하위 에이전트를 조율합니다. 제품, 설계, 구현·QA 통합 계획, 최종 UAT
+승인 게이트는 필수입니다. 명령어는 `docs/OPERATIONS.md`에서 확인합니다.
+
+계획 승인과 독립 worktree 준비 전에는 애플리케이션 코드를 수정하지 않습니다. 리뷰 담당은 보고서만
+작성합니다. Hook을 우회하거나 사용자 결정, 명령 실행 근거, 리뷰 결과를 만들어내면 안 됩니다.
+사용자가 범위를 명시적으로 바꾸면 그 결정을 기록하고 진행합니다. 승인 게이트를 조용히 생략하지 않습니다.
+이 브랜치에는 Orca 스케줄러가 없습니다. SDD가 끝났다는 이유만으로 전체 실행을 완료하지 않습니다.

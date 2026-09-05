@@ -69,8 +69,8 @@ bun run harness status
 # 담당 Claude가 기획 문서를 작성한 뒤 실행합니다.
 bun run harness complete brainstorm docs/development/invite-team/01-brainstorm.md
 # 사용자가 문서를 검토한 뒤 직접 실행합니다. 마지막 인수는 실제 승인 근거입니다.
-bun run harness decide approve 'Reviewed product, conversation message 12'
-# 수정 요청은 decide revise 'Change the scope', 취소는 decide cancel 'Cancel this feature'입니다.
+bun run harness decide approve '대화 12번 메시지에서 제품 기획 승인'
+# 수정 요청은 decide revise '초대 범위 수정', 취소는 decide cancel '이 기능 개발 취소'입니다.
 ```
 
 ### 2. 설계·계획 승인
@@ -90,7 +90,7 @@ bun run harness decide approve 'Reviewed product, conversation message 12'
 
 ```bash
 git add docs/development
-git commit -m 'docs: approve feature plan'
+git commit -m 'docs: 기능 계획 승인'
 bun run harness worktree /absolute/new/checkout feature/invite-team
 cd /absolute/new/checkout
 bun install --frozen-lockfile
@@ -131,7 +131,7 @@ bun run harness complete verification docs/development/invite-team/verification.
 
 ```bash
 # 사용자가 변경 내용, 브라우저 근거, 테스트 결과를 검토한 뒤 승인합니다.
-bun run harness decide approve 'UAT accepted in message 42; keep branch'
+bun run harness decide approve '대화 42번 메시지에서 UAT 승인, 브랜치 유지'
 ```
 
 ### 9. 브랜치 마무리

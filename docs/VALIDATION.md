@@ -1,28 +1,28 @@
-# Validation — 2026-09-05
+# 검증 기록 — 2026-09-05
 
-Base: `b64004c` (existing `orca-autonomous-v2`). The original checkout remains unchanged.
-Both variants were created as independent Git worktrees from that same commit; no merge.
+기준 커밋은 기존 `orca-autonomous-v2`의 `b64004c`입니다. 원래 체크아웃은 변경하지 않았습니다.
+두 변형은 같은 커밋에서 독립된 Git worktree로 만들었으며 서로 merge하지 않았습니다.
 
-## Commands
+## 실행한 명령
 
-- `bun install --frozen-lockfile`: dependency reproducibility checked after generating lockfile.
-- `bun run check`: TypeScript strict typecheck and 8 tests / 53 assertions.
-- `bun run smoke`: 5 lifecycle tests, including all four gates and retry breaker.
-- `bun run build`: Bun CLI bundle generated successfully in ignored dist/.
-- `bun run harness doctor`: installed dependencies checked successfully.
-- Skill creator quick validation: SKILL.md frontmatter passed.
+- `bun install --frozen-lockfile`: lockfile 생성 후 의존성을 동일하게 설치할 수 있는지 확인했습니다.
+- `bun run check`: TypeScript 엄격 타입 검사와 테스트 8개, 단언 53개가 통과했습니다.
+- `bun run smoke`: 네 차례의 승인 게이트와 재시도 차단을 포함한 단계 테스트 5개가 통과했습니다.
+- `bun run build`: Bun CLI 번들을 Git 추적에서 제외된 `dist/`에 생성했습니다.
+- `bun run harness doctor`: 설치된 의존성을 확인했습니다.
+- Skill creator 빠른 검사: `SKILL.md` frontmatter 검사를 통과했습니다.
 
-Tests cover illegal phase transitions, human decision requirements, artifact changes,
-source fingerprinting, worktree isolation, locks and symlink escapes.
-The CLI integration test exercises planning → approvals → worktree → build → review →
-QA → verification → UAT → finish with explicit test fixtures, and rejects the old
-ungated execute path. This is a deterministic harness test, not a model-developed feature.
-Project-scoped codex-plugin-cc installation succeeded; no model call or login was performed.
+테스트에서는 허용되지 않은 단계 전환, 사용자 결정 요구, 산출물 변경, 소스 지문, worktree 격리,
+잠금, 심볼릭 링크를 통한 경로 이탈을 확인했습니다.
+CLI 통합 테스트는 명시적인 fixture로 기획 → 승인 → worktree → 구현 → 리뷰 → QA → 검증 →
+UAT → 완료 흐름을 실행합니다. 승인 없이 실행하는 기존 경로도 거부하는지 확인했습니다.
+이는 결정적으로 재현되는 하네스 테스트이며 모델이 실제 기능을 개발한 결과는 아닙니다.
+프로젝트 범위의 codex-plugin-cc 설치는 성공했습니다. 모델 호출과 로그인은 수행하지 않았습니다.
 
-## Limits
+## 검증 범위
 
-This repository has no web UI, so browser execution for the harness change is not applicable.
-The delivered workflow requires real browser QA for future UI features. No paid Claude/
-Codex worker was launched end-to-end. Hooks and state checks enforce a cooperative local
-protocol, not an OS sandbox or authenticated human-identity boundary. External tool
-permissions and real evidence review remain necessary. See OPERATIONS.md for exact usage.
+이 저장소에는 웹 UI가 없어 이번 하네스 변경에는 브라우저 실행이 해당하지 않습니다.
+앞으로 UI 기능을 개발할 때는 제공된 workflow에 따라 실제 브라우저 QA를 수행해야 합니다.
+유료 Claude·Codex 워커의 전체 흐름은 실행하지 않았습니다. Hook과 상태 검사는 협업을 위한 로컬
+운영 규약을 강제하지만 OS sandbox나 인증된 사용자 식별 경계는 아닙니다. 외부 도구 권한 관리와
+실제 근거 검토는 계속 필요합니다. 정확한 사용법은 `OPERATIONS.md`에서 확인합니다.

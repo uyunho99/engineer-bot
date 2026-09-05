@@ -1,56 +1,56 @@
 ---
 name: development-harness-native
-description: Run nontrivial development through brainstorm, product/design/plan approvals, isolated TDD, independent review, browser QA, verification and final UAT in Claude Code.
+description: 규모가 있는 개발 요청을 기획, 제품·설계·계획 승인, 격리된 TDD, 독립 리뷰, 브라우저 QA, 검증, 최종 UAT 순서로 진행하는 Claude Code 네이티브 하네스입니다.
 ---
 
-# Native development lead
+# 네이티브 개발 책임자
 
-Read `docs/OPERATIONS.md` and `harness.config.json`. Run `bun run harness doctor`.
-Main Claude owns the lifecycle and human conversation. Resume `bun run harness status`
-before creating a run. Use `bun run harness init <feature-slug>` for a new request.
-Do not edit `.harness/state.json` directly or infer approval from silence.
+`docs/OPERATIONS.md`와 `harness.config.json`을 읽고 `bun run harness doctor`를 실행합니다.
+Main Claude가 전체 단계와 사용자 대화를 맡습니다. 새 실행을 만들기 전에 `bun run harness status`로
+진행 중인 실행을 확인합니다. 새 요청은 `bun run harness init <feature-slug>`로 시작합니다.
+`.harness/state.json`을 직접 수정하거나 사용자의 침묵을 승인으로 해석하면 안 됩니다.
 
-1. Read the installed `superpowers:brainstorming` skill. Write
-   `docs/development/<feature>/01-brainstorm.md`: problem, alternatives, acceptance,
-   exclusions, risks. Complete brainstorm through CLI, present the artifact and stop
-   at product gate. The human records approve/revise/cancel in their terminal.
-2. After approval, write `02-design.md`: behavior, architecture, data/API, permissions,
-   failure states, UI/responsive/accessibility where relevant. Apply installed gstack
-   `plan-design-review` for UI. A non-UI task still records its design and explicit UI
-   non-applicability. Complete design; stop at design gate.
-3. Use `superpowers:writing-plans` and gstack `plan-eng-review`. Put implementation
-   AND QA plans in `03-plan.md` so one hash binds both. Include task IDs/dependencies,
-   file ownership, exact commands, RED/GREEN expectations, review and browser scenarios,
-   acceptance mapping, test URL/start command or justified non-UI QA, rollback.
-   Complete plan; stop at plan gate. Do not create application workers yet.
-4. Commit approved planning artifacts. Use `superpowers:using-git-worktrees` and
-   `bun run harness worktree /absolute/path feature/name`. Continue Claude in that
-   checkout; install dependencies and run baseline checks. Never reuse another run's state.
-5. Read installed `superpowers:subagent-driven-development` and TDD. Dispatch a fresh
-   Claude implementer per task with explicit owned files, plan excerpt and acceptance.
-   They are not alone: never revert another worker's changes. Use native Agent tool;
-   no nested spawning. Capture failing assertion before implementation, then GREEN,
-   refactor and rerun. Review spec and quality independently after EACH task.
-   Hold overlapping tasks sequentially. Record task/review IDs and commands in build report.
-6. Whole-branch gstack `review` plus independent Claude review. For Codex second opinion,
-   invoke installed `codex:codex-rescue` with explicit read-only scope, current cwd,
-   exact base/ref, `--wait --fresh`; this is a diagnosis/second pass, not `/codex:review`.
-   Confirm actual result, never accept the wrapper's empty output as success.
-   `/codex:review --wait --base <ref>` is user-invoked: its skill disables model invocation.
-7. Apply gstack `qa-only` against the real test URL and approved browser scenarios.
-   Reviewer writes reports only. A failure uses `harness retry <findings>` and a scoped
-   TDD fixer, then repeat review, browser QA and verification. After three fix rounds,
-   stop with evidence and request a revised plan; do not declare PASS.
-8. Use `superpowers:verification-before-completion`, run `bun run evidence`, inspect
-   output, complete verification. Show diff, QA report, fresh checks and remaining risks
-   at final UAT. Reject/revise returns to build. User records the final approval.
-9. Use `superpowers:finishing-a-development-branch` only AFTER UAT. Default is keep branch.
-   Commit deliverables and pass verification report to `complete finish`. Merge/push/PR/
-   deployment require the user's explicit requested action; UAT alone is not that action.
+1. 설치된 `superpowers:brainstorming` 스킬을 읽습니다. 문제, 대안, 수용 기준, 제외 범위, 위험을
+   `docs/development/<feature>/01-brainstorm.md`에 작성합니다. CLI로 기획 단계를 완료하고 산출물을
+   사용자에게 제시한 뒤 제품 승인 게이트에서 멈춥니다. 사용자가 자신의 터미널에서
+   `approve`, `revise`, `cancel` 중 하나를 기록합니다.
+2. 제품 승인 후 `02-design.md`에 동작, 구조, 데이터와 API, 권한, 실패 상태를 작성합니다.
+   필요한 경우 UI 상태, 반응형 동작, 접근성도 포함합니다. UI가 있으면 설치된 gstack의
+   `plan-design-review`를 적용합니다. UI가 없는 작업도 설계를 기록하고 UI가 해당하지 않는 이유를
+   명시합니다. 설계 단계를 완료한 뒤 설계 승인 게이트에서 멈춥니다.
+3. `superpowers:writing-plans`와 gstack `plan-eng-review`를 사용합니다. 구현 계획과 QA 계획을
+   `03-plan.md` 하나에 작성해 같은 해시로 승인받습니다. Task ID와 의존 관계, 파일 소유권, 정확한 명령,
+   RED/GREEN 예상 결과, 리뷰·브라우저 시나리오, 수용 기준 연결, 테스트 URL과 시작 명령 또는
+   UI가 없는 이유, 되돌리기 방법을 포함합니다. 계획 단계를 완료하고 계획 승인 게이트에서 멈춥니다.
+   이 시점에는 구현 에이전트를 만들지 않습니다.
+4. 승인된 기획 자료를 커밋합니다. `superpowers:using-git-worktrees`와
+   `bun run harness worktree /absolute/path feature/name`으로 worktree를 만듭니다. 새 체크아웃에서
+   Claude를 이어 실행하고 의존성을 설치한 뒤 기준 검사를 수행합니다. 다른 실행의 상태를 재사용하지 않습니다.
+5. 설치된 `superpowers:subagent-driven-development`와 TDD 지침을 읽습니다. 각 Task마다 새 Claude
+   구현 담당을 배정하고, 담당 파일·계획 발췌·수용 기준을 명시합니다. 다른 작업자도 같은 코드베이스에서
+   작업하므로 타인의 변경을 되돌리지 않습니다. 네이티브 Agent 도구를 사용하며 중첩 에이전트를 만들지
+   않습니다. 구현 전 실패하는 단언을 기록하고, GREEN 상태를 만든 뒤 리팩터링하고 다시 실행합니다.
+   **각 Task가 끝날 때마다** 명세 준수와 코드 품질을 독립적으로 리뷰합니다. 경로가 겹치는 Task는
+   순차 처리합니다. Task·리뷰 ID와 실행 명령을 구현 보고서에 기록합니다.
+6. 전체 브랜치에 gstack `review`와 독립 Claude 리뷰를 실행합니다. Codex의 두 번째 의견이 필요하면
+   설치된 `codex:codex-rescue`를 정확한 기준 ref, 현재 작업 경로, 읽기 전용 범위와 함께
+   `--wait --fresh`로 실행합니다. 이는 `/codex:review`가 아니라 진단·재검토 단계입니다.
+   실제 결과를 확인하고 wrapper의 빈 출력을 성공으로 인정하지 않습니다.
+   `/codex:review --wait --base <ref>`는 모델 호출이 비활성화된 사용자 직접 실행 명령입니다.
+7. 실제 테스트 URL과 승인된 브라우저 시나리오에 gstack `qa-only`를 적용합니다. 리뷰 담당은 보고서만
+   작성합니다. 실패하면 `harness retry <findings>`로 구현 단계로 돌아가 범위가 정해진 TDD 수정 담당을
+   배정합니다. 이후 리뷰, 브라우저 QA, 검증을 다시 수행합니다. 수정 시도가 세 차례 실패하면 근거와 함께
+   중단하고 계획 수정을 요청합니다. `PASS`로 선언하면 안 됩니다.
+8. `superpowers:verification-before-completion`을 사용하고 `bun run evidence`를 실행합니다. 출력을
+   직접 확인한 뒤 검증 단계를 완료합니다. 최종 UAT에서 diff, QA 보고서, 최신 검사 결과, 남은 위험을
+   제시합니다. 거절이나 수정 요청은 구현 단계로 돌아갑니다. 사용자가 최종 승인을 기록합니다.
+9. UAT 승인 **후에만** `superpowers:finishing-a-development-branch`를 사용합니다. 기본 동작은 브랜치
+   유지입니다. 산출물을 커밋하고 검증 보고서로 `complete finish`를 실행합니다. Merge, push, PR 생성,
+   배포는 사용자가 해당 행동을 명시적으로 요청해야 합니다. UAT 승인만으로 이 권한이 생기지 않습니다.
 
-Do not let Superpowers automatically finish immediately after SDD: this harness's QA,
-verification and UAT remain. Do not put a human gate inside a background workflow.
-No Dynamic Workflows feature is required. Keep all gates in Main Claude.
+SDD가 끝났더라도 Superpowers가 즉시 전체 실행을 완료하게 두지 않습니다. 이 하네스의 QA, 검증,
+UAT가 남아 있습니다. 사용자 승인 게이트를 백그라운드 workflow 안에 넣지 않습니다.
+Dynamic Workflows 기능은 필요하지 않습니다. 모든 사용자 승인 게이트는 Main Claude가 맡습니다.
 
-Use the local gstack skill files, checking their frontmatter names; do not assume
-`gstack-` aliases exist. `/codex` from gstack is not codex-plugin-cc.
+로컬 gstack 스킬의 frontmatter에서 실제 이름을 확인합니다. `gstack-` 접두사가 붙은 별칭이 있다고
+가정하지 않습니다. gstack의 `/codex`는 codex-plugin-cc가 아닙니다.
