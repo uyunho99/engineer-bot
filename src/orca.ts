@@ -1,4 +1,4 @@
-import { ConfigurationError, type OrcaCommand, type TaskSpec } from "./contracts.ts";
+import { ConfigurationError, type OrcaCommand, type TaskSpec, type WorkerHandles } from "./contracts.ts";
 import { workerPrompt } from "./dag.ts";
 
 export function taskCreateCommand(spec: TaskSpec, taskIds: Map<string, string>): OrcaCommand {
@@ -36,4 +36,19 @@ export function dispatchCommand(taskId: string, terminal: string): OrcaCommand {
 
 export function waitCommand(): OrcaCommand {
   return { args: ["orchestration", "check", "--wait", "--types", "worker_done,escalation,decision_gate", "--timeout-ms", "60000", "--json"], purpose: "워커 lifecycle 대기" };
+}
+
+export async function resolveNamedWorkerHandles(): Promise<WorkerHandles> {
+  const child = Bun.spawn(["orca", "terminal", "list", "--json"], { stdout: "pipe", stderr: "pipe" });
+  const stdout = await new Response(child.stdout).text();
+  const stderr = await new Response(child.stderr).text();
+  if ((await child.exited) !== 0) throw new ConfigurationError(`Orca terminal 목록 확인 실패: ${stderr || stdout}`);
+  const value = JSON.parse(stdout) as { result?: { terminals?: Array<{ handle: string; title: string; worktreePath: string }> } };
+  const terminals = value.result?.terminals?.filter((terminal) => terminal.worktreePath === process.cwd()) ?? [];
+  const handle = (title: string): string => {
+    const found = terminals.find((terminal) => terminal.title === title)?.handle;
+    if (!found) throw new ConfigurationError(`현재 workspace에 '${title}' 터미널이 없습니다. Orca 화면에서 역할 터미널을 먼저 준비하세요.`);
+    return found;
+  };
+  return { lead: handle("Claude Lead"), codex: handle("Codex Implementer"), reviewer: handle("Claude Review and QA") };
 }

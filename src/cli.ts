@@ -1,6 +1,6 @@
 import { buildDeliveryPlan } from "./dag.ts";
 import { renderDryRun } from "./coordinator.ts";
-import { requireRunningRuntime } from "./orca.ts";
+import { requireRunningRuntime, resolveNamedWorkerHandles } from "./orca.ts";
 import { classify } from "./router.ts";
 import { runDelivery } from "./run.ts";
 
@@ -17,10 +17,10 @@ async function plan(): Promise<void> {
   console.log(renderDryRun(delivery));
   if (!executeMode) return;
   await requireRunningRuntime();
-  const lead = valueAfter("--lead");
-  const codex = valueAfter("--codex");
-  const reviewer = valueAfter("--reviewer");
-  if (!lead || !codex || !reviewer) throw new Error("실행에는 --lead, --codex, --reviewer Orca terminal handle이 모두 필요합니다.");
+  const discovered = await resolveNamedWorkerHandles();
+  const lead = valueAfter("--lead") ?? discovered.lead;
+  const codex = valueAfter("--codex") ?? discovered.codex;
+  const reviewer = valueAfter("--reviewer") ?? discovered.reviewer;
   console.log("Orca 태스크 생성·injected dispatch·review/fix/QA lifecycle을 시작합니다.");
   await runDelivery(delivery, { lead, codex, reviewer });
   console.log("최종 검증 PASS: 자동 delivery loop가 완료됐습니다.");
