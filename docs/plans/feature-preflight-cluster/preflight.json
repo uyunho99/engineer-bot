@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "branch": "feature/preflight-cluster",
-  "plan_sha256": "67d3624901d31b0c3bb5c320fc8a7bce55e6209e9647032815592c516823e792",
+  "plan_sha256": "6d421c680c7563bf7c96ad5e9f028f3e1538d16c8191f2f48f2b6af6ee9bf844",
   "scope": "interface-graph+file-overlap",
   "verdict": "REJECTED",
   "relations": {
@@ -33,7 +33,7 @@
       "task_ids": [
         "2"
       ],
-      "result": "clean"
+      "result": "defect"
     },
     {
       "kind": "relation",
@@ -51,7 +51,7 @@
         "2",
         "3"
       ],
-      "result": "clean"
+      "result": "defect"
     },
     {
       "kind": "relation",
@@ -114,7 +114,7 @@
         "5",
         "7"
       ],
-      "result": "clean"
+      "result": "defect"
     },
     {
       "kind": "relation",
@@ -123,7 +123,7 @@
         "6",
         "7"
       ],
-      "result": "defect"
+      "result": "clean"
     },
     {
       "kind": "relation",
@@ -141,7 +141,7 @@
         "5",
         "8"
       ],
-      "result": "clean"
+      "result": "defect"
     },
     {
       "kind": "relation",
@@ -172,18 +172,38 @@
       "id": "critic-4",
       "kind": "undeclared_conflict",
       "task_ids": [
-        "6",
+        "5",
+        "7",
+        "8"
+      ],
+      "stage": 2,
+      "relation": "ExaminedRawUnit.label / ExaminedUnit.label",
+      "plan_text": "Task 8 Step 3: \"라벨 대조는 하지 마라 — 워크플로우는 단위를 `cluster:${c.file}` 로 라벨링하고 `ExaminedUnit.label` 은 맨 `c.file` 이라 접두사가 다르다. **그 접두사를 떼는 것은 이 태스크의 범위가 아니다**\" / Task 5 Step 3: \"접두사 파싱으로 우회하지 마라 (하드룰 #4)\" / Task 7: \"`units_examined` 에 넣는 값이 `{ kind, label }` 객체다 — 세 단계 모두 (DC6)\"",
+      "conflict": "Task 5 는 DC6·하드룰 #4 를 근거로 종류를 `kind` 라는 구조 필드로 끌어올려 접두사 파싱을 금지하는데, Task 7 은 같은 정보를 `label` 접두사(`cluster:`, `sig:`)와 결함 `id` 접두사(`\"${unit}-<번호>\"`)로 되돌려 넣는다. 그 불일치 때문에 Task 8 은 라벨 대조를 포기하고 **개수 비교로만** 축소되며, 접두사 제거를 명시적으로 자기 범위 밖으로 밀어낸다. 결과적으로 워크플로우가 실제로 본 단위와 `assembleResult` 가 `plan.md` 에서 다시 계산한 클러스터의 **동일성**을 검증하는 곳이 플랜 전체에 없다 — 개수만 맞으면(예: 워크플로우가 `cluster:controller/contract.ts` 를 보고 플랜의 클러스터는 `controller/preflight.ts` 인 경우) `verdict` 가 `CLEAN` 이 나고 `examined[]` 는 보지 않은 파일에 `result: \"clean\"` 을 쓴다. 이것은 Task 8 이 없애겠다고 선언한 거짓 보고가 라벨 축에 그대로 남는 것이고, 세 태스크 중 아무도 이 잔여 구멍의 소유자로 지정되지 않았다.",
+      "patch": {
+        "op": "insert_after",
+        "task_id": "8",
+        "anchor": "exit 0 과 cluster 행을 함께 단언). 그 테스트를 뒤집는 것이 이 태스크의 일부다.",
+        "text": "\n\n**추가 결함 — 개수만 맞으면 다른 것을 봐도 통과한다 (5회전 반송).** 위 예시는\n클러스터를 아예 못 띄운 경우고, 개수만 비교하면 **다른 클러스터를 봤어도**\n통과하는 경우를 놓친다: 워크플로우가 `cluster:controller/contract.ts` 를\n조사했는데 `plan.md` 를 다시 읽은 `assembleResult` 는 `controller/preflight.ts`\n클러스터를 기대하는 상황도 클러스터 수가 같으면(`1 === 1`) 통과해 `examined[]`\n에 안 본 `controller/preflight.ts` 를 `\"clean\"` 으로 적는다. 개수 비교로는 이\n경우를 잡지 못한다 — **이 태스크는 개수뿐 아니라 라벨의 동일성도 검증한다.**\n\n이 동일성 검증은 Task 5·7 의 라벨 형식과 맞물린다. Task 5 가 `kind` 를 구조\n필드로 끌어올린 이유(DC6·하드룰 #4)는 접두사 파싱을 없애기 위해서다. 그런데\nTask 7 은 워크플로우가 단위를 `cluster:${c.file}`·`sig:<id>` 로 라벨링하고\n결함 `id` 도 `\"${unit}-<번호>\"` 접두사를 쓰게 한다 — `kind` 가 이미 종류를\n말하는데 `label`·`id` 에 같은 정보를 접두사로 다시 넣는 것은 DC6 이 없애려던\n것과 같은 모양이고, 그 결과 아래 Step 3 초안이 \"라벨 형식이 다르니 대조하지\n않는다\"로 회피하게 만든다. **그 회피를 철회한다.** 아래 Step 3 의 \"순수\n개수 비교를 한다. 라벨 대조는 하지 마라 ... 그 접두사를 떼는 것은 이\n태스크의 범위가 아니다\" 지시는 무효다 — 대신:\n\n- **Task 7 은 `label` 에 접두사를 붙이지 않는다.** `kind` 가 이미\n  `\"cluster\"` / `\"signature\"` / `\"critic\"` 을 말하므로 `label` 은 Task 6 이\n  이미 요구한 대로 맨 파일 경로(클러스터 단위) 다. 결함 `id` 의\n  `\"${unit}-<번호>\"` 접두사도 마찬가지로 걷어낸다 — 출처는 Task 2 가 만든\n  `PreflightDefect.file?: string` 이 이미 구조적으로 담는다.\n- **이 태스크(`assembleResult`)는 개수뿐 아니라 동일성을 검증한다.**\n  `kind === \"cluster\"` 인 `units_examined` 의 `label` 집합과, `plan.md` 에서\n  다시 계산한 클러스터의 `file` 집합을 비교한다. 개수가 같아도 두 집합이\n  다르면(대칭차가 비지 않으면) 그 차집합이 `not_examined` 에 들어간다 —\n  자유 텍스트 파싱이 아니라 두 구조화된 문자열 집합의 대조이므로 하드룰 #4\n  를 위반하지 않는다.\n\n**테스트로 증명할 것 (추가):**\n- [ ] `units_examined` 의 클러스터 `label` 집합과 `clusters[].file` 집합의\n      원소 수가 같아도 내용이 다르면(예: 워크플로우가 `controller/contract.ts`\n      를 보고 플랜은 `controller/preflight.ts` 를 기대) `verdict` 가 `CLEAN`\n      이 아니고 두 집합의 차집합이 `not_examined` 에 들어간다 (5회전 반송 사유)\n- [ ] 라벨 집합과 파일 집합이 완전히 같으면 정상 경로대로 통과한다 —\n      동일성 검증이 정상 케이스를 벌하지 않는다"
+      }
+    },
+    {
+      "id": "critic-5",
+      "kind": "undeclared_conflict",
+      "task_ids": [
+        "2",
+        "3",
         "7"
       ],
       "stage": 2,
-      "plan_text": "Task 6: \"**`--plan` 출력에도 `warnings` 가 있다** — `oversizedClusterWarnings` 는 클러스터만으로 계산되므로 팬아웃 **전**에 낼 수 있다. 여기서 안 내면 경고가 팬아웃이 끝난 뒤에야 계산되어 파일 안에만 남는다\" / Task 6: \"**경고가 있으면 사람이 읽는 콘솔에 닿는다** — `--record` 판정 줄에 `· 경고 K건` 을 붙이고 … **콘솔이 경고가 사람에게 닿는 유일한 경로다.**\" / Task 7 의 증명 목록(워크플로우가 읽는 것은 `args.clusters` 뿐)",
-      "conflict": "Task 6 은 `--plan` 출력에 `warnings` 를 넣는 이유를 \"팬아웃 **전**에 사람에게 낼 수 있다\"로 적었지만, `--plan` 출력은 사람이 아니라 워크플로우가 먹는 JSON 이고, 사람이 읽는 콘솔 경로는 Task 6 이 스스로 `--record`(팬아웃 **후**)에만 못박았다. 팬아웃 전에 그 값을 사람에게 보여줄 수 있는 유일한 지점은 워크플로우의 `log()` 이고 그 파일을 고치는 태스크는 Task 7 인데, Task 7 의 증명 목록에는 `args.clusters` 를 읽는 요건만 있고 `warnings` 를 읽거나 로그하라는 요건이 전혀 없다. 두 태스크를 합쳐도 경고는 여전히 에이전트 수십 개가 다 돈 뒤에야 사람에게 닿는다 — Task 6 이 `--plan` 필드를 정당화한 근거가 성립하지 않고, 필드는 아무도 읽지 않는 죽은 값이 된다(Task 6 이 같은 플랜에서 `overlappingPairs` 죽은 코드를 금지한 것과 같은 모양이다). Task 6·7 어디에도 이 인계 지점이 선언되지 않았다.",
-      "relation": "--plan 출력의 warnings ↔ 워크플로우 args",
+      "relation": "PreflightDefect.file",
+      "plan_text": "Task 7: \"**클러스터 프롬프트가 `file` 을 그 클러스터의 파일로 채우라고 못박는다** (DC3 — 이 값이 없으면 Task 3 의 파일 필터가 갈라지지 않는다)\" / Task 2: \"**`file` 이 빈 문자열이면 거부한다**\" / Task 3: \"`kind: \"cluster\"` — 결함에 `file` 이 없으면 거르지 않는다. 과다 표시 쪽으로 안전하게 둔다\"",
+      "conflict": "`file` 의 두 실패 모드가 폭발 반경이 정반대인데, 그것을 구분해 지시하는 곳이 없다. Task 2 가 만드는 `checkDefectShape` 는 `file: \"\"` 를 거부하고 그 거부가 `checkPreflightRaw` 를 통해 raw 전체를 스키마 위반으로 만들어 실행을 BLOCKED 로 끝낸다(에이전트 수십 개의 산출 전부 폐기). 반대로 Task 3 은 `file` **누락**을 과다 표시 쪽으로 우아하게 흡수한다. 그런데 Task 7 이 유일한 방어선으로 세우는 프롬프트 문장은 두 경우를 한 문장(\"비워두거나 생략하지 마라\")으로 동등하게 취급해, LLM 이 필드를 빈 문자열로 채우는 흔한 실패가 전체 실행 중단으로 번진다. Task 7 은 `PreflightDefect`/`checkDefectShape` 를 Consumes 로도 선언하지 않아(Consumes 는 `ExaminedRawUnit`·`assembleResult` 뿐) 이 결합이 어느 쪽에도 드러나지 않고, 워크플로우 파일은 \"기계 검사가 0\" 이라 회귀 가드도 없다.",
       "patch": {
-        "op": "insert_after",
-        "task_id": "6",
-        "anchor": "- [ ] `args.clusters` 를 읽는다",
-        "text": "- [ ] **`args.warnings` 를 읽어, 클러스터 팬아웃 루프(`agent(` 호출들)에 들어가기 **전**에 `log()` 로 경고를 사람에게 찍는다** — 팬아웃 전에 사람에게 닿을 수 있는 유일한 지점이 이 워크플로우의 `log()` 다. Task 6 이 `--plan` 출력에 `warnings` 를 넣은 근거가 \"팬아웃 전에 사람에게 낼 수 있다\"인데, 그 값을 실제로 읽어 찍는 코드가 없으면 근거가 성립하지 않고 필드는 아무도 읽지 않는 죽은 값이 된다 (같은 플랜이 `overlappingPairs` 죽은 코드를 금지한 것과 같은 결함 모양). 경고가 0건이면 아무것도 찍지 않는다. `--record` 판정 줄의 `· 경고 K건` 및 `console.error` 출력(Task 6)은 팬아웃이 끝난 뒤의 별도 경로이므로 이 요건을 대신하지 못한다."
+        "op": "replace",
+        "task_id": "7",
+        "anchor": "      이 값이 없으면 Task 3 의 파일 필터가 갈라지지 않는다)",
+        "text": "      이 값이 없으면 Task 3 의 파일 필터가 갈라지지 않는다) — 단, 이 프롬프트 문장은\n      **최선편의일 뿐 방어선이 아니다.** `file: \"\"` 는 Task 2 의 `checkDefectShape` 가\n      거부하고 그 거부가 `checkPreflightRaw` 를 통해 raw 전체를 스키마 위반으로 만들어\n      실행을 BLOCKED 로 끝낸다(에이전트 수십 개의 산출 전부 폐기) — 반대로 `file` **누락**은\n      Task 3 이 과다 표시 쪽으로 우아하게 흡수한다(작은 폭발 반경). 폭발 반경이 정반대인\n      두 실패를 \"비워두거나 생략하지 마라\" 한 문장으로 동등하게 금지하면, LLM 이 빈\n      문자열을 채우는 흔한 실패가 안전한 쪽(누락)이 아니라 치명적인 쪽(`\"\"`)으로\n      떨어졌을 때 프롬프트 준수 실패 말고는 아무 방어도 없다.\n- [ ] **`file` 값은 LLM 출력에서 그대로 신뢰하지 않는다** — 클러스터 팬아웃의 `agent(...)\n      .then` 콜백에서, 파싱된 결과의 `defects[].file` 을 프롬프트가 보고한 값이 아니라\n      **스크립트가 이미 아는 `c.file` 로 결정적으로 덮어쓴다.** 이렇게 하면 LLM 이\n      무엇을 쓰든(빈 문자열·생략·오타) 최종 raw 에 들어가는 `file` 은 항상 유효한 값이고,\n      Task 2 의 엄격한 `\"\"` 거부와 Task 3 의 누락-관대 처리가 둘 다 그대로 유지되면서도\n      전체 실행 성공 여부가 프롬프트 준수에 의존하지 않는다. `file` 개념이 없는\n      sig·critic 프롬프트에는 이 덮어쓰기를 적용하지 않는다.\n- [ ] 소스 문자열 검사로 이 덮어쓰기의 존재를 증명한다 — 예: 클러스터 `.then` 블록\n      안에 `.file = c.file` (또는 동등한 대입) 패턴이 있다. 이 파일은 기계 검사가\n      0이므로(아래 주의) 이 증명이 이 결합에 대한 유일한 회귀 가드다.\n- [ ] **Interfaces 의 Consumes 에 `PreflightDefect`(Task 2)와 `checkDefectShape`\n      (Task 2)를 추가한다** — 이 태스크의 덮어쓰기 설계는 그 타입의 옵셔널 `file` 필드와\n      `checkDefectShape` 의 빈 문자열 거부 계약에 기대고 있는데, Consumes 가 지금은\n      `ExaminedRawUnit`·`assembleResult` 뿐이라 이 결합이 어느 쪽 Interfaces 에도\n      드러나지 않는다"
       }
     }
   ],
