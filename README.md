@@ -1,5 +1,10 @@
 # engineer-bot
 
+> **보관 브랜치 `legacy`** — 기존 planner/builder의 마지막 통합 상태입니다.
+> 현재 기본 브랜치는 `claude-only`이며, Orca 변형은 `orca-orchestration`입니다.
+> 2026-09-05 재검증: 타입 검사·테스트 399개·환경 검사 통과.
+> 선정 근거와 복구 태그는 [브랜치 보관 기록](docs/BRANCH_ARCHIVE.md)을 참고하세요.
+
 planner-bot · builder-bot 하네스. Slack 스레드에서 기획을 완성하고, 승인된 플랜을
 headless로 완주해 PR로 끝낸다.
 
