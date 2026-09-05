@@ -9,6 +9,8 @@ test("CLI blocks wrong phase, detects changed approved docs, and transfers an is
  try {
   git(root,"init");git(root,"config","user.email","test@example.invalid");git(root,"config","user.name","Test");
   writeFileSync(join(root,".gitignore"),".harness/\n");git(root,"add",".");git(root,"commit","-m","initial");
+  expect(cli("setup").exitCode).toBe(0);
+  expect(cli("configure",'[["bun","test"]]').exitCode).toBe(0);
   expect(cli("init","sample").exitCode).toBe(0);
   const dir=join(root,"docs/development/sample");
   writeFileSync(join(dir,"product.md"),"reviewable product");
@@ -21,8 +23,11 @@ test("CLI blocks wrong phase, detects changed approved docs, and transfers an is
    expect(cli("complete",phase,"docs/development/sample/product.md").exitCode).toBe(0);
    expect(cli("decide","approve","human reference").exitCode).toBe(0);
   }
+  writeFileSync(join(root,"harness.config.json"),JSON.stringify({mode:"claude-only",verificationCommands:[["echo","changed"]]}));
+  expect(cli("worktree",wt,"feature/sample").stderr.toString()).toContain("configuration changed");
+  writeFileSync(join(root,"harness.config.json"),JSON.stringify({version:1,mode:"claude-only",verificationCommands:[["bun","test"]]},null,2)+"\n");
   expect(cli("worktree",wt,"feature/sample").exitCode).toBe(1);
-  git(root,"add","docs");git(root,"commit","-m","plan");
+  git(root,"add","docs","harness.config.json");git(root,"commit","-m","plan");
   expect(cli("worktree",wt,"feature/sample").exitCode).toBe(0);
   expect(load(root).phase).toBe("transferred");expect(load(wt).phase).toBe("build");expect(load(wt).worktree).toBe(realpathSync(wt));
   expect(cli("plan","--execute").exitCode).toBe(1);

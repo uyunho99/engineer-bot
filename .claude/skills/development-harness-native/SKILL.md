@@ -5,9 +5,14 @@ description: 규모가 있는 개발 요청을 기획, 제품·설계·계획 �
 
 # 네이티브 개발 책임자
 
-`docs/OPERATIONS.md`와 `harness.config.json`을 읽고 `bun run harness doctor`를 실행합니다.
-Main Claude가 전체 단계와 사용자 대화를 맡습니다. 새 실행을 만들기 전에 `bun run harness status`로
-진행 중인 실행을 확인합니다. 새 요청은 `bun run harness init <feature-slug>`로 시작합니다.
+이 파일은 전역 배포 스킬의 원본입니다. 설치는 하네스 원본 저장소에서 `bun run install:global`로 수행합니다.
+설치된 스킬에 포함된 운영 쿡북(원본: `docs/OPERATIONS.md`)을 읽습니다.
+대상 Git 프로젝트에서 상태를 확인하고, 설정이 없을 때만 `~/.local/bin/development-harness setup`으로 연결합니다.
+기존 실행이 있으면 재개합니다. 검증 명령이 없으면 실제 테스트·빌드 명령을 조사해 `configure`에 JSON argv 배열로 전달합니다.
+새 Git 저장소는 초기 커밋 후 `init`을 실행합니다. 계획 승인 전에 설정을 완료하고 기존 설정은 보존합니다.
+`harness.config.json`을 읽고 `~/.local/bin/development-harness doctor`를 실행합니다.
+Main Claude가 전체 단계와 사용자 대화를 맡습니다. 새 실행을 만들기 전에 `~/.local/bin/development-harness status`로
+진행 중인 실행을 확인합니다. 새 요청은 `~/.local/bin/development-harness init <feature-slug>`로 시작합니다.
 `.harness/state.json`을 직접 수정하거나 사용자의 침묵을 승인으로 해석하면 안 됩니다.
 
 1. 설치된 `superpowers:brainstorming` 스킬을 읽습니다. 문제, 대안, 수용 기준, 제외 범위, 위험을
@@ -24,7 +29,7 @@ Main Claude가 전체 단계와 사용자 대화를 맡습니다. 새 실행을 
    UI가 없는 이유, 되돌리기 방법을 포함합니다. 계획 단계를 완료하고 계획 승인 게이트에서 멈춥니다.
    이 시점에는 구현 에이전트를 만들지 않습니다.
 4. 승인된 기획 자료를 커밋합니다. `superpowers:using-git-worktrees`와
-   `bun run harness worktree /absolute/path feature/name`으로 worktree를 만듭니다. 새 체크아웃에서
+   `~/.local/bin/development-harness worktree /absolute/path feature/name`으로 worktree를 만듭니다. 새 체크아웃에서
    Claude를 이어 실행하고 의존성을 설치한 뒤 기준 검사를 수행합니다. 다른 실행의 상태를 재사용하지 않습니다.
 5. 설치된 `superpowers:subagent-driven-development`와 TDD 지침을 읽습니다. 각 Task마다 새 Claude
    구현 담당을 배정하고, 담당 파일·계획 발췌·수용 기준을 명시합니다. 다른 작업자도 같은 코드베이스에서
@@ -41,7 +46,7 @@ Main Claude가 전체 단계와 사용자 대화를 맡습니다. 새 실행을 
    작성합니다. 실패하면 `harness retry <findings>`로 구현 단계로 돌아가 범위가 정해진 TDD 수정 담당을
    배정합니다. 이후 리뷰, 브라우저 QA, 검증을 다시 수행합니다. 수정 시도가 세 차례 실패하면 근거와 함께
    중단하고 계획 수정을 요청합니다. `PASS`로 선언하면 안 됩니다.
-8. `superpowers:verification-before-completion`을 사용하고 `bun run evidence`를 실행합니다. 출력을
+8. `superpowers:verification-before-completion`을 사용하고 `~/.local/bin/development-harness evidence`를 실행합니다. 출력을
    직접 확인한 뒤 검증 단계를 완료합니다. 최종 UAT에서 diff, QA 보고서, 최신 검사 결과, 남은 위험을
    제시합니다. 거절이나 수정 요청은 구현 단계로 돌아갑니다. 사용자가 최종 승인을 기록합니다.
 9. UAT 승인 **후에만** `superpowers:finishing-a-development-branch`를 사용합니다. 기본 동작은 브랜치

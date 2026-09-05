@@ -18,7 +18,7 @@ export function guard(input:{tool_name?:string;tool_input?:Record<string,unknown
  }
  if(tool==="Bash") {
   const command=String(data.command??"");
-  if(/(?:harness|cli\.ts)\s+decide\b/.test(command))return "Human decisions must be recorded by the operator after artifact review.";
+  if(/(?:harness|cli\.(?:ts|js))["']?\s+["']?decide\b/.test(command))return "Human decisions must be recorded by the operator after artifact review.";
   // Shell/plugin subprocesses retain the user's ordinary permission policy. They are
   // governed by task scope and fingerprint checks, not a misleading shell regex sandbox.
   return undefined;

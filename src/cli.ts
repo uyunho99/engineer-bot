@@ -1,25 +1,44 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { initial, complete, decide, retry } from "./harness.ts";
-import { repo, load, save, locked, git, artifact, fingerprint, statePath } from "./store.ts";
+import { repo, load, save, locked, git, artifact, fingerprint, statePath, digest } from "./store.ts";
+import { setup, verificationCommands } from "./project.ts";
+import { evidence } from "./evidence.ts";
 import { doctor } from "./doctor.ts";
 const [command,...args]=Bun.argv.slice(2);
-const root=repo();
-const help="harness: doctor | init <slug> | status | complete <phase> <report> | decide <approve|revise|cancel> <human-reference> | worktree <absolute-path> <new-branch> | retry <findings>";
+
+const help="harness: doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> | status | complete <phase> <report> | decide <approve|revise|cancel> <human-reference> | worktree <absolute-path> <new-branch> | retry <findings>";
 try {
  if(args.includes("--execute"))throw Error("Ungated execute removed: use harness lifecycle");
  if(command==="doctor") await doctor();
+ else {
+ const root=repo();
+ if(command==="setup")setup(root);
+ else if(command==="evidence")evidence(root);
+ else if(command==="fingerprint")console.log(fingerprint(root));
  else if(command==="status"||command==="plan"||command==="smoke") {if(existsSync(statePath(root))) console.log(JSON.stringify(load(root),null,2));else console.log(help);}
  else await locked(root,async()=>{
+  if(command==="configure") {
+   if(existsSync(statePath(root)) && !["brainstorm","design","plan"].includes(load(root).phase))throw Error("Configure verification before plan approval, outside pending gates");
+   const path=resolve(root,"harness.config.json");
+   const config=JSON.parse(readFileSync(path,"utf8"));
+   const commands=JSON.parse(args[0]??"null");
+   if(!Array.isArray(commands)||!commands.length||commands.some((c:unknown)=>!Array.isArray(c)||!c.length||c.some(x=>typeof x!=="string"||!x.trim())))throw Error("Expected non-empty command argument arrays");
+   writeFileSync(path,JSON.stringify({...config,verificationCommands:commands},null,2)+"\n");return;
+  }
   if(command==="init") {
    if(existsSync(statePath(root)))throw Error("Existing run: resume it; archive explicitly before a new run");
    const s=initial(args[0]??"");s.root=root;s.base=git(root,"rev-parse","HEAD");save(root,s);
    mkdirSync(resolve(root,"docs/development",s.id),{recursive:true});console.log(JSON.stringify(s));return;
   }
   let s=load(root);
+  const configPath=resolve(root,"harness.config.json");
+  const configHash=()=>digest(readFileSync(configPath));
+  if(s.configHash && !(command==="decide" && args[0]!=="approve") && !(command==="complete" && s.phase==="plan") && configHash()!==s.configHash)throw Error("Approved verification configuration changed; restore it or revise the plan");
   if(command==="complete") {
    const [phase,path]=args;if(!phase||!path)throw Error(help);
    if(phase==="worktree")throw Error("Use worktree command to establish isolation");
+   if(phase==="plan" && existsSync(resolve(root,"harness.config.json")))verificationCommands(root);
    const report=artifact(root,path);
    for(const entry of Object.values(s.evidence)){const [p,h]=entry.split("#sha256=");if(h&&artifact(root,p!).hash!==h)throw Error("Approved evidence changed; revise/restart its gate");}
    if(["build","review","browser-qa","verification","finish"].includes(phase)) {
@@ -34,6 +53,7 @@ try {
     if(phase==="review")s.snapshot=fingerprint(root);
     if(phase==="finish"&&git(root,"status","--porcelain"))throw Error("Commit approved changes and evidence before finish");
    }
+   if(phase==="plan" && existsSync(configPath))s.configHash=configHash();
    s=complete(s,phase,path+"#sha256="+report.hash,"PASS");save(root,s);
   } else if(command==="decide") {
    for(const entry of Object.values(s.evidence)){const [p,h]=entry.split("#sha256=");if(h&&artifact(root,p!).hash!==h&&args[0]==="approve")throw Error("Gate evidence changed; revise first");}
@@ -49,4 +69,5 @@ try {
    save(path,s);save(root,{...s,root,phase:"transferred"});console.log("Continue from "+path);
   } else throw Error(help);
  });
+ }
 } catch(e) {console.error(e instanceof Error?e.message:e);process.exitCode=1;}

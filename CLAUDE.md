@@ -1,5 +1,9 @@
 # engineer-bot — Claude 네이티브
 
+이 저장소는 전역 하네스의 배포 원본입니다. 여러 프로젝트 사용 절차는 README를 따릅니다.
+전역 설치는 `bun run install:global`, 하네스 자체 검증은 `bun run check`와 `bun run build`입니다.
+대상 프로젝트에서는 `~/.local/bin/development-harness` 명령을 사용하며 이 저장소의 소스를 복사하지 않습니다.
+
 규모가 있는 소프트웨어 작업에는 `.claude/skills/development-harness-native/SKILL.md`를 사용합니다.
 Main Claude가 네이티브 하위 에이전트를 조율합니다. 제품, 설계, 구현·QA 통합 계획, 최종 UAT
 승인 게이트는 필수입니다. 명령어는 `docs/OPERATIONS.md`에서 확인합니다.

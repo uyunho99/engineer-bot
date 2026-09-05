@@ -1,6 +1,6 @@
 # Claude Code 네이티브 개발 하네스 쿡북
 
-> **사용 환경:** 일반 터미널의 Claude Code · `claude-only` 브랜치
+> **사용 환경:** 일반 터미널의 Claude Code · `claude-only` 하네스 전역 설치
 >
 > **진행 담당:** Main Claude · **사용자 승인:** 제품 / 설계 / 계획 / 최종 UAT
 >
@@ -18,23 +18,45 @@
 
 ## 빠른 시작
 
-Git, Bun, Claude Code, Superpowers, gstack, codex-plugin-cc가 필요합니다.
-이 브랜치는 프로젝트 안의 Claude 스킬과 hook을 사용하므로 홈 디렉터리에 파일을 복사할 필요가 없습니다.
+이 쿡북은 **전역 설치 후 개발할 프로젝트에서 실행하는 명령**을 기준으로 합니다.
+Git, Bun, Claude Code, Codex CLI, Superpowers, gstack, codex-plugin-cc가 필요합니다.
+처음 한 번은 하네스 원본 저장소에서 설치합니다. 자세한 clone 절차는 [README](../README.md)에 있습니다.
 
 ```bash
 bun install --frozen-lockfile
-bun run harness doctor
+bun run install:global
+```
+
+이후 사용할 프로젝트에서 Claude Code를 새로 실행합니다.
+
+```bash
+cd /path/to/your-project
+~/.local/bin/development-harness doctor
 claude
 ```
 
-Claude에서 `/development-harness-native` 뒤에 개발 요청을 입력하거나, 구현할 기능을 자연어로 설명하세요.
-Claude가 이미 실행 중이었다면 플러그인을 다시 불러오세요.
+Claude에서 `/development-harness-native` 뒤에 개발 요청을 입력하세요.
+처음 연결하는 프로젝트는 Claude가 `setup`을 실행하고, 실제 테스트·빌드 명령을 조사해
+`configure`로 연결합니다. 기존 실행이 있으면 상태를 확인하고 재개합니다.
+직접 연결할 때는 아래처럼 실행합니다. 검증 명령은 실제 프로젝트 명령으로 바꾸세요.
+
+```bash
+~/.local/bin/development-harness setup
+~/.local/bin/development-harness configure '[["npm","test"],["npm","run","build"]]'
+~/.local/bin/development-harness status
+```
+
+새 프로젝트라면 Git 저장소를 초기화하고 초기 커밋을 만든 뒤 `init`을 실행합니다.
+`setup`은 프로젝트의 설정 파일과 `.gitignore` 항목을 추가하며 소스·package.json·CLAUDE.md를 복사하지 않습니다.
+검증 명령은 `harness.config.json`의 `verificationCommands`에 저장합니다.
+계획 완료 전에 명령을 설정해야 하며, 승인 후 설정 변경은 감지되어 진행이 차단됩니다.
 
 **시작 전 확인**
 
-- [ ] `claude-only` 체크아웃에서 실행하고 있습니다.
+- [ ] 개발할 프로젝트 폴더에서 실행하고 있습니다.
+- [ ] 전역 설치를 완료하고 Claude Code를 새로 열었습니다.
 - [ ] `doctor`가 필요한 로컬 도구를 확인했습니다.
-- [ ] 기존 실행이 있다면 `bun run harness status`로 상태를 확인했습니다.
+- [ ] 기존 실행이 있다면 `status`로 재개 지점을 확인했습니다.
 
 ## 전체 흐름과 역할
 
@@ -64,12 +86,12 @@ Claude가 이미 실행 중이었다면 플러그인을 다시 불러오세요.
 ### 1. 실행 생성과 제품 승인
 
 ```bash
-bun run harness init invite-team
-bun run harness status
+~/.local/bin/development-harness init invite-team
+~/.local/bin/development-harness status
 # 담당 Claude가 기획 문서를 작성한 뒤 실행합니다.
-bun run harness complete brainstorm docs/development/invite-team/01-brainstorm.md
+~/.local/bin/development-harness complete brainstorm docs/development/invite-team/01-brainstorm.md
 # 사용자가 문서를 검토한 뒤 직접 실행합니다. 마지막 인수는 실제 승인 근거입니다.
-bun run harness decide approve '대화 12번 메시지에서 제품 기획 승인'
+~/.local/bin/development-harness decide approve '대화 12번 메시지에서 제품 기획 승인'
 # 수정 요청은 decide revise '초대 범위 수정', 취소는 decide cancel '이 기능 개발 취소'입니다.
 ```
 
@@ -89,11 +111,11 @@ bun run harness decide approve '대화 12번 메시지에서 제품 기획 승�
 아래의 `/absolute/new/checkout`은 새로 만들 체크아웃의 실제 절대 경로로 바꾸세요.
 
 ```bash
-git add docs/development
+git add docs/development harness.config.json .gitignore
 git commit -m 'docs: 기능 계획 승인'
-bun run harness worktree /absolute/new/checkout feature/invite-team
+~/.local/bin/development-harness worktree /absolute/new/checkout feature/invite-team
 cd /absolute/new/checkout
-bun install --frozen-lockfile
+# 대상 프로젝트에 맞는 의존성 설치와 기준 검사를 수행한 뒤 실행합니다.
 claude
 ```
 
@@ -105,33 +127,33 @@ claude
 > 다음 명령의 JSON 파일은 실제 구현·리뷰·QA 결과를 기록한 보고서입니다. 형식은 [보고서 작성](#보고서-작성)을 참고하세요.
 
 ```bash
-bun run harness complete build docs/development/invite-team/build.json
+~/.local/bin/development-harness complete build docs/development/invite-team/build.json
 ```
 
 ### 5. 리뷰 결과 확인
 
 ```bash
-bun run harness complete review docs/development/invite-team/review.json
+~/.local/bin/development-harness complete review docs/development/invite-team/review.json
 ```
 
 ### 6. 브라우저 QA 결과 확인
 
 ```bash
-bun run harness complete browser-qa docs/development/invite-team/qa.json
+~/.local/bin/development-harness complete browser-qa docs/development/invite-team/qa.json
 ```
 
 ### 7. 최종 검증 실행
 
 ```bash
-bun run evidence
-bun run harness complete verification docs/development/invite-team/verification.json
+~/.local/bin/development-harness evidence
+~/.local/bin/development-harness complete verification docs/development/invite-team/verification.json
 ```
 
 ### 8. 사용자 UAT 승인
 
 ```bash
 # 사용자가 변경 내용, 브라우저 근거, 테스트 결과를 검토한 뒤 승인합니다.
-bun run harness decide approve '대화 42번 메시지에서 UAT 승인, 브랜치 유지'
+~/.local/bin/development-harness decide approve '대화 42번 메시지에서 UAT 승인, 브랜치 유지'
 ```
 
 ### 9. 브랜치 마무리
@@ -140,7 +162,7 @@ bun run harness decide approve '대화 42번 메시지에서 UAT 승인, 브랜�
 # 승인된 코드와 보고서를 모두 커밋한 뒤 완료합니다.
 # finish는 검증 당시와 소스 지문이 같은지 확인합니다.
 # 보고서의 HEAD는 마지막 근거 자료 커밋보다 이전일 수 있습니다.
-bun run harness complete finish docs/development/invite-team/verification.json
+~/.local/bin/development-harness complete finish docs/development/invite-team/verification.json
 ```
 
 ## 보고서 작성
@@ -151,7 +173,7 @@ bun run harness complete finish docs/development/invite-team/verification.json
 {
   "verdict": "PASS",
   "head": "git rev-parse HEAD로 확인한 실제 커밋",
-  "fingerprint": "src/store.ts로 계산한 실제 소스 지문",
+  "fingerprint": "fingerprint 명령으로 확인한 실제 소스 지문",
   "commands": [
     {
       "command": "실제로 실행한 명령",
@@ -181,13 +203,13 @@ bun run harness complete finish docs/development/invite-team/verification.json
 소스 지문은 다음 명령으로 확인합니다.
 
 ```bash
-bun -e 'import {fingerprint} from "./src/store.ts"; console.log(fingerprint(process.cwd()))'
+~/.local/bin/development-harness fingerprint
 ```
 
 CLI만 변경했다면 브라우저 테스트를 실행한 것처럼 기록하지 말고, `notApplicable`에 해당하지 않는 구체적인 이유를 적으세요.
 UI를 변경한 작업에는 실제 브라우저 테스트 시나리오와 결과가 필요합니다.
 
-`bun run evidence`는 저장소의 검사와 빌드를 실행한 뒤 `verification.json`을 작성합니다.
+`~/.local/bin/development-harness evidence`는 프로젝트 루트에서 승인된 `verificationCommands`를 실행한 뒤 `verification.json`을 작성합니다.
 여기에는 표준 출력, 표준 오류, 종료 코드, HEAD, 소스 지문이 포함됩니다.
 프로젝트별 수용 기준을 확인하는 명령이 있다면 그 실행 결과도 보고서에 추가합니다.
 
@@ -221,6 +243,9 @@ UI를 변경한 작업에는 실제 브라우저 테스트 시나리오와 결�
 
 ## 검증과 재사용
 
+아래 세 명령은 **하네스 원본 저장소 자체를 개발·검사할 때만** 사용합니다.
+대상 프로젝트 검증은 위의 전역 `evidence` 명령을 사용합니다.
+
 - `bun run check`: TypeScript 타입 검사와 테스트를 실행합니다.
 - `bun run smoke`: 전체 단계 흐름을 검사하는 테스트를 실행합니다.
 - `bun run build`: Bun CLI를 번들로 만들어 `dist`에 저장합니다.
@@ -228,10 +253,8 @@ UI를 변경한 작업에는 실제 브라우저 테스트 시나리오와 결�
 기존 저장소에는 빌드 명령이 없어 이번 브랜치에서 추가했습니다.
 필수 승인 없이 진행할 수 있었던 기존 `plan --execute` 경로는 제거했습니다.
 
-다른 저장소에서 사용하려면 `.claude/skills/development-harness-native`, `src`, `harness.config.json`, package 스크립트를 복사합니다.
-`CLAUDE.md`와 hook 항목은 대상 저장소의 기존 지침을 보존하면서 필요한 내용을 추가하세요.
-검증 명령은 그 저장소에 문서화된 빌드·테스트 명령에 맞게 조정합니다.
-Bun과 플러그인 의존성도 필요하며, `SKILL.md`만 복사한다고 실행 환경이 설치되지는 않습니다.
+다른 저장소에는 전역 설치 후 해당 프로젝트에서 스킬을 호출하세요.
+`src`나 package 스크립트를 복사할 필요가 없습니다. 프로젝트별 검증 명령만 연결합니다.
 
 ## 설치 정보와 적용 범위
 
@@ -246,7 +269,13 @@ Codex 플러그인이 없다면 Claude에서 다음 명령을 실행합니다. �
 /codex:setup
 ```
 
-이번 로컬 설치에는 Claude CLI의 `plugin install --scope project`를 사용했습니다.
+여러 프로젝트에서 사용하려면 터미널에서 사용자 범위로 설치합니다.
+
+```bash
+claude plugin install codex@openai-codex --scope user
+```
+
+`doctor`는 사용자 범위 설치를 요구합니다.
 로그인은 자동으로 진행하지 않습니다. 설치 후 `/agents` 목록에 `codex:codex-rescue`가 표시되는지 확인하세요.
 
 ### 확인한 의존성 — 2026-09-05
@@ -267,6 +296,7 @@ Codex 플러그인이 없다면 Claude에서 다음 명령을 실행합니다. �
 담당 Claude는 받지 않은 승인을 대신 만들어 `decide`를 실행하면 안 됩니다.
 승인은 사용자가 자신의 터미널에서 기록합니다.
 
+전역 hook은 `harness.config.json`의 `mode`가 `claude-only`인 프로젝트에 적용됩니다.
 Hook은 `build` 단계 밖에서 구조화된 파일 편집 도구로 소스를 수정하는 행동과 에이전트가 사람 승인을 기록하는 행동을 차단합니다.
 셸과 플러그인 하위 프로세스에는 기존 사용자 권한 정책이 적용되며, 승인된 작업 범위를 따라야 합니다.
 소스 지문은 리뷰 이후 코드가 변경됐는지 확인하는 데 사용합니다.

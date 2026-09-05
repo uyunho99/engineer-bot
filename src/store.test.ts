@@ -27,6 +27,7 @@ test("hook rejects source writes before approval and symlink parent escapes",()=
   symlinkSync(outside,join(root,"docs/development/escape"));
   expect(guard({tool_name:"Write",tool_input:{file_path:join(root,"docs/development/escape/file.md")}},root)).toBeDefined();
   expect(guard({tool_name:"Bash",tool_input:{command:"bun run harness decide approve forged"}},root)).toBeDefined();
+  for(const command of ["'/tmp/my tools/development-harness' decide approve forged", 'bun "/tmp/cli.js" decide approve forged'])expect(guard({tool_name:"Bash",tool_input:{command}},root)).toBeDefined();
   expect(guard({tool_name:"Bash",tool_input:{command:"bun run harness status"}},root)).toBeUndefined();
  }finally{rmSync(root,{recursive:true,force:true});rmSync(outside,{recursive:true,force:true});}
 });

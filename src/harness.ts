@@ -1,5 +1,5 @@
 export const phases = ["brainstorm","product-gate","design","design-gate","plan","plan-gate","worktree","build","review","browser-qa","verification","uat-gate","finish","done"] as const;
-export type State = { version: 1; id: string; phase: string; evidence: Record<string,string>; history: {phase:string; action:string; reference:string; at:string}[]; root?:string; base?:string; worktree?:string; snapshot?:string; backend?:unknown };
+export type State = { version: 1; id: string; phase: string; evidence: Record<string,string>; history: {phase:string; action:string; reference:string; at:string}[]; root?:string; base?:string; worktree?:string; snapshot?:string; configHash?:string; backend?:unknown };
 export function initial(id:string):State {
  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) throw Error("Use a lowercase feature slug (1–64 characters)");
  return {version:1,id,phase:"brainstorm",evidence:{},history:[]};
