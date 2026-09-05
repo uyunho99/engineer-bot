@@ -1,5 +1,4 @@
-import type { DeliveryPlan, OrcaCommand, ReviewVerdict, TaskSpec } from "./contracts.ts";
-import { taskCreateCommand } from "./orca.ts";
+import type { DeliveryPlan, ReviewVerdict, TaskSpec } from "./contracts.ts";
 
 const INITIAL_KEYS = new Set(["P0", "I1", "R1", "Q1", "V1"]);
 
@@ -11,15 +10,6 @@ export function renderDryRun(plan: DeliveryPlan): string {
   const header = [`경로: ${plan.intake.route}`, `사람 게이트: ${plan.intake.requiresHumanGate ? "필수" : "조건부"}`, "적용 규율:", ...plan.intake.requiredDisciplines.map((item) => `- ${item}`)];
   const tasks = plan.tasks.map((item) => `- ${item.key} [${item.role}] ← ${item.dependencies.join(", ") || "시작"}: ${item.objective}`);
   return [...header, "DAG:", ...tasks, "", "조건부 전환: R1 PASS → Q1, R1 FIX_REQUIRED → F1 → RR1 → Q1"].join("\n");
-}
-
-export function initialCommands(plan: DeliveryPlan): OrcaCommand[] {
-  const taskIds = new Map<string, string>();
-  return initialTasks(plan).map((spec) => {
-    const command = taskCreateCommand(spec, taskIds);
-    taskIds.set(spec.key, `<${spec.key}-id>`);
-    return command;
-  });
 }
 
 export function transitionFor(verdict: ReviewVerdict): string {

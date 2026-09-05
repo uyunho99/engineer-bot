@@ -30,4 +30,15 @@ export interface OrcaCommand {
   purpose: string;
 }
 
+export interface WorkerHandles {
+  lead: string;
+  codex: string;
+  reviewer: string;
+}
+
+export interface CreatedTask {
+  key: string;
+  id: string;
+}
+
 export class ConfigurationError extends Error {}

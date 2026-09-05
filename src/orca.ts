@@ -22,3 +22,18 @@ export async function execute(command: OrcaCommand): Promise<string> {
   if ((await process.exited) !== 0) throw new ConfigurationError(`${command.purpose} 실패: ${stderr || stdout}`);
   return stdout;
 }
+
+export function parseTaskId(json: string): string {
+  const value = JSON.parse(json) as { result?: { id?: string; taskId?: string; task?: { id?: string } }; id?: string; taskId?: string };
+  const id = value.result?.id ?? value.result?.taskId ?? value.result?.task?.id ?? value.id ?? value.taskId;
+  if (!id) throw new ConfigurationError("Orca task-create 응답에서 task ID를 찾지 못했습니다.");
+  return id;
+}
+
+export function dispatchCommand(taskId: string, terminal: string): OrcaCommand {
+  return { args: ["orchestration", "dispatch", "--task", taskId, "--to", terminal, "--inject", "--json"], purpose: `${taskId} injected dispatch` };
+}
+
+export function waitCommand(): OrcaCommand {
+  return { args: ["orchestration", "check", "--wait", "--types", "worker_done,escalation,decision_gate", "--timeout-ms", "60000", "--json"], purpose: "워커 lifecycle 대기" };
+}

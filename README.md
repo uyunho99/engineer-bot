@@ -26,6 +26,13 @@ bun run smoke
 bun run check
 ```
 
-기본 명령은 안전한 `--dry-run`입니다. 실제 Orca 태스크 생성은 `bun run src/cli.ts plan --execute --request "..."`처럼 실행하며, Orca runtime이 꺼져 있으면 명확히 실패합니다.
+기본 명령은 안전한 `--dry-run`입니다. 실제 실행 전 `orca terminal list --json`으로 세 역할의 handle을 확인합니다. 이후 아래처럼 실행하면 coordinator가 태스크 생성, injected dispatch, review/fix/QA loop를 감독합니다.
+
+```bash
+bun run src/cli.ts plan --execute --request "팀 초대 기능을 추가해" \
+  --lead <claude-lead-handle> --codex <codex-handle> --reviewer <claude-reviewer-handle>
+```
+
+Orca runtime이 꺼져 있거나 역할 handle이 빠졌으면 실행하지 않고 명확히 실패합니다.
 
 운영 규칙은 [docs/OPERATIONS.md](docs/OPERATIONS.md), 역할 프롬프트는 [skills](skills)에 있습니다. 이전 planner/builder 하네스는 Git `legacy` 브랜치에 보존됩니다.

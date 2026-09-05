@@ -1,7 +1,8 @@
 import { buildDeliveryPlan } from "./dag.ts";
-import { initialCommands, renderDryRun } from "./coordinator.ts";
-import { execute, requireRunningRuntime } from "./orca.ts";
+import { renderDryRun } from "./coordinator.ts";
+import { requireRunningRuntime } from "./orca.ts";
 import { classify } from "./router.ts";
+import { runDelivery } from "./run.ts";
 
 function valueAfter(flag: string): string | undefined {
   const index = Bun.argv.indexOf(flag);
@@ -16,8 +17,13 @@ async function plan(): Promise<void> {
   console.log(renderDryRun(delivery));
   if (!executeMode) return;
   await requireRunningRuntime();
-  for (const command of initialCommands(delivery)) console.log(await execute(command));
-  console.log("초기 Orca 태스크를 생성했습니다. Lead는 check --wait로 lifecycle을 감독해야 합니다.");
+  const lead = valueAfter("--lead");
+  const codex = valueAfter("--codex");
+  const reviewer = valueAfter("--reviewer");
+  if (!lead || !codex || !reviewer) throw new Error("실행에는 --lead, --codex, --reviewer Orca terminal handle이 모두 필요합니다.");
+  console.log("Orca 태스크 생성·injected dispatch·review/fix/QA lifecycle을 시작합니다.");
+  await runDelivery(delivery, { lead, codex, reviewer });
+  console.log("최종 검증 PASS: 자동 delivery loop가 완료됐습니다.");
 }
 
 async function smoke(): Promise<void> {
