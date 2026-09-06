@@ -1,0 +1,67 @@
+{
+  "skill_name": "qa-planning",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "첨부한 PRD를 기준으로 QA 계획을 작성해줘.",
+      "files": ["evals/files/prd-google-login.md"],
+      "expected_output": "docs/qa/QA_PLAN-google-login.md written from the template, with all ten sections filled, scenarios in Given/When/Then blocks using QA-E2E-/QA-NEG-/QA-EDGE-/QA-REG- IDs, every acceptance criterion mapped to at least one scenario ID, and the PRD's two unspecified behaviors surfaced as open questions rather than guessed.",
+      "expectations": [
+        "A QA plan file is written under docs/qa/ with a feature-scoped filename, not a bare QA_PLAN.md",
+        "All ten template sections are present in the documented order",
+        "Every scenario block has an ID, a Priority, and at least one Then bullet",
+        "Every Then bullet is observable (URL, visible string, DOM state, network response, DB row, or log line) rather than a vague claim like '로그인이 잘 된다'",
+        "Scenario IDs use the QA-E2E-, QA-NEG-, QA-EDGE-, and QA-REG- prefixes with three-digit zero-padded numbers",
+        "Section 2 includes a 'Covered by' mapping from each acceptance criterion to at least one scenario ID",
+        "The login journey is assigned P0 on the basis of the auth/access-control tier",
+        "The PRD's unspecified account-linking behavior is raised as an open question or flagged gap, not silently decided",
+        "The PRD's unspecified behavior for a provider that returns no email scope is raised as an open question or flagged gap, not silently decided",
+        "A coverage self-check result is reported to the user, including any gaps found",
+        "No Playwright, Cypress, or other test code is written",
+        "No CSS selectors or data-testid values appear in the plan"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "이 브랜치 QA 계획 짜줘. 별도 스펙 문서는 없어.",
+      "files": ["evals/files/diff-profile-update.patch"],
+      "expected_output": "A QA plan derived from the diff alone, explicitly marked as inferred, with the missing-spec situation named up front and regression scope built from the code paths the diff touches.",
+      "expectations": [
+        "The plan is explicitly marked as inferred from the diff rather than presented as spec-derived",
+        "The user is either asked whether to derive intent from the code, or told clearly that intent was inferred",
+        "Regression Scope is non-empty and names specific shared code paths, tables, or components touched by the diff",
+        "Section 7 states what was searched or inspected to build the regression list",
+        "Acceptance criteria are presented as inferred intent, with uncertainty acknowledged",
+        "No Playwright, Cypress, or other test code is written"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "첨부한 PRD로 QA 계획 만들고 Playwright 테스트 코드까지 바로 만들어줘.",
+      "files": ["evals/files/prd-google-login.md"],
+      "expected_output": "The plan is produced first and presented for review; no test code is generated in the same turn. The response explains that coverage should be confirmed before code generation and names the handoff target.",
+      "expectations": [
+        "A QA plan document is produced",
+        "No Playwright test code is written in this turn",
+        "The response explicitly states that the plan should be reviewed or confirmed before test code is generated",
+        "A handoff target is named (pw-coverage-planner, playwright-e2e-builder, webapp-testing, or gstack /qa-only)",
+        "The refusal to generate code immediately is framed as a workflow reason, not as an inability"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "첨부한 스펙 기준으로 QA 계획 작성해줘.",
+      "files": ["evals/files/prd-tags-crud.md"],
+      "expected_output": "A proportionate plan for a simple no-auth CRUD feature: a small number of P0 scenarios covering the primary happy path, with boundary and volume edge cases at P1/P2. The priority tiers are not over-applied.",
+      "expectations": [
+        "P0 scenarios are limited to the primary happy path rather than covering every scenario in the plan",
+        "At least one scenario is assigned P1 or P2",
+        "The plan explicitly notes which edge-case families were skipped and why, rather than silently omitting them",
+        "Zero-item and single-item states are covered as edge cases",
+        "A pagination or list-volume boundary case is covered",
+        "The scenario count is proportionate to the feature size and does not pad the plan to look complete",
+        "No Playwright, Cypress, or other test code is written"
+      ]
+    }
+  ]
+}

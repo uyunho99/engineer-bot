@@ -12,8 +12,8 @@ export function within(root:string,path:string):boolean {const p=relative(root,p
 export function artifact(root:string,path:string):{hash:string;text:string} {
  root=realpathSync(root); const full=realpathSync(resolve(root,path));
  if(!within(resolve(root,"docs/development"),full)) throw Error("Evidence must be under docs/development (no escaping symlinks)");
- const text=readFileSync(full,"utf8"); if(!text.trim()) throw Error("Empty evidence");
- return {hash:digest(text),text};
+ const bytes=readFileSync(full), text=bytes.toString("utf8"); if(!text.trim()) throw Error("Empty evidence");
+ return {hash:digest(bytes),text};
 }
 export function fingerprint(root:string):string {
  const paths=git(root,"ls-files","-z","--cached","--others","--exclude-standard").split("\0").filter(p=>p&&!p.startsWith("docs/development/")&&!p.startsWith(".harness/"));

@@ -1,3 +1,4 @@
+import { checkApprovals } from "./workflow-contract.ts";
 import { readFileSync, writeFileSync, existsSync, lstatSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { git, digest, load, artifact } from "./store.ts";
@@ -46,7 +47,7 @@ function snapshot(root:string,reportPath:string,scopePath:string) {
  return {report,actual,state,token:digest(JSON.stringify(state))};
 }
 function requireBuild(root:string):void {
- const s=load(root);if(s.phase!=="build"||s.worktree!==root)throw Error("Approved build worktree required");
+ const s=load(root);checkApprovals(root,s);if(s.phase!=="build"||s.worktree!==root)throw Error("Approved build worktree required");
  for(const entry of Object.values(s.evidence)) {
   const [path,hash]=entry.split("#sha256=");
   if(hash&&artifact(root,path!).hash!==hash)throw Error("Approved evidence changed; revise its gate");

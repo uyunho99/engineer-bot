@@ -20,8 +20,11 @@ test("CLI blocks wrong phase, detects changed approved docs, and transfers an is
   writeFileSync(join(dir,"product.md"),"changed after submission");
   expect(cli("decide","approve","human reference").exitCode).toBe(1);
   expect(cli("decide","revise","human revision").exitCode).toBe(0);
+  writeFileSync(join(dir,"qa.md"),"QA-E2E-001\nGiven: CLI fixture\nWhen: run\nThen: exits 0\n");
+  writeFileSync(join(dir,"design.json"),JSON.stringify({kind:"design",surface:"non-ui",document:"docs/development/sample/product.md",nonUiReason:"CLI fixture, no browser surface"}));
+  writeFileSync(join(dir,"plan.json"),JSON.stringify({kind:"plan",surface:"non-ui",implementation:"docs/development/sample/product.md",qaPlan:"docs/development/sample/qa.md",nonUiReason:"CLI fixture, no browser surface"}));
   for(const phase of ["brainstorm","design","plan"]){
-   expect(cli("complete",phase,"docs/development/sample/product.md").exitCode).toBe(0);
+   expect(cli("complete",phase,"docs/development/sample/"+(phase==="brainstorm"?"product.md":phase+".json")).exitCode).toBe(0);
    expect(cli("decide","approve","human reference").exitCode).toBe(0);
   }
   writeFileSync(join(root,"harness.config.json"),JSON.stringify({mode:"claude-only",verificationCommands:[["echo","changed"]]}));
@@ -38,12 +41,17 @@ test("CLI blocks wrong phase, detects changed approved docs, and transfers an is
   writeFileSync(join(wt,".harness/scope.json"),JSON.stringify({task:"T1",allowed_files:["task.txt"]}));
   const commit=repositoryCommit(wt,repositoryGate(wt,".harness/worker.json",".harness/scope.json").token);
   const reportPath="docs/development/sample/delivery.json";
-  const report={verdict:"PASS",head:git(wt,"rev-parse","HEAD"),fingerprint:fingerprint(wt),commands:[{command:"fixture assertion",exitCode:0}],findings:[],tasks:[{...commit,review_commit:commit.commit.sha,review_verdict:"PASS",id:"T1",executor:"codex",dispatch:"fixture Codex execution log",red:"fixture red",green:"fixture green",review:"independent fixture review"}],notApplicable:"CLI fixture, no browser surface"};
+  const report={verdict:"PASS",head:git(wt,"rev-parse","HEAD"),fingerprint:fingerprint(wt),commands:[{command:"fixture assertion",exitCode:0}],findings:[],tasks:[{...commit,review_commit:commit.commit.sha,review_verdict:"PASS",id:"T1",executor:"codex",dispatch:"fixture Codex execution log",red:"fixture red",green:"fixture green",review:"independent fixture review",reviewer:{executor:"claude",role:"code-review",dispatch:"task-review-session",freshSession:true}}],notApplicable:"CLI fixture, no browser surface"};
   writeFileSync(join(wt,reportPath),JSON.stringify(report));
   writeFileSync(join(wt,reportPath),JSON.stringify({...report,tasks:report.tasks.map(t=>({...t,executor:"claude"}))}));
   expect(run("complete","build",reportPath).exitCode).toBe(1);
   writeFileSync(join(wt,reportPath),JSON.stringify(report));
-  for(const phase of ["build","review","browser-qa","verification"])expect(run("complete",phase,reportPath).exitCode).toBe(0);
+  for(const phase of ["build","review","browser-qa","verification"]) {
+   const phasePath="docs/development/sample/"+phase+".json";
+   const metadata=phase==="review"?{executor:"claude",role:"code-review",dispatch:"whole-review-session",freshSession:true}:phase==="browser-qa"?{executor:"codex",role:"browser-qa",dispatch:"qa-session",freshSession:true}:{};
+   writeFileSync(join(wt,phasePath),JSON.stringify({...report,...metadata}));
+   const result=run("complete",phase,phasePath);expect(result.stderr.toString()).toBe("");expect(result.exitCode).toBe(0);
+  }
   expect(run("complete","finish",reportPath).exitCode).toBe(1);
   expect(run("decide","approve","fixture UAT").exitCode).toBe(0);
   git(wt,"add","docs");git(wt,"commit","-m","evidence");

@@ -58,10 +58,16 @@ Claude에서 `/development-harness-native` 뒤에 개발 요청을 입력하세�
 - [ ] `doctor`가 필요한 로컬 도구를 확인했습니다.
 - [ ] 기존 실행이 있다면 `status`로 재개 지점을 확인했습니다.
 
+## 적용 계약
+
+[목업·계획·독립 QA 계약](WORKFLOW.md)을 먼저 읽습니다. 새 실행의 설계/계획에는 JSON bundle을,
+리뷰/QA 보고서에는 담당·dispatch·freshSession과 시나리오별 실제 근거를 포함합니다.
+첨부 기반 qa-planning은 writing-plans 다음, plan-eng-review 전에 실행합니다.
+
 ## 전체 흐름과 역할
 
 ```text
-기획 → [제품 승인] → 설계 → [설계 승인] → 구현 계획 + QA 계획
+기획 → [제품 승인] → 설계 → [설계 승인] → 구현 계획 + 별도 QA 계획
      → [계획 승인] → worktree → TDD 구현 → READY_FOR_COMMIT → Controller gate/commit → 독립 리뷰 → 브라우저 QA
      → 최종 검증 → [UAT 승인] → 브랜치 유지
 
@@ -71,8 +77,8 @@ Claude에서 `/development-harness-native` 뒤에 개발 요청을 입력하세�
 | 순서 | 단계 | 담당 | 완료 기준 / 산출물 |
 |---|---|---|---|
 | 1 | 기획 → 제품 승인 | Main Claude → 사용자 | `01-brainstorm.md` 검토 |
-| 2 | 설계 → 설계 승인 | Main Claude → 사용자 | `02-design.md` 검토 |
-| 3 | 구현·QA 계획 → 계획 승인 | Main Claude → 사용자 | `03-plan.md`에 두 계획 포함 |
+| 2 | 설계 → 설계 승인 | Main Claude → 사용자 | 설계 문서 + 실제 목업 검토 |
+| 3 | 구현·QA 계획 → 계획 승인 | Main Claude → 사용자 | 구현·QA 문서를 bundle로 함께 승인 |
 | 4 | 작업 공간 분리 | Main Claude | 승인 자료 커밋 후 새 worktree |
 | 5 | TDD 구현 | Codex (플러그인으로 위임) | 실패 → 통과 로그, 개별 리뷰 |
 | 6 | 독립 리뷰 → 브라우저 QA | 리뷰·QA 담당 | `review.json`, `qa.json` |
@@ -99,10 +105,10 @@ Claude에서 `/development-harness-native` 뒤에 개발 요청을 입력하세�
 
 | 승인 대상 | 작성할 파일 | 사용자 확인 사항 |
 |---|---|---|
-| 설계 | `02-design.md` | 구조와 사용자 흐름이 요구사항에 맞는가? |
-| 계획 | `03-plan.md` | 구현 순서와 QA 기준이 모두 정해졌는가? |
+| 설계 | `02-design.md` + 목업 + `design-bundle.json` | 실제 화면·흐름과 구조가 맞는가? |
+| 계획 | `03-plan.md` + `QA_PLAN-<feature>.md` + `plan-bundle.json` | 구현 순서와 QA 기준이 모두 정해졌는가? |
 
-각 문서를 작성하고 해당 `design` / `plan` 단계를 완료한 뒤 사용자 승인을 받습니다.
+각 bundle과 포함 파일을 작성하고 `complete design <design-bundle.json>` / `complete plan <plan-bundle.json>`으로 제출한 뒤 사용자 승인을 받습니다.
 **사용자가 검토하고 자신의 터미널에서 승인 명령을 실행해야 다음 단계로 진행합니다.**
 
 ### 3. 승인된 계획으로 worktree 생성
@@ -187,6 +193,10 @@ Worker 보고서와 aggregate build 보고서는 서로 다릅니다. 아래 agg
 
 ## 보고서 작성
 
+아래는 공통 필드 예시입니다. 새 실행은 [WORKFLOW.md](WORKFLOW.md)의 Task reviewer,
+전체 리뷰 executor/role/dispatch/freshSession, Codex QA browser/시나리오 필드를 추가해야 수락됩니다.
+QA ID는 승인된 QA_PLAN과 일치해야 하며 expected/actual과 실제 파일 근거가 필요합니다.
+
 보고서는 다음 구조의 JSON으로 작성합니다. 아래 설명용 문자열은 실제 실행 근거로 바꿔야 합니다.
 
 ```json
@@ -219,7 +229,7 @@ Worker 보고서와 aggregate build 보고서는 서로 다릅니다. 아래 agg
   ],
   "scenarios": [
     {
-      "id": "QA1",
+      "id": "QA-E2E-001",
       "url": "실제로 테스트한 로컬 URL",
       "result": "PASS",
       "evidence": "스크린샷 또는 브라우저 출력"
