@@ -1,7 +1,7 @@
 # engineer-bot — claude-only
 
 설치된 Superpowers, gstack, codex-plugin-cc를 사용하는 독립적인 Claude Code 네이티브
-개발 하네스입니다. **Claude는 기획·관리·리뷰, Codex는 모든 코드 구현·TDD·수정**을 맡습니다.
+개발 하네스입니다. **Claude는 기획·관리·리뷰 결과 취합, Codex는 코드 구현·TDD·수정과 별도 세션의 독립 리뷰·QA**을 맡습니다.
 Main Claude가 네 차례의 사용자 승인과 Codex 작업 위임·검증을 조율합니다.
 `claude-only`는 Orca 없이 Claude가 관리한다는 뜻이며, Claude가 코드를 구현한다는 뜻이 아닙니다.
 Codex 실행이 실패하면 중단하며 Claude 구현으로 대체하지 않습니다.
@@ -110,5 +110,5 @@ Repository Control Layer는 Controller가 소유합니다. 공통 규칙과 보�
 ## 목업과 독립 QA
 
 [WORKFLOW.md](docs/WORKFLOW.md)의 새 계약을 적용합니다. Claude 디자인 목업 → writing-plans →
-qa-planning → plan-eng-review → 구현 → Controller commit → 새 Claude 코드 리뷰 → 새 Codex 브라우저 QA 순서입니다.
+qa-planning → plan-eng-review → 구현 → Controller commit → 새 Codex 코드 리뷰 → 새 Codex 브라우저 QA 순서입니다.
 설계·계획은 관련 파일 해시를 묶어 승인합니다. QA는 실제 브라우저 실행과 모든 승인 시나리오의 근거가 필요합니다.

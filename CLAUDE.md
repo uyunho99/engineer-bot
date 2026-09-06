@@ -5,7 +5,7 @@
 대상 프로젝트에서는 `~/.local/bin/development-harness` 명령을 사용하며 이 저장소의 소스를 복사하지 않습니다.
 
 규모가 있는 소프트웨어 작업에는 `.claude/skills/development-harness-native/SKILL.md`를 사용합니다.
-Main Claude는 기획·관리·리뷰를 맡고 모든 구현·테스트 작성·리팩터링·버그 수정은
+Main Claude는 기획·관리·리뷰 결과 취합을 맡고 모든 구현·테스트 작성·리팩터링·버그 수정은
 `codex:codex-rescue`를 통해 Codex에 위임합니다. Claude 구현 에이전트를 만들거나 직접 소스를
 수정하지 않습니다. Codex 실행 실패 시 중단하며 Claude로 대체하지 않습니다. 제품, 설계, 구현·QA 통합 계획, 최종 UAT
 승인 게이트는 필수입니다. 명령어는 `docs/OPERATIONS.md`에서 확인합니다.
@@ -22,5 +22,5 @@ Repository Control Layer는 Controller가 소유합니다. 공통 규칙과 보�
 ## 목업과 독립 QA
 
 [WORKFLOW.md](docs/WORKFLOW.md)의 새 계약을 적용합니다. Claude 디자인 목업 → writing-plans →
-qa-planning → plan-eng-review → 구현 → Controller commit → 새 Claude 코드 리뷰 → 새 Codex 브라우저 QA 순서입니다.
+qa-planning → plan-eng-review → 구현 → Controller commit → 새 Codex 코드 리뷰 → 새 Codex 브라우저 QA 순서입니다.
 설계·계획은 관련 파일 해시를 묶어 승인합니다. QA는 실제 브라우저 실행과 모든 승인 시나리오의 근거가 필요합니다.

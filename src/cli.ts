@@ -63,7 +63,7 @@ try {
     if(!Array.isArray(r.findings)||r.findings.length)throw Error("Resolve all findings");
     if(phase==="build"&&(!r.tasks?.length||r.tasks.some(t=>!t.id||!t.red||!t.green||!t.review||t.executor!=="codex"||!t.dispatch?.trim())))throw Error("Per-task Codex executor/dispatch, RED/GREEN and independent review evidence required");
     if(phase==="build") {validateTaskCommits(root,r.tasks);if(s.workflowVersion===2)validateBuildReviews(r);}
-    if(s.workflowVersion===2&&phase==="review")validateIndependent(r,"claude",implementationDispatches(root,s));
+    if(s.workflowVersion===2&&phase==="review")validateIndependent(r,"code-review",implementationDispatches(root,s));
     if(s.workflowVersion===2&&phase==="browser-qa")validateBrowserQA(root,s,r);
     if(phase==="browser-qa"&&!(r.notApplicable?.trim())&&(!r.scenarios?.length||r.scenarios.some(t=>!t.id||t.result!=="PASS"||!t.evidence)))throw Error("Browser scenarios or explicit non-UI rationale required");
     if(phase==="verification"||phase==="build") {if(!r.commands?.length||r.commands.some(c=>!c.command||c.exitCode!==0))throw Error("Passing command evidence required");}

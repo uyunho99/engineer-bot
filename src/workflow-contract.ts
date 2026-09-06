@@ -41,9 +41,9 @@ export function approvedPlan(root:string,s:State):any {
  if(plan.kind!=="plan")throw Error("Approved plan bundle required");
  return plan;
 }
-export function validateIndependent(r:any,executor:"claude"|"codex",implementationDispatches:string[]):void {
- if(r.executor!==executor||r.role!==(executor==="claude"?"code-review":"browser-qa")||!text(r.dispatch)||r.freshSession!==true||implementationDispatches.includes(r.dispatch))
-  throw Error("Independent "+executor+" worker requires a fresh distinct dispatch and correct role");
+export function validateIndependent(r:any,role:"code-review"|"browser-qa",implementationDispatches:string[]):void {
+ if(r.executor!=="codex"||r.role!==role||!text(r.dispatch)||r.freshSession!==true||implementationDispatches.includes(r.dispatch))
+  throw Error("Independent codex "+role+" worker requires a fresh distinct dispatch and correct role");
 }
 export function implementationDispatches(root:string,s:State):string[] {
  const p=s.evidence.build?.split("#sha256=")[0];
@@ -53,7 +53,7 @@ export function implementationDispatches(root:string,s:State):string[] {
 }
 export function validateBrowserQA(root:string,s:State,r:any):void {
  const plan=approvedPlan(root,s);
- validateIndependent(r,"codex",implementationDispatches(root,s));
+ validateIndependent(r,"browser-qa",implementationDispatches(root,s));
  if(plan.surface==="non-ui") {
   if(!text(r.notApplicable)||r.notApplicable!==plan.nonUiReason||r.scenarios?.length)throw Error("Non-UI exemption must match approved plan and contain no claimed browser runs");
   return;
@@ -71,6 +71,6 @@ export function validateBrowserQA(root:string,s:State,r:any):void {
 export function validateBuildReviews(r:any):void {
  for(const t of r.tasks??[]) {
   if(!text(t.dispatch))throw Error("Implementation dispatch required");
-  validateIndependent(t.reviewer??{},"claude",r.tasks.map((x:any)=>x.dispatch));
+  validateIndependent(t.reviewer??{},"code-review",r.tasks.map((x:any)=>x.dispatch));
  }
 }

@@ -1,6 +1,6 @@
 ---
 name: development-harness-native
-description: Claude가 기획·목업·계획 승인과 Git을 관리하고, 구현 워커·새 Claude 코드 리뷰어·새 Codex 브라우저 QA를 거쳐 최종 UAT까지 진행하는 개발 하네스입니다.
+description: Claude가 기획·목업·계획 승인과 Git을 관리하고, 구현 워커·새 Codex 코드 리뷰어·새 Codex 브라우저 QA를 거쳐 최종 UAT까지 진행하는 개발 하네스입니다.
 ---
 
 # 개발 책임자
@@ -27,9 +27,9 @@ Main Claude가 사용자 대화, 승인, 작업 배정, 결과 확인, Git 상�
    구현 담당에게 계획 발췌, 정확한 cwd, 파일 소유권, QA ID, 수용 기준, 테스트 명령을 전달합니다.
    RED → GREEN → 리팩터링 및 변경 화면 자체 검증을 요구합니다. 다른 작업자의 변경을 보존합니다.
 6. 구현자는 stage/commit 없이 READY_FOR_COMMIT, changed_files, proposed_commit_message를 반환합니다.
-   Controller가 repository-gate → repository-commit 후 고정 base_commit..task_commit을 새 Claude
-   리뷰어에게 전달합니다. Task별 및 전체 코드 리뷰는 구현에 참여하지 않은 Claude가 맡습니다.
-   gstack review도 읽기 전용입니다. build 보고서에 implementation dispatch와 reviewer 메타데이터를
+   Controller가 repository-gate → repository-commit 후 고정 base_commit..task_commit을 새 Codex
+   리뷰어에게 전달합니다. Task별 및 전체 코드 리뷰는 구현에 참여하지 않은 Codex가 맡습니다.
+   Controller가 gstack review의 필요한 체크리스트를 전달하며 Codex가 Claude 스킬을 자동 상속한다고 가정하지 않습니다. 리뷰는 읽기 전용입니다. build 보고서에 implementation dispatch와 reviewer 메타데이터를
    기록합니다. 리뷰어는 코드를 고치지 않으며 FAIL은 구현 담당 수정 → 새 commit → 새 리뷰입니다.
 7. 독립 브라우저 QA는 반드시 새 Codex 세션에 `harness-browser-qa`와 승인된 QA 계획을 전달합니다.
    구현 세션을 재사용하지 않습니다. 실제 실행 환경에서 브라우저 preflight 후 모든 활성 QA ID를
@@ -51,8 +51,11 @@ TDD 규칙과 필요한 스킬 파일을 명시적으로 전달하고 Claude 스
 QA도 별도 codex:codex-rescue의 --wait --fresh로 실행합니다. QA 근거 파일만 쓰도록 범위를 지정합니다.
 보고서 작성에는 쓰기 권한이 필요하며 제품 소스는 읽기 전용입니다. QA runtime에 브라우저 도구가
 노출됐는지 preflight에서 검증합니다. wrapper 빈 출력·오류는 완료가 아닙니다.
-독립 Claude 리뷰어는 별도 네이티브 Agent로 배정합니다. 자동 리뷰를 /codex:review로 대체하지 않습니다.
-Codex가 불가하면 원인을 보고하며 Claude 구현/QA로 자동 대체하지 않습니다.
+독립 코드 리뷰는 별도 `codex:codex-rescue`에 `--wait --fresh`로 배정합니다.
+구현 세션을 재사용하지 않으며 승인 문서·고정 commit 범위·체크리스트를 전달합니다.
+제품 소스·Git은 읽기 전용이고 지정된 리뷰 보고서 경로만 쓸 수 있습니다.
+자동 리뷰를 사용자 전용 /codex:review 명령에 의존시키지 않습니다.
+Codex가 불가하면 원인을 보고하며 Claude 구현/리뷰/QA로 자동 대체하지 않습니다.
 
 모든 구현 dispatch에는 다음 문장을 그대로 포함합니다:
 

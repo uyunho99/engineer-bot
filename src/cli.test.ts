@@ -41,14 +41,14 @@ test("CLI blocks wrong phase, detects changed approved docs, and transfers an is
   writeFileSync(join(wt,".harness/scope.json"),JSON.stringify({task:"T1",allowed_files:["task.txt"]}));
   const commit=repositoryCommit(wt,repositoryGate(wt,".harness/worker.json",".harness/scope.json").token);
   const reportPath="docs/development/sample/delivery.json";
-  const report={verdict:"PASS",head:git(wt,"rev-parse","HEAD"),fingerprint:fingerprint(wt),commands:[{command:"fixture assertion",exitCode:0}],findings:[],tasks:[{...commit,review_commit:commit.commit.sha,review_verdict:"PASS",id:"T1",executor:"codex",dispatch:"fixture Codex execution log",red:"fixture red",green:"fixture green",review:"independent fixture review",reviewer:{executor:"claude",role:"code-review",dispatch:"task-review-session",freshSession:true}}],notApplicable:"CLI fixture, no browser surface"};
+  const report={verdict:"PASS",head:git(wt,"rev-parse","HEAD"),fingerprint:fingerprint(wt),commands:[{command:"fixture assertion",exitCode:0}],findings:[],tasks:[{...commit,review_commit:commit.commit.sha,review_verdict:"PASS",id:"T1",executor:"codex",dispatch:"fixture Codex execution log",red:"fixture red",green:"fixture green",review:"independent fixture review",reviewer:{executor:"codex",role:"code-review",dispatch:"task-review-session",freshSession:true}}],notApplicable:"CLI fixture, no browser surface"};
   writeFileSync(join(wt,reportPath),JSON.stringify(report));
   writeFileSync(join(wt,reportPath),JSON.stringify({...report,tasks:report.tasks.map(t=>({...t,executor:"claude"}))}));
   expect(run("complete","build",reportPath).exitCode).toBe(1);
   writeFileSync(join(wt,reportPath),JSON.stringify(report));
   for(const phase of ["build","review","browser-qa","verification"]) {
    const phasePath="docs/development/sample/"+phase+".json";
-   const metadata=phase==="review"?{executor:"claude",role:"code-review",dispatch:"whole-review-session",freshSession:true}:phase==="browser-qa"?{executor:"codex",role:"browser-qa",dispatch:"qa-session",freshSession:true}:{};
+   const metadata=phase==="review"?{executor:"codex",role:"code-review",dispatch:"whole-review-session",freshSession:true}:phase==="browser-qa"?{executor:"codex",role:"browser-qa",dispatch:"qa-session",freshSession:true}:{};
    writeFileSync(join(wt,phasePath),JSON.stringify({...report,...metadata}));
    const result=run("complete",phase,phasePath);expect(result.stderr.toString()).toBe("");expect(result.exitCode).toBe(0);
   }

@@ -61,9 +61,11 @@ test("non-UI exemption is approved in advance and cannot conceal claimed browser
  expect(()=>validateBrowserQA(root,s,{...r,scenarios:[{id:"QA-E2E-001",result:"PASS"}]})).toThrow();
 }));
 
-test("task code review requires fresh Claude reviewer distinct from every implementer",()=>{
- const t={dispatch:"impl-1",reviewer:{executor:"claude",role:"code-review",dispatch:"review-1",freshSession:true}};
+test("task code review requires fresh Codex reviewer distinct from every implementer",()=>{
+ const t={dispatch:"impl-1",reviewer:{executor:"codex",role:"code-review",dispatch:"review-1",freshSession:true}};
  validateBuildReviews({tasks:[t]});
- expect(()=>validateBuildReviews({tasks:[{...t,reviewer:{...t.reviewer,executor:"codex"}}]})).toThrow();
+ expect(()=>validateBuildReviews({tasks:[{...t,reviewer:{...t.reviewer,role:"browser-qa"}}]})).toThrow();
+ expect(()=>validateBuildReviews({tasks:[{...t,reviewer:{...t.reviewer,freshSession:false}}]})).toThrow();
+ expect(()=>validateBuildReviews({tasks:[{...t,reviewer:{...t.reviewer,executor:"claude"}}]})).toThrow();
  expect(()=>validateBuildReviews({tasks:[t,{dispatch:"review-1",reviewer:{...t.reviewer,dispatch:"review-2"}}]})).toThrow();
 });

@@ -134,7 +134,7 @@ claude
 
 ### 4. Codex 구현 위임과 결과 확인
 
-Claude는 기획·관리·리뷰만 맡습니다. 모든 코드 구현, 테스트 작성, 버그 수정, 리팩터링은
+Claude는 기획·관리·리뷰 결과 취합만 맡습니다. 모든 코드 구현, 테스트 작성, 버그 수정, 리팩터링은
 `codex:codex-rescue`에 위임합니다. 승인된 worktree에서 `--wait --fresh`로 새 Task를 보내고,
 쓰기 가능한 구현 작업임을 명시합니다. wrapper는 전달만 하며 실제 개발은 Codex runtime이 수행합니다.
 Task별 소유 파일, 계획, 수용 기준, RED/GREEN 명령과 보고서 경로를 전달하세요.
@@ -336,7 +336,7 @@ claude plugin install codex@openai-codex --scope user
 
 전역 hook은 `harness.config.json`의 `mode`가 `claude-only`인 프로젝트에 적용됩니다.
 Hook은 모든 단계에서 Claude의 구조화된 편집 도구를 통한 코드 수정을 차단합니다.
-Claude는 기획·리뷰 보고서를 작성하고 코드는 Codex에 위임합니다. 에이전트의 직접 승인 명령도 차단합니다.
+Claude는 기획 문서와 검토 결과 요약을 작성하고 코드는 Codex에 위임합니다. 에이전트의 직접 승인 명령도 차단합니다.
 구현 보고서는 Task마다 Codex 실행자와 dispatch 근거를 요구합니다. 이는 보고서 검증이며 실행자 인증은 아닙니다.
 셸과 플러그인 하위 프로세스에는 기존 사용자 권한 정책이 적용되며, 승인된 작업 범위를 따라야 합니다.
 소스 지문은 리뷰 이후 코드가 변경됐는지 확인하는 데 사용합니다.
