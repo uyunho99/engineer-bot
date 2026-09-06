@@ -8,3 +8,7 @@
 
 자신의 pane에서 `taskId`, `dispatchId`, `verdict`, `reportPath`를 포함한 `worker_done`을 한 번만 보낸 뒤
 대기합니다. 오래된 preamble은 실행 권한이 아닙니다. 작업이 막히면 코디네이터에게 질문합니다.
+
+Repository Control Layer는 Controller가 소유합니다. 공통 규칙과 보고서 계약은
+[docs/REPOSITORY-CONTROL.md](docs/REPOSITORY-CONTROL.md)를 따릅니다.
+구현 워커는 stage/commit/merge 없이 검증된 변경과 `READY_FOR_COMMIT` 보고서를 반환합니다.

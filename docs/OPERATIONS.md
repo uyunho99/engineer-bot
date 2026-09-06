@@ -46,7 +46,7 @@ bun run harness status
 
 ```text
 기획 → [제품 승인] → 설계 → [설계 승인] → 구현 계획 + QA 계획
-     → [계획 승인] → worktree → TDD 구현 → 독립 리뷰 → 브라우저 QA
+     → [계획 승인] → worktree → TDD 구현 → READY_FOR_COMMIT → Controller gate/commit → 독립 리뷰 → 브라우저 QA
      → 최종 검증 → [UAT 승인] → 브랜치 유지
 
 실패·UAT 수정 요청 → TDD 구현 → 리뷰 → QA → 검증 반복
@@ -98,7 +98,11 @@ bun run harness decide approve '대화 12번 메시지에서 제품 기획 승�
 `/absolute/feature/checkout`은 새 체크아웃의 실제 절대 경로로 바꾸세요.
 
 ```bash
-git add docs/development
+# Controller: status/diff/scope를 검토한 정확한 파일만 stage합니다.
+git status --short
+git diff --check
+git diff
+git add -- docs/development/invite-team/01-brainstorm.md docs/development/invite-team/02-design.md docs/development/invite-team/03-plan.md
 git commit -m 'docs: 구현과 QA 계획 승인'
 bun run harness worktree /absolute/feature/checkout feature/invite-team
 cd /absolute/feature/checkout
@@ -128,6 +132,11 @@ bun install --frozen-lockfile
 bun run harness orca-start docs/development/invite-team/T1.md codex T1
 bun run harness orca-check T1
 # 완료가 인정될 때까지 확인을 이어갑니다. 질문이 도착하면 바로 내용을 검토합니다.
+# 구현 보고서 READY_FOR_COMMIT을 확인한 Controller만 실행합니다.
+bun run harness repository-gate .harness/T1-report.json .harness/T1-scope.json
+# 출력 diff와 untracked 내용을 검토하고 실제 token을 전달합니다.
+bun run harness repository-commit <gate-token>
+# 리뷰 명세에 반환된 base_commit과 commit.sha를 고정합니다.
 bun run harness orca-start docs/development/invite-team/review-T1.md claude review-T1
 bun run harness orca-check review-T1
 ```
@@ -211,6 +220,14 @@ bun run harness complete finish docs/development/invite-team/verification.json
 진행 중인 모든 Task가 종료됐음을 확인한 뒤에만 재시도하세요. 워커를 직접 완료 처리하면 안 됩니다.
 하네스는 완료·취소 시 담당 코디네이터 소유의 최상위 컨테이너를 정리할 때만 `task-update`를 사용합니다.
 
+## Repository control
+
+두 실행 경로의 공통 [Repository Control 정책](REPOSITORY-CONTROL.md)을 필수 적용합니다.
+Task 구현/수정 완료와 리뷰 사이에는 반드시 Controller gate와 commit이 있습니다.
+Worker 보고서와 aggregate build 보고서는 서로 다릅니다. 아래 aggregate 예제의 tasks에도
+공통 정책의 ledger 필드와 review_commit/review_verdict를 추가해야 CLI가 수락합니다.
+기존 보고서에 커밋이 없다면 실제 gate/commit/review를 수행해 재작성합니다.
+
 ## 보고서 작성
 
 실행 보고서는 `docs/development/<feature>` 아래에 JSON으로 작성합니다.
@@ -231,6 +248,13 @@ bun run harness complete finish docs/development/invite-team/verification.json
   "tasks": [
     {
       "id": "T1",
+      "executor": "codex",
+      "committer": "controller",
+      "repository_control": {"mode": "controller_managed"},
+      "base_commit": "실제 부모 SHA",
+      "commit": {"sha": "실제 Controller commit SHA", "message": "실제 커밋 메시지"},
+      "review_commit": "리뷰한 동일 commit SHA",
+      "review_verdict": "PASS",
       "red": "테스트 실패 로그",
       "green": "테스트 통과 로그",
       "review": "review-T1의 리뷰 근거"

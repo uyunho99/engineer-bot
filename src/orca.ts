@@ -1,7 +1,8 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { workerInstruction } from "./repository-control.ts";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { State } from "./harness.ts";
-import { save, digest } from "./store.ts";
+import { save, digest, git } from "./store.ts";
 export type Backend={runtimeId:string;rootTask:string;guideHash:string;gate?:string;tasks:Record<string,{id:string;dispatchId?:string;terminal?:string;accepted?:boolean;launching?:boolean}>};
 export function executable():string {
  return process.env.ORCA_CLI_COMMAND || (process.env.ORCA_DEV_REPO_ROOT?"orca-dev":process.platform==="linux"?"orca-ide":"orca");
@@ -66,11 +67,23 @@ export async function start(s:State,root:string,specPath:string,agent:string,key
  if(b.tasks[taskKey])throw Error("Phase already has a task: check it; use retry only after confirmed failure");
  if(Object.values(b.tasks).some(t=>!t.accepted))throw Error("Check or reconcile existing task before starting another");
  const spec=readFileSync(resolve(root,specPath),"utf8");if(!spec.trim())throw Error("Empty worker spec");
+ const implementing=s.phase==="build"&&!key.startsWith("review-");
+ let reviewRange="";
+ if(!implementing) {
+  const path=resolve(root,".harness/repository-ledger.json");
+  const ledger=(existsSync(path)?JSON.parse(readFileSync(path,"utf8")):[]).filter((e:any)=>e.run_id===s.id);
+  const latest=ledger.at(-1);
+  if(!latest)throw Error("Controller commit required before reviewer dispatch");
+  reviewRange=`Review immutable range ${s.phase==="build"?ledger.find((e:any)=>e.task===latest.task).base_commit:s.base}..${latest.commit.sha}; review_commit=${latest.commit.sha}. Return review_verdict PASS/FAIL and review evidence. Do not review uncommitted changes.`;
+  if(git(root,"rev-parse","HEAD")!==latest.commit.sha)throw Error("HEAD differs from latest controller task commit; reconcile review range");
+ }
  const tasks=Object.values(b.tasks).filter(t=>t.accepted).map(t=>t.id);
  const v=await rpc(["orchestration","task-create","--parent",b.rootTask,"--deps",JSON.stringify(tasks),"--spec",[
  `PHASE ${s.phase}. Worktree ${root}.`,spec,
  "You are not alone. Do not revert others' work. Edit only explicitly owned paths. No nested workers or codex-plugin-cc.",
- s.phase==="build"&&!key.startsWith("review-")?"Use installed Superpowers TDD: failing assertion before implementation, then GREEN. Record task-level independent spec and quality review.":"Read-only product code authority. Write evidence reports only; return findings to coordinator.",
+ implementing?"Use installed Superpowers TDD: failing assertion before implementation, then GREEN. Return the JSON worker contract from docs/REPOSITORY-CONTROL.md with status READY_FOR_COMMIT. Independent review follows the controller commit.":"Read-only product code authority. Write evidence reports only; return findings to coordinator.",
+ implementing?workerInstruction:"Do not stage, commit, merge or mutate repository metadata. "+reviewRange,
+ "For implementation, transport verdict PASS means the report status is READY_FOR_COMMIT, not reviewed or committed. Read docs/REPOSITORY-CONTROL.md. Repository control belongs to the controller.",
  "Follow live injected preamble. Report structured payload verdict PASS/FAIL, taskId, dispatchId and reportPath. Never put PASS in prose as a substitute. Send worker_done once from your own pane, then idle. Ask for blocked questions."
  ].join("\n")]);
  const id=v.result.task?.id;if(!id)throw Error("Unknown task schema");

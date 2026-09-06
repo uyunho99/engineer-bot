@@ -20,3 +20,7 @@ bun run harness doctor
 최상위 Task를 추적 가능한 실행 컨테이너로 사용합니다. 사용자 승인 게이트를 우회할 수 있는 기존 자동
 `run` 스케줄러는 실행하지 않습니다. 명령 규약이 달라지면 어댑터를 검토할 때까지 안전하게 중단합니다.
 두 하네스는 같은 기준 커밋에서 만든 독립 브랜치이며 서로 merge하지 않습니다.
+
+Repository Control Layer는 Controller가 소유합니다. 공통 규칙과 보고서 계약은
+[docs/REPOSITORY-CONTROL.md](docs/REPOSITORY-CONTROL.md)를 따릅니다.
+구현 워커는 stage/commit/merge 없이 검증된 변경과 `READY_FOR_COMMIT` 보고서를 반환합니다.

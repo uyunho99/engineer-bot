@@ -30,3 +30,17 @@ JSON 문자열 메시지 payload 형식도 확인했습니다. 오래된 ID, 본
 유료 Claude·Codex 워커의 전체 흐름은 실행하지 않았습니다. Hook과 상태 검사는 협업을 위한 로컬
 운영 규약을 강제하지만 OS sandbox나 인증된 사용자 식별 경계는 아닙니다. 외부 도구 권한 관리와
 실제 근거 검토는 계속 필요합니다. 정확한 사용법은 `OPERATIONS.md`에서 확인합니다.
+
+
+## 2026-09-06 Controller repository control
+
+- 타입 검사와 전체 테스트: 16개 통과, 실패 0. CLI 번들 빌드 통과.
+- Skill frontmatter/구조 검사와 Markdown 상대 링크 검사 통과.
+- 공통 정책, repository-control 구현, lifecycle 테스트는 두 브랜치에서 동일함.
+- 실제 임시 linked worktree: READY_FOR_COMMIT → gate → Controller commit → 고정 SHA 리뷰 → 수정 커밋 재검토 검증.
+- 범위 밖 파일, 민감 파일, 기존 staging, 오래된 gate, 실패/불완전 보고서, 오래된 리뷰,
+  literal pathspec 이름, 삭제/rename, 승인 설정 변경, commit hook 내용 변경 검증.
+- Orca mock runtime에서 구현 완료 후 실제 Controller commit의 immutable range를 리뷰 dispatch에 전달하는 흐름을 검증함.
+- 실제 유료 모델 worker 전체 실행은 수행하지 않음. 전역 설치와 기존 운영 브랜치는 변경하지 않음.
+- 새 필수 ledger 계약 때문에 기존 build 보고서는 실제 commit/review 근거로 전환해야 함.
+- 두 실행 경로는 독립 브랜치이며 별도로 적용/배포해야 함. 공통 파일 변경 시 양쪽 동기화 필요.

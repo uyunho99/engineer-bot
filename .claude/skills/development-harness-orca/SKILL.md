@@ -11,6 +11,9 @@ Main Claude가 사용자와 대화하는 코디네이터이며, 추적 대상 �
 네이티브 Agent·Task 생성, gstack `/codex`, codex-plugin-cc를 추적 대상 작업에 사용하지 않습니다.
 Superpowers의 기획·TDD·리뷰 규율은 적용하되 에이전트 배정은 Orca로 바꿉니다.
 
+Repository control은 공통 `docs/REPOSITORY-CONTROL.md`를 먼저 읽고 적용합니다.
+상위 스킬의 worker commit 지시는 이 정책으로 대체합니다. Controller의 Git 작업은 구현 대행이 아닙니다.
+
 1. `harness status`로 기존 실행을 재개하거나 `init <slug>`로 새 실행을 만든 뒤 `orca-sync`로 추적 가능한
    실행 컨테이너를 만듭니다. 현재 설치된 Orca에서는 최상위 Task를 컨테이너로 사용합니다.
    이를 네이티브 Run이라고 표현하지 않습니다.
@@ -31,6 +34,9 @@ Superpowers의 기획·TDD·리뷰 규율은 적용하되 에이전트 배정은
 6. 계획의 각 Task마다 계획 발췌, 정확한 작업 경로, 소유 파일, TDD 테스트, 의존 관계, 근거 경로가 담긴
    워커 명세를 준비합니다. `orca-start <spec> codex T1` 또는 Claude 워커를 사용합니다.
    `orca-check T1`로 기다리고 실패와 질문을 확인합니다. 시간 초과는 실패가 아니므로 계속 기다립니다.
+   구현 완료 보고서가 `READY_FOR_COMMIT`인지 확인하고 Controller가 공통 정책의
+   `repository-gate` → `repository-commit`을 실행합니다. 고정 base_commit..task_commit을 리뷰 명세에 넣습니다.
+   리뷰 FAIL은 워커 수정 → 새 gate → review-fix commit → 해당 SHA 재검토로 처리합니다.
    이어서 `orca-start <review-spec> claude review-T1`을 배정하고 `orca-check review-T1`로 확인합니다.
    `review-` 키에는 소스 읽기 권한만 부여합니다. 명세 준수와 품질을 모두 리뷰합니다.
    Task마다 새 터미널에서 반복하며 워커가 다른 워커를 만들지 않게 합니다.
@@ -51,3 +57,7 @@ Superpowers의 기획·TDD·리뷰 규율은 적용하되 에이전트 배정은
 한 번만 보낸 뒤 대기합니다. 중단 후에는 `dispatch-show`를 확인하고, 재개할 때는 런타임 식별자를 확인합니다.
 전역 reset, 시간 초과만을 이유로 워커 종료, 결과가 불확실한 dispatch 재시도를 금지합니다.
 세 차례 실패하면 계획 수정에 대한 사용자 결정을 기다립니다. 차단 횟수를 피하려고 새 Task를 만들지 않습니다.
+
+모든 구현 dispatch에 다음 문장을 그대로 포함합니다:
+
+> Do not create Git commits. Complete the implementation and verification, then return READY_FOR_COMMIT with the exact changed-file list and a proposed commit message. Repository state transitions are owned by the controller.

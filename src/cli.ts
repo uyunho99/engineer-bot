@@ -1,3 +1,4 @@
+import { repositoryGate, repositoryCommit, validateTaskCommits } from "./repository-control.ts";
 import { sync, gateDecision, start, check, requireAccepted, type Backend, rpc } from "./orca.ts";
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -6,7 +7,7 @@ import { repo, load, save, locked, git, artifact, fingerprint, statePath } from 
 import { doctor } from "./doctor.ts";
 const [command,...args]=Bun.argv.slice(2);
 const root=repo();
-const help="harness: doctor | init <slug> | status | complete <phase> <report> | decide <approve|revise|cancel> <human-reference> | worktree <absolute-path> <new-branch> | retry <findings>";
+const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | init <slug> | status | complete <phase> <report> | decide <approve|revise|cancel> <human-reference> | worktree <absolute-path> <new-branch> | retry <findings>";
 try {
  if(args.includes("--execute"))throw Error("Ungated execute removed: use harness lifecycle");
  if(command==="doctor") { await doctor(); const {contract}=await import("./orca.ts");console.log(await contract()); }
@@ -18,6 +19,8 @@ try {
    mkdirSync(resolve(root,"docs/development",s.id),{recursive:true});console.log(JSON.stringify(s));return;
   }
   let s=load(root);
+  if(command==="repository-gate") {await requireAccepted(s);console.log(JSON.stringify(repositoryGate(root,args[0]??"",args[1]??""),null,2));return;}
+  if(command==="repository-commit") {await requireAccepted(s);console.log(JSON.stringify(repositoryCommit(root,args[0]??""),null,2));return;}
   if(command==="orca-sync") {await sync(s,root);return;}
   if(command==="orca-start") {await start(s,root,args[0]??"",args[1]??"codex",args[2]);return;}
   if(command==="orca-check") {await check(s,root,args[0]);return;}
@@ -32,6 +35,7 @@ try {
     if(r.verdict!=="PASS"||(phase!=="finish"&&r.head!==git(root,"rev-parse","HEAD"))||r.fingerprint!==fingerprint(root))throw Error("Failed or stale report");
     if(!Array.isArray(r.findings)||r.findings.length)throw Error("Resolve all findings");
     if(phase==="build"&&(!r.tasks?.length||r.tasks.some(t=>!t.id||!t.red||!t.green||!t.review)))throw Error("Per-task RED/GREEN and independent review evidence required");
+    if(phase==="build")validateTaskCommits(root,r.tasks);
     if(phase==="browser-qa"&&!(r.notApplicable?.trim())&&(!r.scenarios?.length||r.scenarios.some(t=>!t.id||t.result!=="PASS"||!t.evidence)))throw Error("Browser scenarios or explicit non-UI rationale required");
     if(phase==="verification"||phase==="build") {if(!r.commands?.length||r.commands.some(c=>!c.command||c.exitCode!==0))throw Error("Passing command evidence required");}
     if(["browser-qa","verification","finish"].includes(phase)&&s.snapshot!==fingerprint(root))throw Error("Code changed since review; retry from build");

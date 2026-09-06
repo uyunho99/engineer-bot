@@ -9,3 +9,7 @@ codex-plugin-cc를 사용하지 않습니다. 리뷰 담당에게는 애플리�
 세션마다 설치된 Orca 가이드를 읽습니다. `run-create`나 `worker-start`가 있다고 가정하지 않습니다.
 지속 상태, 네 차례의 필수 승인, 복구 방법은 `docs/OPERATIONS.md`를 따릅니다. 승인 게이트를 우회하거나,
 승인을 만들어내거나, 본문에 적힌 `PASS`만으로 성공을 판단하거나, 관련 없는 변경을 덮어쓰면 안 됩니다.
+
+Repository Control Layer는 Controller가 소유합니다. 공통 규칙과 보고서 계약은
+[docs/REPOSITORY-CONTROL.md](docs/REPOSITORY-CONTROL.md)를 따릅니다.
+구현 워커는 stage/commit/merge 없이 검증된 변경과 `READY_FOR_COMMIT` 보고서를 반환합니다.
