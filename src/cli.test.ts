@@ -1,3 +1,4 @@
+import { repositoryGate, repositoryCommit } from "./repository-control.ts";
 import { test,expect } from "bun:test";
 import { mkdtempSync,mkdirSync,writeFileSync,rmSync,realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -32,8 +33,12 @@ test("CLI blocks wrong phase, detects changed approved docs, and transfers an is
   expect(load(root).phase).toBe("transferred");expect(load(wt).phase).toBe("build");expect(load(wt).worktree).toBe(realpathSync(wt));
   expect(cli("plan","--execute").exitCode).toBe(1);
   const run=(...args:string[])=>Bun.spawnSync([process.execPath,join(import.meta.dir,"cli.ts"),...args],{cwd:wt});
+  writeFileSync(join(wt,"task.txt"),"verified task implementation\n");
+  writeFileSync(join(wt,".harness/worker.json"),JSON.stringify({task:"T1",executor:"codex",status:"READY_FOR_COMMIT",implementation:{status:"complete"},verification:{red:{status:"passed",command:"fixture RED",evidence:"expected assertion failure"},green:{status:"passed",command:"fixture GREEN",tests_passed:1},typecheck:{status:"passed",command:"fixture static check"}},changed_files:["task.txt"],proposed_commit_message:"feat: task",notes:[]}));
+  writeFileSync(join(wt,".harness/scope.json"),JSON.stringify({task:"T1",allowed_files:["task.txt"]}));
+  const commit=repositoryCommit(wt,repositoryGate(wt,".harness/worker.json",".harness/scope.json").token);
   const reportPath="docs/development/sample/delivery.json";
-  const report={verdict:"PASS",head:git(wt,"rev-parse","HEAD"),fingerprint:fingerprint(wt),commands:[{command:"fixture assertion",exitCode:0}],findings:[],tasks:[{id:"T1",executor:"codex",dispatch:"fixture Codex execution log",red:"fixture red",green:"fixture green",review:"independent fixture review"}],notApplicable:"CLI fixture, no browser surface"};
+  const report={verdict:"PASS",head:git(wt,"rev-parse","HEAD"),fingerprint:fingerprint(wt),commands:[{command:"fixture assertion",exitCode:0}],findings:[],tasks:[{...commit,review_commit:commit.commit.sha,review_verdict:"PASS",id:"T1",executor:"codex",dispatch:"fixture Codex execution log",red:"fixture red",green:"fixture green",review:"independent fixture review"}],notApplicable:"CLI fixture, no browser surface"};
   writeFileSync(join(wt,reportPath),JSON.stringify(report));
   writeFileSync(join(wt,reportPath),JSON.stringify({...report,tasks:report.tasks.map(t=>({...t,executor:"claude"}))}));
   expect(run("complete","build",reportPath).exitCode).toBe(1);

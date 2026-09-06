@@ -62,7 +62,7 @@ Claude에서 `/development-harness-native` 뒤에 개발 요청을 입력하세�
 
 ```text
 기획 → [제품 승인] → 설계 → [설계 승인] → 구현 계획 + QA 계획
-     → [계획 승인] → worktree → TDD 구현 → 독립 리뷰 → 브라우저 QA
+     → [계획 승인] → worktree → TDD 구현 → READY_FOR_COMMIT → Controller gate/commit → 독립 리뷰 → 브라우저 QA
      → 최종 검증 → [UAT 승인] → 브랜치 유지
 
 실패·UAT 수정 요청 → TDD 구현 → 리뷰 → QA → 검증 반복
@@ -111,7 +111,11 @@ Claude에서 `/development-harness-native` 뒤에 개발 요청을 입력하세�
 아래의 `/absolute/new/checkout`은 새로 만들 체크아웃의 실제 절대 경로로 바꾸세요.
 
 ```bash
-git add docs/development harness.config.json .gitignore
+# Controller: status/diff/scope를 검토한 정확한 파일만 stage합니다.
+git status --short
+git diff --check
+git diff
+git add -- docs/development/invite-team/01-brainstorm.md docs/development/invite-team/02-design.md docs/development/invite-team/03-plan.md harness.config.json .gitignore
 git commit -m 'docs: 기능 계획 승인'
 ~/.local/bin/development-harness worktree /absolute/new/checkout feature/invite-team
 cd /absolute/new/checkout
@@ -173,6 +177,14 @@ Codex 실패·빈 출력은 완료가 아니며 Claude가 대신 구현하지 �
 ~/.local/bin/development-harness complete finish docs/development/invite-team/verification.json
 ```
 
+## Repository control
+
+두 실행 경로의 공통 [Repository Control 정책](REPOSITORY-CONTROL.md)을 필수 적용합니다.
+Task 구현/수정 완료와 리뷰 사이에는 반드시 Controller gate와 commit이 있습니다.
+Worker 보고서와 aggregate build 보고서는 서로 다릅니다. 아래 aggregate 예제의 tasks에도
+공통 정책의 ledger 필드와 review_commit/review_verdict를 추가해야 CLI가 수락합니다.
+기존 보고서에 커밋이 없다면 실제 gate/commit/review를 수행해 재작성합니다.
+
 ## 보고서 작성
 
 보고서는 다음 구조의 JSON으로 작성합니다. 아래 설명용 문자열은 실제 실행 근거로 바꿔야 합니다.
@@ -192,6 +204,12 @@ Codex 실패·빈 출력은 완료가 아니며 Claude가 대신 구현하지 �
   "tasks": [
     {
       "id": "T1",
+      "committer": "controller",
+      "repository_control": {"mode": "controller_managed"},
+      "base_commit": "실제 부모 SHA",
+      "commit": {"sha": "실제 Controller commit SHA", "message": "실제 커밋 메시지"},
+      "review_commit": "리뷰한 동일 commit SHA",
+      "review_verdict": "PASS",
       "executor": "codex",
       "dispatch": "실제 Codex runtime 작업 ID 또는 실행 로그 경로",
       "red": "테스트 실패 로그",

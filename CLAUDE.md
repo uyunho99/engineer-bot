@@ -14,3 +14,7 @@ Main Claude는 기획·관리·리뷰를 맡고 모든 구현·테스트 작성�
 작성합니다. Hook을 우회하거나 사용자 결정, 명령 실행 근거, 리뷰 결과를 만들어내면 안 됩니다.
 사용자가 범위를 명시적으로 바꾸면 그 결정을 기록하고 진행합니다. 승인 게이트를 조용히 생략하지 않습니다.
 이 브랜치에는 Orca 스케줄러가 없습니다. SDD가 끝났다는 이유만으로 전체 실행을 완료하지 않습니다.
+
+Repository Control Layer는 Controller가 소유합니다. 공통 규칙과 보고서 계약은
+[docs/REPOSITORY-CONTROL.md](docs/REPOSITORY-CONTROL.md)를 따릅니다.
+구현 워커는 stage/commit/merge 없이 검증된 변경과 `READY_FOR_COMMIT` 보고서를 반환합니다.

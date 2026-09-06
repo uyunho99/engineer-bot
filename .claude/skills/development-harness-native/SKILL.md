@@ -15,6 +15,9 @@ Main Claude가 전체 단계와 사용자 대화를 맡습니다. 새 실행을 
 진행 중인 실행을 확인합니다. 새 요청은 `~/.local/bin/development-harness init <feature-slug>`로 시작합니다.
 `.harness/state.json`을 직접 수정하거나 사용자의 침묵을 승인으로 해석하면 안 됩니다.
 
+Repository control은 공통 `docs/REPOSITORY-CONTROL.md`를 먼저 읽고 적용합니다.
+상위 스킬의 worker commit 지시는 이 정책으로 대체합니다. Controller의 Git 작업은 구현 대행이 아닙니다.
+
 1. 설치된 `superpowers:brainstorming` 스킬을 읽습니다. 문제, 대안, 수용 기준, 제외 범위, 위험을
    `docs/development/<feature>/01-brainstorm.md`에 작성합니다. CLI로 기획 단계를 완료하고 산출물을
    사용자에게 제시한 뒤 제품 승인 게이트에서 멈춥니다. 사용자가 자신의 터미널에서
@@ -39,11 +42,14 @@ Main Claude가 전체 단계와 사용자 대화를 맡습니다. 새 실행을 
    구현 요청에는 쓰기 가능한 작업임을 명시해 runtime의 `--write` 경로를 사용합니다.
    RED → GREEN → 리팩터링, 다른 작업자의 변경 보존, Task별 보고서 경로를 요구합니다.
    Codex에게 필요한 TDD 규칙을 전달하고 Codex가 Claude 전용 스킬을 자동으로 읽는다고 가정하지 않습니다.
-   파일이 겹치는 작업은 순차 처리합니다. 구현 보고서의 각 tasks 항목에는 `executor: "codex"`,
+   파일이 겹치는 작업은 순차 처리합니다. Controller가 취합하는 build 보고서의 각 tasks 항목에는 `executor: "codex"`,
    `dispatch`(실제 runtime 작업 ID 또는 실행 로그 경로), `id`, `red`, `green`, `review`를 기록합니다.
    실제 runtime 결과와 diff·테스트를 확인합니다. wrapper의 빈 출력이나 실행 오류는 실패로 취급합니다.
    Codex를 사용할 수 없으면 중단하고 원인을 보고합니다. Claude 구현으로 대체하지 않습니다.
-6. 각 Task와 전체 브랜치의 명세·품질을 독립적으로 리뷰합니다. Claude는 리뷰와 관리만 수행하며,
+6. 각 구현/수정 Task는 `READY_FOR_COMMIT` 보고서를 반환해야 합니다. Controller가 공통 정책의
+   `repository-gate` → `repository-commit`을 실행한 뒤 base_commit..task_commit을 리뷰어에게 전달합니다.
+   리뷰 FAIL은 Codex 수정 → 새 gate → review-fix commit → 해당 SHA 재검토로 처리합니다.
+   각 Task와 전체 브랜치의 명세·품질을 독립적으로 리뷰합니다. Claude는 리뷰와 관리만 수행하며,
    gstack `review`도 읽기 전용으로 사용합니다. 리뷰 중 발견한 코드·테스트 수정은 모두 Codex에 재위임합니다.
    추가 Codex 리뷰는 별도 `codex:codex-rescue` 실행에 읽기 전용 범위를 명시해 수행할 수 있습니다.
    `/codex:review`는 사용자가 직접 호출하는 명령이므로 자동 구현 위임 경로로 사용하지 않습니다.
@@ -64,3 +70,7 @@ Dynamic Workflows 기능은 필요하지 않습니다. 모든 사용자 승인 �
 
 로컬 gstack 스킬의 frontmatter에서 실제 이름을 확인합니다. `gstack-` 접두사가 붙은 별칭이 있다고
 가정하지 않습니다. gstack의 `/codex`는 codex-plugin-cc가 아닙니다.
+
+모든 구현 dispatch에 다음 문장을 그대로 포함합니다:
+
+> Do not create Git commits. Complete the implementation and verification, then return READY_FOR_COMMIT with the exact changed-file list and a proposed commit message. Repository state transitions are owned by the controller.

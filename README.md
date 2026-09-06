@@ -102,3 +102,7 @@ Claude에게 기능 구현을 요청하거나 `/development-harness-native`를 �
 [운영 쿡북](docs/OPERATIONS.md)에서 설치, 운영 명령, 상태와 근거 관리, 복구, 다른 저장소에서의
 재사용 방법을 확인할 수 있습니다. [하네스 스킬](.claude/skills/development-harness-native/SKILL.md)은
 에이전트가 읽는 전체 실행 지침입니다. 기본 완료 동작은 브랜치를 유지하며 자동으로 merge하지 않습니다.
+
+Repository Control Layer는 Controller가 소유합니다. 공통 규칙과 보고서 계약은
+[docs/REPOSITORY-CONTROL.md](docs/REPOSITORY-CONTROL.md)를 따릅니다.
+구현 워커는 stage/commit/merge 없이 검증된 변경과 `READY_FOR_COMMIT` 보고서를 반환합니다.

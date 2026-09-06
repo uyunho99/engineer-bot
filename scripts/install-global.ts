@@ -17,8 +17,9 @@ for(const name of ["cli","global-hook"]) {
 }
 writeFileSync(launcher,`#!/bin/sh\n# engineer-bot-managed\nexec ${quote(process.execPath)} ${quote(resolve(target,"cli.js"))} "$@"\n`);chmodSync(launcher,0o755);
 let skill=readFileSync(resolve(root,".claude/skills/development-harness-native/SKILL.md"),"utf8");
-skill=skill.replaceAll("~/.local/bin/development-harness",quote(launcher)).replaceAll("bun run harness",quote(launcher)).replaceAll("bun run evidence",quote(launcher)+" evidence").replaceAll("`docs/OPERATIONS.md`", "`"+resolve(target,"OPERATIONS.md")+"`");
-writeFileSync(resolve(target,"SKILL.md"),skill);writeFileSync(resolve(target,"OPERATIONS.md"),readFileSync(resolve(root,"docs/OPERATIONS.md"),"utf8").replaceAll("../README.md","README.md"));writeFileSync(resolve(target,"README.md"),readFileSync(resolve(root,"README.md"),"utf8").replaceAll("docs/OPERATIONS.md","OPERATIONS.md").replaceAll(".claude/skills/development-harness-native/SKILL.md","SKILL.md"));writeFileSync(resolve(target,".engineer-bot-managed"),"1\n");
+skill=skill.replaceAll("~/.local/bin/development-harness",quote(launcher)).replaceAll("bun run harness",quote(launcher)).replaceAll("bun run evidence",quote(launcher)+" evidence").replaceAll("`docs/REPOSITORY-CONTROL.md`", "`"+resolve(target,"REPOSITORY-CONTROL.md")+"`").replaceAll("`docs/OPERATIONS.md`", "`"+resolve(target,"OPERATIONS.md")+"`");
+writeFileSync(resolve(target,"SKILL.md"),skill);writeFileSync(resolve(target,"OPERATIONS.md"),readFileSync(resolve(root,"docs/OPERATIONS.md"),"utf8").replaceAll("../README.md","README.md"));writeFileSync(resolve(target,"README.md"),readFileSync(resolve(root,"README.md"),"utf8").replaceAll("docs/REPOSITORY-CONTROL.md","REPOSITORY-CONTROL.md").replaceAll("docs/OPERATIONS.md","OPERATIONS.md").replaceAll(".claude/skills/development-harness-native/SKILL.md","SKILL.md"));writeFileSync(resolve(target,".engineer-bot-managed"),"1\n");
+copyFileSync(resolve(root,"docs/REPOSITORY-CONTROL.md"),resolve(target,"REPOSITORY-CONTROL.md"));
 const hookCommand=`${quote(process.execPath)} ${quote(resolve(target,"global-hook.js"))}`;
 settings.extraKnownMarketplaces??={};
 settings.extraKnownMarketplaces["openai-codex"]??={source:{source:"github",repo:"openai/codex-plugin-cc"}};

@@ -1,3 +1,4 @@
+import { repositoryGate, repositoryCommit, validateTaskCommits } from "./repository-control.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { initial, complete, decide, retry } from "./harness.ts";
@@ -7,7 +8,7 @@ import { evidence } from "./evidence.ts";
 import { doctor } from "./doctor.ts";
 const [command,...args]=Bun.argv.slice(2);
 
-const help="harness: doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> | status | complete <phase> <report> | decide <approve|revise|cancel> <human-reference> | worktree <absolute-path> <new-branch> | retry <findings>";
+const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> | status | complete <phase> <report> | decide <approve|revise|cancel> <human-reference> | worktree <absolute-path> <new-branch> | retry <findings>";
 try {
  if(args.includes("--execute"))throw Error("Ungated execute removed: use harness lifecycle");
  if(command==="doctor") await doctor();
@@ -32,6 +33,8 @@ try {
    mkdirSync(resolve(root,"docs/development",s.id),{recursive:true});console.log(JSON.stringify(s));return;
   }
   let s=load(root);
+  if(command==="repository-gate") {console.log(JSON.stringify(repositoryGate(root,args[0]??"",args[1]??""),null,2));return;}
+  if(command==="repository-commit") {console.log(JSON.stringify(repositoryCommit(root,args[0]??""),null,2));return;}
   const configPath=resolve(root,"harness.config.json");
   const configHash=()=>digest(readFileSync(configPath));
   if(s.configHash && !(command==="decide" && args[0]!=="approve") && !(command==="complete" && s.phase==="plan") && configHash()!==s.configHash)throw Error("Approved verification configuration changed; restore it or revise the plan");
@@ -47,6 +50,7 @@ try {
     if(r.verdict!=="PASS"||(phase!=="finish"&&r.head!==git(root,"rev-parse","HEAD"))||r.fingerprint!==fingerprint(root))throw Error("Failed or stale report");
     if(!Array.isArray(r.findings)||r.findings.length)throw Error("Resolve all findings");
     if(phase==="build"&&(!r.tasks?.length||r.tasks.some(t=>!t.id||!t.red||!t.green||!t.review||t.executor!=="codex"||!t.dispatch?.trim())))throw Error("Per-task Codex executor/dispatch, RED/GREEN and independent review evidence required");
+    if(phase==="build")validateTaskCommits(root,r.tasks);
     if(phase==="browser-qa"&&!(r.notApplicable?.trim())&&(!r.scenarios?.length||r.scenarios.some(t=>!t.id||t.result!=="PASS"||!t.evidence)))throw Error("Browser scenarios or explicit non-UI rationale required");
     if(phase==="verification"||phase==="build") {if(!r.commands?.length||r.commands.some(c=>!c.command||c.exitCode!==0))throw Error("Passing command evidence required");}
     if(["browser-qa","verification","finish"].includes(phase)&&s.snapshot!==fingerprint(root))throw Error("Code changed since review; retry from build");
