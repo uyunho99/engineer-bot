@@ -42,10 +42,16 @@ bun run harness status
 
 > **설치 버전 주의:** 현재 지원 경로는 `task-create → dispatch → check`입니다. `run-create`·`worker-start`는 없습니다. 자세한 차이는 [설치 버전과 적용 범위](#설치-버전과-적용-범위)를 참고하세요.
 
+## 적용 계약
+
+[목업·계획·독립 QA 계약](WORKFLOW.md)을 먼저 읽습니다. 새 실행의 설계/계획에는 JSON bundle을,
+리뷰/QA 보고서에는 담당·dispatch·freshSession과 시나리오별 실제 근거를 포함합니다.
+첨부 기반 qa-planning은 writing-plans 다음, plan-eng-review 전에 실행합니다.
+
 ## 전체 흐름과 역할
 
 ```text
-기획 → [제품 승인] → 설계 → [설계 승인] → 구현 계획 + QA 계획
+기획 → [제품 승인] → 설계 → [설계 승인] → 구현 계획 + 별도 QA 계획
      → [계획 승인] → worktree → TDD 구현 → READY_FOR_COMMIT → Controller gate/commit → 독립 리뷰 → 브라우저 QA
      → 최종 검증 → [UAT 승인] → 브랜치 유지
 
@@ -87,8 +93,8 @@ bun run harness decide approve '대화 12번 메시지에서 제품 기획 승�
 ```
 
 설계 문서 `02-design.md`와 계획 문서 `03-plan.md`에서도 같은 절차를 반복합니다.
-`03-plan.md`에는 구현 계획과 QA 계획을 함께 담아 하나의 해시로 승인 대상을 고정합니다.
-설치된 gstack의 `plan-design-review`와 `plan-eng-review`를 사용하되,
+`03-plan.md`와 `QA_PLAN-invite-team.md`를 plan-bundle.json으로 함께 승인하고 두 해시를 고정합니다.
+설계에는 Claude 디자인 기능을, 계획 검토에는 gstack `plan-eng-review`를 사용하되,
 접두사가 붙은 별칭이 있다고 가정하지 말고 로컬 스킬의 frontmatter에 적힌 이름을 확인하세요.
 모든 승인은 명시적으로 받으며, 승인된 문서가 바뀌면 수정 승인이나 재계획이 필요합니다.
 
@@ -170,7 +176,7 @@ bun run harness complete review docs/development/invite-team/review.json
 ### 6. 브라우저 QA
 
 ```bash
-bun run harness orca-start docs/development/invite-team/browser-qa.md claude
+bun run harness orca-start docs/development/invite-team/browser-qa.md codex
 bun run harness orca-check
 bun run harness complete browser-qa docs/development/invite-team/qa.json
 ```
@@ -230,6 +236,10 @@ Worker 보고서와 aggregate build 보고서는 서로 다릅니다. 아래 agg
 
 ## 보고서 작성
 
+아래는 공통 필드 예시입니다. 새 실행은 [WORKFLOW.md](WORKFLOW.md)의 Task reviewer,
+전체 리뷰 executor/role/dispatch/freshSession, Codex QA browser/시나리오 필드를 추가해야 수락됩니다.
+QA ID는 승인된 QA_PLAN과 일치해야 하며 expected/actual과 실제 파일 근거가 필요합니다.
+
 실행 보고서는 `docs/development/<feature>` 아래에 JSON으로 작성합니다.
 아래 설명용 문자열은 실제 값과 근거로 바꾸세요.
 
@@ -262,7 +272,7 @@ Worker 보고서와 aggregate build 보고서는 서로 다릅니다. 아래 agg
   ],
   "scenarios": [
     {
-      "id": "QA1",
+      "id": "QA-E2E-001",
       "result": "PASS",
       "evidence": "실제 브라우저 출력 또는 스크린샷"
     }

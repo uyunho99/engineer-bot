@@ -1,9 +1,10 @@
+import { checkApprovals } from "./workflow-contract.ts";
 import { workerInstruction } from "./repository-control.ts";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { State } from "./harness.ts";
 import { save, digest, git } from "./store.ts";
-export type Backend={runtimeId:string;rootTask:string;guideHash:string;gate?:string;tasks:Record<string,{id:string;dispatchId?:string;terminal?:string;accepted?:boolean;launching?:boolean}>};
+export type Backend={runtimeId:string;rootTask:string;guideHash:string;gate?:string;tasks:Record<string,{id:string;dispatchId?:string;terminal?:string;agent?:string;accepted?:boolean;launching?:boolean}>};
 export function executable():string {
  return process.env.ORCA_CLI_COMMAND || (process.env.ORCA_DEV_REPO_ROOT?"orca-dev":process.platform==="linux"?"orca-ide":"orca");
 }
@@ -61,6 +62,11 @@ export function dispatchIdentity(d:any,taskId:string):string {
 export async function start(s:State,root:string,specPath:string,agent:string,key=s.phase):Promise<void> {
  if(!["build","review","browser-qa","verification"].includes(s.phase)||s.worktree!==root)throw Error("Approved delivery worktree required");
  if(!["claude","codex"].includes(agent))throw Error("Worker must be claude or codex");
+ checkApprovals(root,s);
+ if(s.workflowVersion===2) {
+  if((s.phase==="review"||(s.phase==="build"&&key.startsWith("review-")))&&agent!=="claude")throw Error("Independent code review requires a fresh Claude worker");
+  if(s.phase==="browser-qa"&&agent!=="codex")throw Error("Independent browser QA requires a fresh Codex worker");
+ }
  if(!/^[a-zA-Z0-9-]+$/.test(key))throw Error("Invalid task key");
  const taskKey=s.phase+"/"+key;
  const b=await sync(s,root);if(b.gate)throw Error("Pending gate");
@@ -83,11 +89,13 @@ export async function start(s:State,root:string,specPath:string,agent:string,key
  "You are not alone. Do not revert others' work. Edit only explicitly owned paths. No nested workers or codex-plugin-cc.",
  implementing?"Use installed Superpowers TDD: failing assertion before implementation, then GREEN. Return the JSON worker contract from docs/REPOSITORY-CONTROL.md with status READY_FOR_COMMIT. Independent review follows the controller commit.":"Read-only product code authority. Write evidence reports only; return findings to coordinator.",
  implementing?workerInstruction:"Do not stage, commit, merge or mutate repository metadata. "+reviewRange,
+ s.workflowVersion===2&&s.phase==="browser-qa"?readFileSync(resolve(import.meta.dir,"../.agents/skills/harness-browser-qa/SKILL.md"),"utf8"):"",
+ s.workflowVersion===2&&!implementing?`Report executor=${agent}, role=${s.phase==="browser-qa"?"browser-qa":"code-review"}, dispatch=the actual injected dispatchId, freshSession=true. Read the approved plan bundle and QA_PLAN. The controller validates reports separately from transport completion.`:"",
  "For implementation, transport verdict PASS means the report status is READY_FOR_COMMIT, not reviewed or committed. Read docs/REPOSITORY-CONTROL.md. Repository control belongs to the controller.",
  "Follow live injected preamble. Report structured payload verdict PASS/FAIL, taskId, dispatchId and reportPath. Never put PASS in prose as a substitute. Send worker_done once from your own pane, then idle. Ask for blocked questions."
  ].join("\n")]);
  const id=v.result.task?.id;if(!id)throw Error("Unknown task schema");
- const task:{id:string;terminal?:string;launching?:boolean;dispatchId?:string}={id};b.tasks[taskKey]=task;save(root,s);
+ const task:{id:string;terminal?:string;agent?:string;launching?:boolean;dispatchId?:string}={id,agent};b.tasks[taskKey]=task;save(root,s);
  const terminal=await rpc(["terminal","create","--worktree",`path:${root}`,"--title",`harness-${s.id}-${s.phase}`,"--command",agent]);
  task.terminal=terminal.result.terminal?.handle??terminal.result.handle;
  if(!task.terminal)throw Error("Unknown terminal schema: resolve via terminal list; do not create duplicate workers");save(root,s);

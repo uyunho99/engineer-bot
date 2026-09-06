@@ -1,0 +1,80 @@
+diff --git a/src/lib/validation.ts b/src/lib/validation.ts
+index 3a1f9c2..7b4e881 100644
+--- a/src/lib/validation.ts
++++ b/src/lib/validation.ts
+@@ -12,6 +12,14 @@ export function normalizeDisplayName(raw: string): string {
+   return raw.trim().replace(/\s+/g, " ");
+ }
+ 
++export function validateDisplayName(raw: string): string | null {
++  const name = normalizeDisplayName(raw);
++  if (name.length === 0) return "이름을 입력해주세요.";
++  if (name.length > 40) return "이름은 40자 이내로 입력해주세요.";
++  return null;
++}
++
+ export function isValidEmail(value: string): boolean {
+   return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
+ }
+diff --git a/src/routes/api/profile.ts b/src/routes/api/profile.ts
+index 8c2d417..f19a03b 100644
+--- a/src/routes/api/profile.ts
++++ b/src/routes/api/profile.ts
+@@ -1,20 +1,32 @@
+ import { db } from "../../lib/db";
+ import { requireSession } from "../../lib/auth";
+-import { normalizeDisplayName } from "../../lib/validation";
++import { validateDisplayName, normalizeDisplayName } from "../../lib/validation";
+ 
+ export async function updateProfile(req: Request): Promise<Response> {
+   const session = await requireSession(req);
+   const body = await req.json();
+ 
+-  const displayName = normalizeDisplayName(body.displayName ?? "");
++  const error = validateDisplayName(body.displayName ?? "");
++  if (error) {
++    return Response.json({ error }, { status: 400 });
++  }
++
++  const displayName = normalizeDisplayName(body.displayName);
+ 
+   await db.user.update({
+     where: { id: session.userId },
+-    data: { displayName },
++    data: { displayName, updatedAt: new Date() },
+   });
+ 
++  await db.auditLog.create({
++    data: {
++      userId: session.userId,
++      action: "profile.displayName.updated",
++      value: displayName,
++    },
++  });
++
+   return Response.json({ ok: true, displayName });
+ }
+diff --git a/src/components/ProfileForm.tsx b/src/components/ProfileForm.tsx
+index 5e7a119..2d90cc4 100644
+--- a/src/components/ProfileForm.tsx
++++ b/src/components/ProfileForm.tsx
+@@ -8,14 +8,22 @@ export function ProfileForm({ initialName }: { initialName: string }) {
+   const [name, setName] = useState(initialName);
++  const [error, setError] = useState<string | null>(null);
+   const [saving, setSaving] = useState(false);
+ 
+   async function handleSave() {
+     setSaving(true);
+-    await fetch("/api/profile", {
++    const res = await fetch("/api/profile", {
+       method: "POST",
+       body: JSON.stringify({ displayName: name }),
+     });
++    if (!res.ok) {
++      const data = await res.json();
++      setError(data.error);
++    } else {
++      setError(null);
++    }
+     setSaving(false);
+   }

@@ -1,63 +1,57 @@
 ---
 name: development-harness-orca
-description: 설치된 Orca의 추적 가능한 Task, Dispatch, 사용자 게이트로 기획부터 TDD, 리뷰, 브라우저 QA, 검증, 최종 UAT까지 조율하는 개발 하네스입니다.
+description: Claude가 기획·목업·계획 승인과 Git을 관리하고, 구현 워커·새 Claude 코드 리뷰어·새 Codex 브라우저 QA를 거쳐 최종 UAT까지 진행하는 개발 하네스입니다.
 ---
 
-# Orca 개발 책임자
+# 개발 책임자
 
-`docs/OPERATIONS.md`를 읽고 `bun run harness doctor`를 실행합니다. 쿡북의 실행 파일 선택 규칙에 따라
-`orca skills get orchestration`으로 설치된 버전의 전체 가이드를 읽습니다.
-Main Claude가 사용자와 대화하는 코디네이터이며, 추적 대상 워커의 실행 근거는 Orca가 관리합니다.
-네이티브 Agent·Task 생성, gstack `/codex`, codex-plugin-cc를 추적 대상 작업에 사용하지 않습니다.
-Superpowers의 기획·TDD·리뷰 규율은 적용하되 에이전트 배정은 Orca로 바꿉니다.
+공통 `docs/WORKFLOW.md`, `docs/REPOSITORY-CONTROL.md`, 실행 쿡북 `docs/OPERATIONS.md`를 읽습니다.
+Main Claude가 사용자 대화, 승인, 작업 배정, 결과 확인, Git 상태 전환을 맡습니다.
+`bun run harness status`로 기존 실행을 재개합니다. 새 요청만 init으로 시작하고 doctor로 의존성을 확인합니다.
+기존 실행에 workflowVersion이 없으면 WORKFLOW의 구버전 절차를 따르며 상태를 직접 편집하지 않습니다.
+제품·설계·계획·UAT 승인에서 사용자 결정을 기다립니다. 침묵은 승인이 아닙니다.
 
-Repository control은 공통 `docs/REPOSITORY-CONTROL.md`를 먼저 읽고 적용합니다.
-상위 스킬의 worker commit 지시는 이 정책으로 대체합니다. Controller의 Git 작업은 구현 대행이 아닙니다.
+1. `superpowers:brainstorming`으로 01-brainstorm.md를 작성하고 제품 승인을 받습니다.
+2. 설치된 Claude `/design` 기능을 확인하고 없으면 실제 `/claude-design` 연결을 확인합니다.
+   UI가 있으면 클릭 가능한 목업과 상태·모바일 화면을 만들고 02-design.md에 구조·데이터·API·권한을
+   기록합니다. 목업은 제품 소스가 아닌 docs/development/<feature>/mockup/에 보관합니다.
+   WORKFLOW의 design-bundle.json으로 문서와 목업 파일을 함께 제출하고 설계 승인을 받습니다.
+   UI가 없으면 non-ui 이유를 기록합니다. gstack plan-design-review는 선택적 보조 검토입니다.
+3. `superpowers:writing-plans` → 첨부 기반 `qa-planning` → gstack `plan-eng-review`를 적용합니다.
+   03-plan.md와 QA_PLAN-<feature>.md를 분리하고 plan-bundle.json으로 묶어 한 번에 승인받습니다.
+   Task·파일 소유권·RED/GREEN·리뷰·브라우저 준비·계정·실패 시나리오·회귀·되돌리기를 확인합니다.
+   이 계획 승인은 QA handoff 승인도 포함합니다. 계획 승인 전에 구현 워커를 만들지 않습니다.
+4. 승인 자료를 Controller가 커밋하고 `superpowers:using-git-worktrees` 및 harness worktree로 격리합니다.
+   새 체크아웃에서 진행하며 의존성 설치와 기준 검사를 수행합니다.
+5. `superpowers:subagent-driven-development`와 `superpowers:test-driven-development` 규율을 적용합니다.
+   구현 담당에게 계획 발췌, 정확한 cwd, 파일 소유권, QA ID, 수용 기준, 테스트 명령을 전달합니다.
+   RED → GREEN → 리팩터링 및 변경 화면 자체 검증을 요구합니다. 다른 작업자의 변경을 보존합니다.
+6. 구현자는 stage/commit 없이 READY_FOR_COMMIT, changed_files, proposed_commit_message를 반환합니다.
+   Controller가 repository-gate → repository-commit 후 고정 base_commit..task_commit을 새 Claude
+   리뷰어에게 전달합니다. Task별 및 전체 코드 리뷰는 구현에 참여하지 않은 Claude가 맡습니다.
+   gstack review도 읽기 전용입니다. build 보고서에 implementation dispatch와 reviewer 메타데이터를
+   기록합니다. 리뷰어는 코드를 고치지 않으며 FAIL은 구현 담당 수정 → 새 commit → 새 리뷰입니다.
+7. 독립 브라우저 QA는 반드시 새 Codex 세션에 `harness-browser-qa`와 승인된 QA 계획을 전달합니다.
+   구현 세션을 재사용하지 않습니다. 실제 실행 환경에서 브라우저 preflight 후 모든 활성 QA ID를
+   실행하고 화면·로그·expected/actual 근거를 반환합니다. qa-only/webapp-testing은 선택적 보조 수단이며
+   기본 QA 담당을 Claude로 바꾸지 않습니다. 소스·Git 변경 없이 보고서만 작성합니다.
+8. 실패는 retry 후 구현 담당에게 재위임하고 commit → 리뷰 → QA → 검증을 반복합니다.
+   세 차례 수정 실패 시 근거와 함께 계획 수정을 요청합니다. 실행 불가를 PASS로 처리하지 않습니다.
+   `superpowers:verification-before-completion`과 harness evidence로 최신 검사를 확인하고 UAT를 받습니다.
+9. UAT 후 `superpowers:finishing-a-development-branch`를 적용합니다. 기본은 브랜치 유지이며
+   PR/push/merge/배포는 해당 행동에 대한 명시적 요청이 필요합니다.
 
-1. `harness status`로 기존 실행을 재개하거나 `init <slug>`로 새 실행을 만든 뒤 `orca-sync`로 추적 가능한
-   실행 컨테이너를 만듭니다. 현재 설치된 Orca에서는 최상위 Task를 컨테이너로 사용합니다.
-   이를 네이티브 Run이라고 표현하지 않습니다.
-2. 설치된 Superpowers brainstorming을 사용해 사용자와 기획합니다. 문제, 선택지, 범위, 수용 기준을
-   `docs/development/<slug>/01-brainstorm.md`에 작성합니다. 기획 단계를 완료하고 해시가 기록된 산출물과
-   대기 중인 Orca 제품 게이트를 사용자에게 제시한 뒤 멈춥니다. 사용자가 자신의 터미널에서
-   `harness decide approve|revise|cancel '<decision reference>'`를 실행합니다.
-3. 제품 승인 후 `02-design.md`에 구조, 데이터, 권한, UI 상태, 오류, 반응형 동작, 접근성을 작성합니다.
-   UI가 있으면 gstack `plan-design-review`를 적용합니다. UI가 없는 작업도 그 설계와 해당하지 않는 이유를
-   기록합니다. 설계 단계를 완료하고 사용자 승인 게이트에서 멈춥니다.
-4. Superpowers writing-plans와 설치된 gstack `plan-eng-review`를 사용합니다. `03-plan.md` 하나에 구현 계획과
-   QA 계획을 작성합니다. 작은 Task ID와 의존 관계, 소유 경로, 정확한 테스트, RED/GREEN 예상 결과,
-   독립 리뷰 기준, 브라우저 URL·시작 명령·시나리오, 실패 경로, 수용 기준 연결, 되돌리기 방법을 포함합니다.
-   계획 단계를 완료하고 사용자 승인 게이트에서 멈춥니다.
-5. 승인된 산출물을 커밋하고 `harness worktree /absolute/path feature/name`을 사용합니다. 새 체크아웃을
-   Orca에 등록하거나 찾고 그 안에서 Claude 코디네이터 터미널을 엽니다. 의존성을 설치하고 기준 검사를
-   수행합니다. 복사된 상태를 이어 사용하며 새로운 실행을 또 만들지 않습니다.
-6. 계획의 각 Task마다 계획 발췌, 정확한 작업 경로, 소유 파일, TDD 테스트, 의존 관계, 근거 경로가 담긴
-   워커 명세를 준비합니다. `orca-start <spec> codex T1` 또는 Claude 워커를 사용합니다.
-   `orca-check T1`로 기다리고 실패와 질문을 확인합니다. 시간 초과는 실패가 아니므로 계속 기다립니다.
-   구현 완료 보고서가 `READY_FOR_COMMIT`인지 확인하고 Controller가 공통 정책의
-   `repository-gate` → `repository-commit`을 실행합니다. 고정 base_commit..task_commit을 리뷰 명세에 넣습니다.
-   리뷰 FAIL은 워커 수정 → 새 gate → review-fix commit → 해당 SHA 재검토로 처리합니다.
-   이어서 `orca-start <review-spec> claude review-T1`을 배정하고 `orca-check review-T1`로 확인합니다.
-   `review-` 키에는 소스 읽기 권한만 부여합니다. 명세 준수와 품질을 모두 리뷰합니다.
-   Task마다 새 터미널에서 반복하며 워커가 다른 워커를 만들지 않게 합니다.
-7. RED/GREEN과 Task별 리뷰 근거를 모아 구현 단계를 완료합니다. 리뷰 단계에서는 전체 브랜치에 대한
-   독립 gstack 리뷰를 배정합니다. 브라우저 QA 단계에서는 실제 gstack `qa-only` 테스트를 배정합니다.
-   QA 발견 사항은 범위가 정해진 TDD 수정 담당에게 전달하며 리뷰 담당이 직접 고치지 않습니다.
-   Task 종료를 확인한 뒤 재시도하고 구현, 리뷰, QA, 검증을 반복합니다.
-8. 검증 워커는 Superpowers verification-before-completion과 저장소의 실제 명령을 적용해 최신 JSON
-   명령 근거를 만듭니다. 검증 단계를 완료하고 최종 diff, QA 표, 검사 결과를 사용자에게 제시합니다.
-   UAT에서 수정을 요청하면 구현 단계로 돌아갑니다.
-9. UAT 승인 후 finishing-a-development-branch를 적용합니다. 기본 동작은 브랜치 유지입니다.
-   산출물을 커밋하고 완료 단계를 기록합니다. PR, push, merge, 배포에는 해당 행동에 대한 사용자의
-   명시적인 권한이 필요합니다.
+## Orca 실행
 
-사용자 승인 게이트는 개발 책임자만 기록합니다. 워커의 `ask` 질문에는 `reply`를 사용하며
-`gate-resolve`를 사용하지 않습니다. `worker_done`을 만들어내거나 워커 Task를 수동 완료 처리하면 안 됩니다.
-현재 유효한 preamble을 따르고 `taskId`와 `dispatchId`를 사용합니다. 워커 자신의 pane에서 완료 메시지를
-한 번만 보낸 뒤 대기합니다. 중단 후에는 `dispatch-show`를 확인하고, 재개할 때는 런타임 식별자를 확인합니다.
-전역 reset, 시간 초과만을 이유로 워커 종료, 결과가 불확실한 dispatch 재시도를 금지합니다.
-세 차례 실패하면 계획 수정에 대한 사용자 결정을 기다립니다. 차단 횟수를 피하려고 새 Task를 만들지 않습니다.
+설치된 `orca skills get orchestration` 가이드를 읽고 orca-sync로 실행 컨테이너를 만듭니다.
+네이티브 Agent, codex-plugin-cc, gstack /codex로 추적 대상 워커를 우회하지 않습니다.
+구현은 `orca-start <spec> codex T1` 또는 승인된 Claude 워커, Task 리뷰는
+`orca-start <review-spec> claude review-T1`, 전체 리뷰는 `orca-start <spec> claude`,
+브라우저 QA는 `orca-start <qa-spec> codex`로 배정합니다. 매 Task는 새 터미널이며 중첩 워커는 금지합니다.
+`orca-check`로 실제 taskId/dispatchId와 worker_done을 확인합니다. 시간 초과는 실패가 아닙니다.
+워커 ask에는 reply로 답하고 gate-resolve로 대신하지 않습니다. 사용자 결정만 Controller가 기록합니다.
+실행을 임의 완료 처리하거나 전역 reset하지 않습니다. 불확실한 dispatch는 dispatch-show로 확인합니다.
 
-모든 구현 dispatch에 다음 문장을 그대로 포함합니다:
+모든 구현 dispatch에는 다음 문장을 그대로 포함합니다:
 
 > Do not create Git commits. Complete the implementation and verification, then return READY_FOR_COMMIT with the exact changed-file list and a proposed commit message. Repository state transitions are owned by the controller.

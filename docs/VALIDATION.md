@@ -44,3 +44,19 @@ JSON 문자열 메시지 payload 형식도 확인했습니다. 오래된 ID, 본
 - 실제 유료 모델 worker 전체 실행은 수행하지 않음. 전역 설치와 기존 운영 브랜치는 변경하지 않음.
 - 새 필수 ledger 계약 때문에 기존 build 보고서는 실제 commit/review 근거로 전환해야 함.
 - 두 실행 경로는 독립 브랜치이며 별도로 적용/배포해야 함. 공통 파일 변경 시 양쪽 동기화 필요.
+
+
+## 2026-09-06 — 목업·QA 계획·Codex 독립 QA
+
+- 새 실행 workflowVersion=2: 설계 문서+목업, 구현 계획+별도 QA 계획의 파일 해시를 승인에 연결.
+- 첨부 `Qa planning-v1.zip`의 skill/template/edge catalog/evals를 보존하고 하네스 승인 연계를 추가.
+- Claude Task/전체 코드 리뷰, 새 Codex 브라우저 QA의 담당·별도 dispatch·freshSession 검사.
+- 누락/중복 QA ID, FAIL/BLOCKED/NOT_RUN, 실제 근거 파일 누락, 웹 계획의 임의 QA 생략을 거부.
+- 네이티브 19개 / Orca 21개 테스트 통과. 두 경로 타입 검사·빌드 및 3종 스킬 구조 검사 통과.
+- Playwright MCP 0.0.80 + 실제 Chrome(창 표시, isolated)으로 로컬 fixture 접속·버튼 클릭·
+  `Scenario passed` 표시를 확인하고 스크린샷을 열어 검수. 이 검증은 브라우저 연결 smoke이며
+  Codex 모델을 호출한 전체 제품 개발/QA 또는 Claude Design 목업 생성 테스트는 아니다.
+- 현재 Orca live doctor는 `Orca runtime not ready`. Task/dispatch/독립 QA 배정은 모의 런타임으로 검증.
+- 구버전의 진행 중인 실행은 기존 승인 계약을 유지한다. 상태/이력을 자동으로 초기화하지 않는다.
+- 사용자 전역 native 하네스, qa-planning, harness-browser-qa 설치 완료. 기존 모델/설정 보존 검사 통과.
+- Codex 사용자 MCP `playwright`를 0.0.80 / chrome / isolated로 등록하고 활성 설정을 확인.

@@ -22,10 +22,10 @@ else if(a[1]==="gate-create"){const gate={id:"g"+s.gates.length,status:"pending"
 else if(a[1]==="gate-list")result={gates:s.gates};
 else if(a[1]==="gate-resolve"){const g=s.gates.find(g=>g.id===val("--id"));g.status="resolved";g.resolution=val("--resolution");result={gate:g};}
 else if(a[0]==="terminal")result=a[1]==="create"?{terminal:{handle:"worker"}}:{ready:true};
-else if(a[1]==="dispatch"){s.dispatch={id:"d",task_id:val("--task"),status:"dispatched"};s.tasks.find(t=>t.id===s.dispatch.task_id).dispatch=s.dispatch;result={dispatch:s.dispatch};}
+else if(a[1]==="dispatch"){s.dispatch={id:"d-"+val("--task"),task_id:val("--task"),status:"dispatched"};s.tasks.find(t=>t.id===s.dispatch.task_id).dispatch=s.dispatch;result={dispatch:s.dispatch};}
 else if(a[1]==="dispatch-show")result={dispatch:s.tasks.find(t=>t.id===val("--task")).dispatch};
 else if(a[1]==="task-list")result={tasks:s.tasks};
-else if(a[1]==="check"){s.dispatch.status="completed";s.tasks.find(t=>t.id===s.dispatch.task_id).status="completed";s.tasks.find(t=>t.id===s.dispatch.task_id).dispatch.status="completed";result={messages:[{type:"worker_done",payload:JSON.stringify({taskId:s.dispatch.task_id,dispatchId:"d",verdict:"PASS"})}]};}
+else if(a[1]==="check"){s.dispatch.status="completed";s.tasks.find(t=>t.id===s.dispatch.task_id).status="completed";s.tasks.find(t=>t.id===s.dispatch.task_id).dispatch.status="completed";result={messages:[{type:"worker_done",payload:JSON.stringify({taskId:s.dispatch.task_id,dispatchId:s.dispatch.id,verdict:"PASS"})}]};}
 else {console.error(a);process.exit(1);}
 writeFileSync(path,JSON.stringify(s));console.log(JSON.stringify({ok:true,result,_meta:{runtimeId:"runtime"}}));
 `,{mode:0o755});
@@ -54,6 +54,16 @@ writeFileSync(path,JSON.stringify(s));console.log(JSON.stringify({ok:true,result
   expect(reviewSpec).toContain(commit.base_commit+".."+commit.commit.sha);
   expect(reviewSpec).toContain("review_commit="+commit.commit.sha);
   await check(s,dir,"review-T1");await requireAccepted(s);
+  await expect(start({...s,phase:"review"},dir,"spec.md","codex")).rejects.toThrow("Claude worker");
+  await expect(start({...s,phase:"browser-qa"},dir,"spec.md","claude")).rejects.toThrow("Codex worker");
+  s.phase="browser-qa";
+  await start(s,dir,"spec.md","codex");
+  const qaSpec=JSON.parse(readFileSync(db,"utf8")).tasks.at(-1).spec;
+  expect(qaSpec).toContain("Independent browser QA");
+  expect(qaSpec).toContain("NOT_RUN");
+  expect(b.tasks["browser-qa/browser-qa"]?.agent).toBe("codex");
+  expect(b.tasks["browser-qa/browser-qa"]?.dispatchId).not.toBe(b.tasks["build/T1"]?.dispatchId);
+  await check(s,dir);await requireAccepted(s);
   const r=JSON.parse(readFileSync(db,"utf8"));r.modern=true;writeFileSync(db,JSON.stringify(r));
   await expect(contract()).rejects.toThrow("upgraded");
  }finally{if(previous===undefined)delete process.env.ORCA_CLI_COMMAND;else process.env.ORCA_CLI_COMMAND=previous;rmSync(dir,{recursive:true,force:true});}
