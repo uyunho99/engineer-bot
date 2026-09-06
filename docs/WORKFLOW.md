@@ -12,7 +12,7 @@
 | worktree | Controller | using-git-worktrees |
 | 구현·자체 확인 | Codex (Orca는 Claude 구현 워커도 허용) | TDD + 변경한 화면의 브라우저 자체 검증 |
 | Git | Controller | repository-gate → repository-commit |
-| 독립 코드 리뷰 | 새로운 Claude 리뷰어 | 명세 준수·품질, gstack review를 읽기 전용으로 적용 |
+| 독립 코드 리뷰 | 새로운 Codex 리뷰어 | 명세 준수·품질, Controller가 전달한 리뷰 체크리스트 적용 |
 | 독립 브라우저 QA | 새로운 Codex QA 워커 | harness-browser-qa + 실제 브라우저 도구 |
 | 검증·UAT | Controller / 검증 담당 → 사용자 | verification-before-completion |
 | 마무리 | Controller | finishing-a-development-branch, 기본 브랜치 유지 |
@@ -81,13 +81,13 @@ QA 계획·구현 계획의 해시를 모두 검사하므로 한 파일만 바�
 
 ## 독립 코드 리뷰
 
-Task별 및 전체 리뷰는 새 Claude 세션에서 수행한다. 구현 대화는 재사용하지 않고 승인 문서,
+Task별 및 전체 리뷰는 새 Codex 세션에서 수행한다. 구현 대화는 재사용하지 않고 승인 문서,
 QA 계획, base_commit..task_commit, 테스트 근거를 전달한다. Main Claude는 보고서를 취합한다.
 Task별 build 보고서 항목에는 implementation dispatch와 아래 reviewer를 함께 적는다.
 전체 review 보고서는 reviewer의 필드를 최상위에 적고 기존 verdict/head/fingerprint/findings를 유지한다.
 
 ```json
-{"executor":"claude","role":"code-review","dispatch":"actual-review-session-or-log","freshSession":true}
+{"executor":"codex","role":"code-review","dispatch":"actual-review-session-or-log","freshSession":true}
 ```
 
 단순히 freshSession을 쓰는 것으로 독립성이 증명되지는 않는다. Controller가 실제 runtime 세션/로그를

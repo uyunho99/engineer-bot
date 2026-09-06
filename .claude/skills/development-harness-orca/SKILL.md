@@ -1,6 +1,6 @@
 ---
 name: development-harness-orca
-description: Claude가 기획·목업·계획 승인과 Git을 관리하고, 구현 워커·새 Claude 코드 리뷰어·새 Codex 브라우저 QA를 거쳐 최종 UAT까지 진행하는 개발 하네스입니다.
+description: Claude가 기획·목업·계획 승인과 Git을 관리하고, 구현 워커·새 Codex 코드 리뷰어·새 Codex 브라우저 QA를 거쳐 최종 UAT까지 진행하는 개발 하네스입니다.
 ---
 
 # 개발 책임자
@@ -27,9 +27,9 @@ Main Claude가 사용자 대화, 승인, 작업 배정, 결과 확인, Git 상�
    구현 담당에게 계획 발췌, 정확한 cwd, 파일 소유권, QA ID, 수용 기준, 테스트 명령을 전달합니다.
    RED → GREEN → 리팩터링 및 변경 화면 자체 검증을 요구합니다. 다른 작업자의 변경을 보존합니다.
 6. 구현자는 stage/commit 없이 READY_FOR_COMMIT, changed_files, proposed_commit_message를 반환합니다.
-   Controller가 repository-gate → repository-commit 후 고정 base_commit..task_commit을 새 Claude
-   리뷰어에게 전달합니다. Task별 및 전체 코드 리뷰는 구현에 참여하지 않은 Claude가 맡습니다.
-   gstack review도 읽기 전용입니다. build 보고서에 implementation dispatch와 reviewer 메타데이터를
+   Controller가 repository-gate → repository-commit 후 고정 base_commit..task_commit을 새 Codex
+   리뷰어에게 전달합니다. Task별 및 전체 코드 리뷰는 구현에 참여하지 않은 Codex가 맡습니다.
+   Controller가 gstack review의 필요한 체크리스트를 전달하며 Codex가 Claude 스킬을 자동 상속한다고 가정하지 않습니다. 리뷰는 읽기 전용입니다. build 보고서에 implementation dispatch와 reviewer 메타데이터를
    기록합니다. 리뷰어는 코드를 고치지 않으며 FAIL은 구현 담당 수정 → 새 commit → 새 리뷰입니다.
 7. 독립 브라우저 QA는 반드시 새 Codex 세션에 `harness-browser-qa`와 승인된 QA 계획을 전달합니다.
    구현 세션을 재사용하지 않습니다. 실제 실행 환경에서 브라우저 preflight 후 모든 활성 QA ID를
@@ -46,7 +46,7 @@ Main Claude가 사용자 대화, 승인, 작업 배정, 결과 확인, Git 상�
 설치된 `orca skills get orchestration` 가이드를 읽고 orca-sync로 실행 컨테이너를 만듭니다.
 네이티브 Agent, codex-plugin-cc, gstack /codex로 추적 대상 워커를 우회하지 않습니다.
 구현은 `orca-start <spec> codex T1` 또는 승인된 Claude 워커, Task 리뷰는
-`orca-start <review-spec> claude review-T1`, 전체 리뷰는 `orca-start <spec> claude`,
+`orca-start <review-spec> codex review-T1`, 전체 리뷰는 `orca-start <spec> codex`,
 브라우저 QA는 `orca-start <qa-spec> codex`로 배정합니다. 매 Task는 새 터미널이며 중첩 워커는 금지합니다.
 `orca-check`로 실제 taskId/dispatchId와 worker_done을 확인합니다. 시간 초과는 실패가 아닙니다.
 워커 ask에는 reply로 답하고 gate-resolve로 대신하지 않습니다. 사용자 결정만 Controller가 기록합니다.

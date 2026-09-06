@@ -54,11 +54,11 @@ try {
       const accepted=Object.entries((s.backend as Backend).tasks).filter(([,t])=>t.accepted);
       for(const task of r.tasks as any[]) {
        if(!accepted.some(([key,t])=>key.startsWith("build/")&&!key.startsWith("build/review-")&&t.dispatchId===task.dispatch&&t.agent===task.executor))throw Error("Implementation report does not match accepted Orca dispatch");
-       if(!accepted.some(([key,t])=>key.startsWith("build/review-")&&t.dispatchId===task.reviewer.dispatch&&t.agent==="claude"))throw Error("Task reviewer does not match accepted independent Claude dispatch");
+       if(!accepted.some(([key,t])=>key.startsWith("build/review-")&&t.dispatchId===task.reviewer.dispatch&&t.agent==="codex"))throw Error("Task reviewer does not match accepted independent Codex dispatch");
       }
      }
     }
-    if(s.workflowVersion===2&&phase==="review")validateIndependent(r,"claude",implementationDispatches(root,s));
+    if(s.workflowVersion===2&&phase==="review")validateIndependent(r,"code-review",implementationDispatches(root,s));
     if(s.workflowVersion===2&&phase==="browser-qa")validateBrowserQA(root,s,r);
     if(s.workflowVersion===2&&["review","browser-qa"].includes(phase)) {
      const record=r as typeof r & {dispatch:string;executor:string};

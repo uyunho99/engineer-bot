@@ -63,7 +63,7 @@ bun run harness status
 | 사용자 | 제품·설계·계획·UAT 검토와 승인 | 자신의 터미널에서 `harness decide` |
 | Main Claude | 기획, 배정, 진행 확인, 근거 검토 | 하네스 CLI와 설치된 스킬 |
 | Orca | Task·Dispatch·Gate 기록과 실행 추적 | 설치 버전에 맞는 실행 규약 |
-| Claude / Codex 워커 | 명세에 배정된 구현·리뷰·QA | 주입된 Task와 완료 메시지 |
+| 구현 워커 / 별도 Codex 검토 워커 | 명세에 배정된 구현 / 독립 코드 리뷰·QA | 주입된 Task와 완료 메시지 |
 
 **읽는 방법:** 단계별 산출물과 워커 결과를 확인한 뒤 다음 명령을 실행합니다. 전체를 한 번에 붙여 넣지 마세요.
 
@@ -143,7 +143,7 @@ bun run harness repository-gate .harness/T1-report.json .harness/T1-scope.json
 # 출력 diff와 untracked 내용을 검토하고 실제 token을 전달합니다.
 bun run harness repository-commit <gate-token>
 # 리뷰 명세에 반환된 base_commit과 commit.sha를 고정합니다.
-bun run harness orca-start docs/development/invite-team/review-T1.md claude review-T1
+bun run harness orca-start docs/development/invite-team/review-T1.md codex review-T1
 bun run harness orca-check review-T1
 ```
 
@@ -168,7 +168,7 @@ bun run harness complete build docs/development/invite-team/build.json
 ### 5. 전체 변경 리뷰
 
 ```bash
-bun run harness orca-start docs/development/invite-team/whole-review.md claude
+bun run harness orca-start docs/development/invite-team/whole-review.md codex
 bun run harness orca-check
 bun run harness complete review docs/development/invite-team/review.json
 ```

@@ -60,3 +60,11 @@ JSON 문자열 메시지 payload 형식도 확인했습니다. 오래된 ID, 본
 - 구버전의 진행 중인 실행은 기존 승인 계약을 유지한다. 상태/이력을 자동으로 초기화하지 않는다.
 - 사용자 전역 native 하네스, qa-planning, harness-browser-qa 설치 완료. 기존 모델/설정 보존 검사 통과.
 - Codex 사용자 MCP `playwright`를 0.0.80 / chrome / isolated로 등록하고 활성 설정을 확인.
+
+## 2026-09-06 — 독립 코드 리뷰 담당 변경
+
+- 사용자 요청으로 Task별/전체 독립 코드 리뷰도 새 Codex 세션으로 변경.
+- 구현 dispatch 재사용, 잘못된 role, freshSession 누락, Claude 리뷰 보고서를 거부.
+- 네이티브는 codex:codex-rescue --wait --fresh, Orca는 별도 codex 리뷰 Task로 배정.
+- 기존 목업·QA 계획·Controller 커밋·독립 브라우저 QA 계약 유지.
+- 변경 후 네이티브 19개 / Orca 21개 테스트, 타입 검사·빌드 통과. 실제 모델을 호출한 전체 리뷰 실행은 포함하지 않음.

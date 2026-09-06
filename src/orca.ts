@@ -64,7 +64,7 @@ export async function start(s:State,root:string,specPath:string,agent:string,key
  if(!["claude","codex"].includes(agent))throw Error("Worker must be claude or codex");
  checkApprovals(root,s);
  if(s.workflowVersion===2) {
-  if((s.phase==="review"||(s.phase==="build"&&key.startsWith("review-")))&&agent!=="claude")throw Error("Independent code review requires a fresh Claude worker");
+  if((s.phase==="review"||(s.phase==="build"&&key.startsWith("review-")))&&agent!=="codex")throw Error("Independent code review requires a fresh Codex worker");
   if(s.phase==="browser-qa"&&agent!=="codex")throw Error("Independent browser QA requires a fresh Codex worker");
  }
  if(!/^[a-zA-Z0-9-]+$/.test(key))throw Error("Invalid task key");
