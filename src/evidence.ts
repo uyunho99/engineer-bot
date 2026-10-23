@@ -15,7 +15,7 @@ for(const argv of verificationCommands(root)) {
 if(before!==fingerprint(root)||head!==git(root,"rev-parse","HEAD"))throw Error("Verification changed source or HEAD; review changes and rerun");
 const dir=resolve(root,"docs/development",s.id);mkdirSync(dir,{recursive:true});
 const path=resolve(dir,"verification.json");
-writeFileSync(path,JSON.stringify({verdict:results.every(r=>r.exitCode===0)?"PASS":"FAIL",head:git(root,"rev-parse","HEAD"),fingerprint:fingerprint(root),commands:results,findings:[]},null,2));
+writeFileSync(path,JSON.stringify({verdict:results.every(r=>r.exitCode===0)?"PASS":"FAIL",head:git(root,"rev-parse","HEAD"),fingerprint:fingerprint(root),commands:results,findings:[],approvals:s.history.filter(h=>["approve","revise","cancel"].includes(h.action)).map(h=>({phase:h.phase,action:h.action,actor:h.actor??"operator",reference:h.reference,...(h.relayQuote?{relayQuote:h.relayQuote}:{})}))},null,2));
 console.log(path);if(results.some(r=>r.exitCode!==0))process.exitCode=1;
 
 }

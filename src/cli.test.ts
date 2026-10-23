@@ -153,3 +153,28 @@ test("a light run goes through the CLI without a design gate and can escalate",(
   expect(load(root).track).toBe("full");expect(load(root).phase).toBe("design");
  }finally{rmSync(base,{recursive:true,force:true});}
 });
+test("relayed approval is recorded through the CLI and can be switched off",()=>{
+ const base=mkdtempSync(join(tmpdir(),"harness-relaycli-"));
+ const make=(name:string,allowRelay?:boolean)=>{
+  const root=join(base,name);mkdirSync(root);
+  git(root,"init");git(root,"config","user.email","t@example.invalid");git(root,"config","user.name","T");
+  writeFileSync(join(root,".gitignore"),".harness/\n");git(root,"add",".");git(root,"commit","-m","initial");
+  const cli=(...a:string[])=>Bun.spawnSync([process.execPath,join(import.meta.dir,"cli.ts"),...a],{cwd:root});
+  expect(cli("setup").exitCode).toBe(0);
+  writeFileSync(join(root,"harness.config.json"),JSON.stringify({version:1,mode:"claude-only",verificationCommands:[["bun","test"]],...(allowRelay===undefined?{}:{approval:{allowRelay}})},null,2));
+  expect(cli("init","sample").exitCode).toBe(0);
+  writeFileSync(join(root,"docs/development/sample/product.md"),"reviewable product");
+  expect(cli("complete","brainstorm","docs/development/sample/product.md").exitCode).toBe(0);
+  return {root,cli};
+ };
+ try{
+  const on=make("on");
+  const r=on.cli("decide","approve","--relay","좋아 진행해","conversation 12");
+  expect(r.stderr.toString()).toBe("");expect(r.exitCode).toBe(0);
+  expect(load(on.root).history.at(-1)!.actor).toBe("relay");
+  expect(on.cli("status").stderr.toString()).toContain("relayed");
+  const off=make("off",false);
+  const denied=off.cli("decide","approve","--relay","좋아 진행해","conversation 12");
+  expect(denied.exitCode).toBe(1);expect(denied.stderr.toString()).toContain("allowRelay");
+ }finally{rmSync(base,{recursive:true,force:true});}
+});

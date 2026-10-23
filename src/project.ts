@@ -19,6 +19,13 @@ export function verificationCommands(root:string):string[][] {
  if(!Array.isArray(commands)||!commands.length||commands.some((c:unknown)=>!Array.isArray(c)||!c.length||c.some(x=>typeof x!=="string"||!x.trim())))throw Error("Set non-empty verificationCommands in harness.config.json, e.g. [[\"npm\",\"test\"],[\"npm\",\"run\",\"build\"]]");
  return commands;
 }
+export function allowRelay(root:string):boolean {
+ const path=resolve(root,"harness.config.json");
+ if(!existsSync(path))return true;
+ const v=JSON.parse(readFileSync(path,"utf8")).approval?.allowRelay;
+ if(v!==undefined&&typeof v!=="boolean")throw Error("approval.allowRelay must be true or false");
+ return v!==false;
+}
 export function fixLimits(root:string):Limits {
  const config=JSON.parse(readFileSync(resolve(root,"harness.config.json"),"utf8"));
  const read=(v:unknown,fallback:number,name:string):number=>{

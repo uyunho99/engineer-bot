@@ -22,12 +22,14 @@ export function complete(s:State,phase:string,digest:string,verdict:string):Stat
  const n=record(s,"complete",digest); n.evidence[phase]=digest;
  n.phase=ps[ps.indexOf(phase)+1]!; return n;
 }
-export function decide(s:State,decision:string,reference:string,opts:{escalate?:boolean}={}):State {
+export function decide(s:State,decision:string,reference:string,opts:{escalate?:boolean;relay?:string}={}):State {
  const ps=phasesFor(s);
  if(!s.phase.endsWith("-gate")) throw Error("No pending gate");
  if(!["approve","revise","cancel"].includes(decision)) throw Error("Expected approve, revise, cancel");
  if(opts.escalate&&!(decision==="revise"&&s.phase==="plan-gate"&&(s.track??"full")==="light")) throw Error("Escalation requires revising a light-track plan gate");
- const n=record(s,decision,reference,opts.escalate?{escalatedTo:"full",waived:["product-gate"]}:{});
+ if(opts.relay!==undefined&&!opts.relay.trim()) throw Error("A relayed decision must quote the user's words");
+ const who=opts.relay!==undefined?{actor:"relay",relayQuote:opts.relay}:{actor:"operator"};
+ const n=record(s,decision,reference,{...who,...(opts.escalate?{escalatedTo:"full",waived:["product-gate"]}:{})});
  if(decision==="cancel") n.phase="cancelled";
  else if(decision==="approve") n.phase=ps[ps.indexOf(s.phase)+1]!;
  else if(opts.escalate) {

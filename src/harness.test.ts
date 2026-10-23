@@ -98,3 +98,11 @@ test("escalation is rejected outside a light plan gate",()=>{
  f=complete(f,"brainstorm","digest","PASS");
  expect(()=>decide(f,"revise","human",{escalate:true})).toThrow("Escalation");
 });
+test("relayed decisions are attributed and need the user's words",()=>{
+ let s=initial("test");s=complete(s,"brainstorm","digest","PASS");
+ expect(()=>decide(s,"approve","ref",{relay:"  "})).toThrow("user's words");
+ const r=decide(s,"approve","conversation 12",{relay:"좋아 진행해"});
+ expect(r.history.at(-1)!.actor).toBe("relay");
+ expect(r.history.at(-1)!.relayQuote).toBe("좋아 진행해");
+ expect(decide(s,"approve","terminal").history.at(-1)!.actor).toBe("operator");
+});

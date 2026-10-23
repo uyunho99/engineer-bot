@@ -43,3 +43,13 @@ test("hook allows development artifacts in the approved worktree",()=>{
   expect(guard({tool_name:"Write",tool_input:{file_path:join(wt,".harness/state.json")}},root)).toContain("coordinator-managed");
  }finally{rmSync(root,{recursive:true,force:true});rmSync(wt,{recursive:true,force:true});}
 });
+test("guard lets relayed and documented decisions through but still stops bare ones",()=>{
+ const root=mkdtempSync(join(tmpdir(),"harness-relay-"));
+ try{
+  const bash=(command:string)=>guard({tool_name:"Bash",tool_input:{command}},root);
+  expect(bash("bun run harness decide approve forged")).toBeDefined();
+  expect(bash("bun run harness decide approve --relay '\uc88b\uc544 \uc9c4\ud589\ud574' 'conversation 12'")).toBeUndefined();
+  expect(bash("cat > notes.md <<'EOF'\nrun: development-harness decide approve forged\nEOF")).toBeUndefined();
+  expect(bash("cat > notes.md <<'EOF'\nnotes\nEOF\nbun run harness decide approve forged")).toBeDefined();
+ }finally{rmSync(root,{recursive:true,force:true});}
+});

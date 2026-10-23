@@ -4,13 +4,19 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { initial, complete, decide, retry, type Track } from "./harness.ts";
 import { repo, load, save, locked, git, artifact, fingerprint, statePath, digest, codeRoot } from "./store.ts";
-import { setup, verificationCommands, fixLimits } from "./project.ts";
+import { setup, verificationCommands, fixLimits, allowRelay } from "./project.ts";
 import { evidence } from "./evidence.ts";
 import { doctor } from "./doctor.ts";
 import { startPrepare, prepareStatus } from "./prepare.ts";
 const [command,...args]=Bun.argv.slice(2);
+function parseDecide(a:string[]) {
+ const ri=a.indexOf("--relay");
+ const relay=ri<0?undefined:(a[ri+1]??"");
+ const plain=a.filter((x,i)=>x!=="--escalate"&&(ri<0||(i!==ri&&i!==ri+1)));
+ return {decision:plain[0]??"",reference:plain[1]??"",escalate:a.includes("--escalate"),relay};
+}
 
-const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> [--track full|light] | status | complete <phase> <report> | decide <approve|revise|cancel> [--escalate] <human-reference> | worktree <absolute-path> <new-branch> | retry <findings> --task <task-id> | prepare | prepare-status";
+const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> [--track full|light] | status | complete <phase> <report> | decide <approve|revise|cancel> [--escalate] [--relay <user-quote>] <reference> | worktree <absolute-path> <new-branch> | retry <findings> --task <task-id> | prepare | prepare-status";
 try {
  if(args.includes("--execute"))throw Error("Ungated execute removed: use harness lifecycle");
  if(command==="doctor") await doctor();
@@ -19,7 +25,14 @@ try {
  if(command==="setup")setup(root);
  else if(command==="evidence")evidence(root);
  else if(command==="fingerprint")console.log(fingerprint(existsSync(statePath(root))?codeRoot(root,load(root)):root));
- else if(command==="status"||command==="plan"||command==="smoke") {if(existsSync(statePath(root))) console.log(JSON.stringify(load(root),null,2));else console.log(help);}
+ else if(command==="status"||command==="plan"||command==="smoke") {
+  if(!existsSync(statePath(root)))console.log(help);
+  else {
+   const st=load(root);console.log(JSON.stringify(st,null,2));
+   const relayed=st.history.filter(h=>h.actor==="relay").length;
+   if(relayed)console.error(relayed+" gate decision(s) were relayed from conversation rather than entered by the operator");
+  }
+ }
  else await locked(root,async()=>{
   if(command==="configure") {
    if(existsSync(statePath(root)) && !["brainstorm","design","plan"].includes(load(root).phase))throw Error("Configure verification before plan approval, outside pending gates");
@@ -47,7 +60,7 @@ try {
   if(command==="prepare-status") {console.log(JSON.stringify(prepareStatus(root),null,2));return;}
   const configPath=resolve(root,"harness.config.json");
   const configHash=()=>digest(readFileSync(configPath));
-  if(s.configHash && !(command==="decide" && args[0]!=="approve") && !(command==="complete" && s.phase==="plan") && configHash()!==s.configHash)throw Error("Approved verification configuration changed; restore it or revise the plan");
+  if(s.configHash && !(command==="decide" && parseDecide(args).decision!=="approve") && !(command==="complete" && s.phase==="plan") && configHash()!==s.configHash)throw Error("Approved verification configuration changed; restore it or revise the plan");
   if(command==="complete") {
    const [phase,path]=args;if(!phase||!path)throw Error(help);
    if(phase==="worktree")throw Error("Use worktree command to establish isolation");
@@ -87,12 +100,12 @@ try {
    if(phase==="plan" && existsSync(configPath))s.configHash=configHash();
    s=complete(s,phase,path+"#sha256="+report.hash,"PASS");save(root,s);
   } else if(command==="decide") {
-   const escalate=args.includes("--escalate");
-   const [decision="",reference=""]=args.filter(a=>a!=="--escalate");
+   const {decision,reference,escalate,relay}=parseDecide(args);
+   if(relay!==undefined&&!allowRelay(code))throw Error("Relayed decisions are disabled by approval.allowRelay in harness.config.json; record this decision in the operator's terminal");
    if(decision==="approve")checkApprovals(code,s);
    for(const entry of Object.values(s.evidence)){const [p,h]=entry.split("#sha256=");if(h&&artifact(code,p!).hash!==h&&decision==="approve")throw Error("Gate evidence changed; revise first");}
    if(s.phase==="uat-gate"&&decision==="approve"&&s.snapshot!==fingerprint(code))throw Error("UAT evidence stale; retry");
-   s=decide(s,decision,reference,{escalate});save(root,s);
+   s=decide(s,decision,reference,{escalate,relay});save(root,s);
   } else if(command==="retry") {
    const i=args.indexOf("--task");
    const task=i>=0?(args[i+1]??""):"";
