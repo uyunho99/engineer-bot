@@ -7,9 +7,10 @@ import { repo, load, save, locked, git, artifact, fingerprint, statePath, digest
 import { setup, verificationCommands, fixLimits } from "./project.ts";
 import { evidence } from "./evidence.ts";
 import { doctor } from "./doctor.ts";
+import { startPrepare, prepareStatus } from "./prepare.ts";
 const [command,...args]=Bun.argv.slice(2);
 
-const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> | status | complete <phase> <report> | decide <approve|revise|cancel> <human-reference> | worktree <absolute-path> <new-branch> | retry <findings> --task <task-id>";
+const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> | status | complete <phase> <report> | decide <approve|revise|cancel> <human-reference> | worktree <absolute-path> <new-branch> | retry <findings> --task <task-id> | prepare | prepare-status";
 try {
  if(args.includes("--execute"))throw Error("Ungated execute removed: use harness lifecycle");
  if(command==="doctor") await doctor();
@@ -37,6 +38,11 @@ try {
   const code=codeRoot(root,s);
   if(command==="repository-gate") {console.log(JSON.stringify(repositoryGate(root,args[0]??"",args[1]??""),null,2));return;}
   if(command==="repository-commit") {console.log(JSON.stringify(repositoryCommit(root,args[0]??""),null,2));return;}
+  if(command==="prepare") {
+   if(!s.worktree)throw Error("Approved worktree required");
+   startPrepare(root,s.worktree);console.log(JSON.stringify(prepareStatus(root)));return;
+  }
+  if(command==="prepare-status") {console.log(JSON.stringify(prepareStatus(root),null,2));return;}
   const configPath=resolve(root,"harness.config.json");
   const configHash=()=>digest(readFileSync(configPath));
   if(s.configHash && !(command==="decide" && args[0]!=="approve") && !(command==="complete" && s.phase==="plan") && configHash()!==s.configHash)throw Error("Approved verification configuration changed; restore it or revise the plan");
@@ -59,6 +65,10 @@ try {
    for(const entry of Object.values(s.evidence)){const [p,h]=entry.split("#sha256=");if(h&&artifact(code,p!).hash!==h)throw Error("Approved evidence changed; revise/restart its gate");}
    if(["build","review","browser-qa","verification","finish"].includes(phase)) {
     if(!s.worktree)throw Error("Delivery must run in an approved worktree");
+    if(phase==="build") {
+     const prep=prepareStatus(root);
+     if(!["ok","skipped"].includes(String(prep.state)))throw Error("Worktree preparation is "+String(prep.state)+"; inspect .harness/worktree-prepare.log and rerun prepare before completing build");
+    }
     const r=JSON.parse(report.text) as {verdict:string;commands?:{command:string;exitCode:number}[];head:string;fingerprint:string;findings?:unknown[];notApplicable?:string;tasks?:{id:string;red:string;green:string;review:string;executor:string;dispatch:string}[];scenarios?:{id:string;result:string;evidence:string}[]};
     if(r.verdict!=="PASS"||(phase!=="finish"&&r.head!==git(code,"rev-parse","HEAD"))||r.fingerprint!==fingerprint(code))throw Error("Failed or stale report");
     if(!Array.isArray(r.findings)||r.findings.length)throw Error("Resolve all findings");
@@ -94,6 +104,7 @@ try {
    s=complete(s,"worktree","git worktree "+path,"PASS");
    s.worktree=git(path,"rev-parse","--show-toplevel");s.worktreeBranch=branch;
    save(root,s);
+   startPrepare(root,s.worktree);
    console.log("Worktree ready at "+s.worktree+"\nAdd it to this session instead of restarting: /add-dir "+s.worktree);
   } else throw Error(help);
  });
