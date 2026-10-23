@@ -3,10 +3,11 @@ import { readFileSync, writeFileSync, existsSync, lstatSync, realpathSync } from
 import { resolve } from "node:path";
 import { git, digest, load, artifact, codeRoot } from "./store.ts";
 import type { State } from "./harness.ts";
+import { runAgents } from "./agents.ts";
 
 export const workerInstruction = "Do not create Git commits. Complete the implementation and verification, then return READY_FOR_COMMIT with the exact changed-file list and a proposed commit message. Repository state transitions are owned by the controller.";
 export type WorkerReport = {
- task:string; executor:"codex"|"claude"; status:"READY_FOR_COMMIT";
+ task:string; executor:string; status:"READY_FOR_COMMIT";
  implementation:{status:"complete"};
  verification:Record<string,{status:string;command:string;evidence?:string;tests_passed?:number}>;
  changed_files:string[]; proposed_commit_message:string; notes:string[];
@@ -17,8 +18,8 @@ function files(v:unknown):string[] {
  return [...v].sort();
 }
 function same(a:string[],b:string[]):boolean{return JSON.stringify([...a].sort())===JSON.stringify([...b].sort());}
-export function validateWorker(r:any):asserts r is WorkerReport {
- if(!r||!nonempty(r.task)||!['codex','claude'].includes(r.executor)||r.status!=="READY_FOR_COMMIT"||r.implementation?.status!=="complete"||!nonempty(r.proposed_commit_message)||!Array.isArray(r.notes)||r.notes.some((n:unknown)=>typeof n!=="string"))throw Error("Expected complete READY_FOR_COMMIT worker report");
+export function validateWorker(r:any,engines:string[]=["codex","claude"]):asserts r is WorkerReport {
+ if(!r||!nonempty(r.task)||!engines.includes(r.executor)||r.status!=="READY_FOR_COMMIT"||r.implementation?.status!=="complete"||!nonempty(r.proposed_commit_message)||!Array.isArray(r.notes)||r.notes.some((n:unknown)=>typeof n!=="string"))throw Error("Expected complete READY_FOR_COMMIT worker report");
  files(r.changed_files);
  const v=r.verification;
  if(!v||v.red?.status!=="passed"||!nonempty(v.red.evidence)||v.green?.status!=="passed"||!Number.isInteger(v.green.tests_passed)||v.green.tests_passed<1||v.typecheck?.status!=="passed")throw Error("Passing RED evidence, GREEN test count and typecheck required");
@@ -32,7 +33,7 @@ export function changedFiles(root:string):string[] {
  return [...new Set([...raw(root,"diff","--name-only","--no-renames","-z","HEAD").split("\0"),...raw(root,"ls-files","--others","--exclude-standard","-z").split("\0")].filter(Boolean))].sort();
 }
 function snapshot(stateRoot:string,root:string,reportPath:string,scopePath:string) {
- const report=JSON.parse(readFileSync(resolve(stateRoot,reportPath),"utf8"));validateWorker(report);
+ const report=JSON.parse(readFileSync(resolve(stateRoot,reportPath),"utf8"));validateWorker(report,[runAgents(root,load(stateRoot)).agents.implementer.engine]);
  const scope=JSON.parse(readFileSync(resolve(stateRoot,scopePath),"utf8"));
  if(scope.task!==report.task)throw Error("Scope task mismatch");
  const allowed=files(scope.allowed_files), actual=changedFiles(root);

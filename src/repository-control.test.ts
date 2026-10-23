@@ -3,6 +3,8 @@ import { test, expect, setDefaultTimeout } from "bun:test";
 // default is too tight once the machine is busy, and a timeout here says nothing about
 // the harness. Unit tests elsewhere keep the default.
 setDefaultTimeout(30_000);
+// Never read the developer's own agent configuration.
+process.env.HARNESS_CONFIG_HOME=mkdtempSync(join(tmpdir(),"harness-person-empty-"));
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, renameSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

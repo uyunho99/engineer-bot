@@ -1,4 +1,5 @@
-import { bindApproval, checkApprovals, validateBrowserQA, validateBuildReviews, validateIndependent, implementationDispatches } from "./workflow-contract.ts";
+import { bindApproval, checkApprovals, validateBrowserQA, validateBuildReviews, validateBuildTasks, validateIndependent, implementationDispatches } from "./workflow-contract.ts";
+import { loadAgents, runAgents } from "./agents.ts";
 import { repositoryGate, repositoryCommit, validateTaskCommits } from "./repository-control.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -80,6 +81,7 @@ try {
    for(const entry of Object.values(s.evidence)){const [p,h]=entry.split("#sha256=");if(h&&artifact(code,p!).hash!==h)throw Error("Approved evidence changed; revise/restart its gate");}
    if(["build","review","browser-qa","verification","finish"].includes(phase)) {
     if(!s.worktree)throw Error("Delivery must run in an approved worktree");
+    const team=runAgents(code,s).agents;
     if(phase==="build") {
      const prep=prepareStatus(root);
      if(!["ok","skipped"].includes(String(prep.state)))throw Error("Worktree preparation is "+String(prep.state)+"; inspect .harness/worktree-prepare.log and rerun prepare before completing build");
@@ -87,10 +89,10 @@ try {
     const r=JSON.parse(report.text) as {verdict:string;commands?:{command:string;exitCode:number}[];head:string;fingerprint:string;findings?:unknown[];notApplicable?:string;tasks?:{id:string;red:string;green:string;review:string;executor:string;dispatch:string}[];scenarios?:{id:string;result:string;evidence:string}[]};
     if(r.verdict!=="PASS"||(phase!=="finish"&&r.head!==git(code,"rev-parse","HEAD"))||r.fingerprint!==fingerprint(code))throw Error("Failed or stale report");
     if(!Array.isArray(r.findings)||r.findings.length)throw Error("Resolve all findings");
-    if(phase==="build"&&(!r.tasks?.length||r.tasks.some(t=>!t.id||!t.red||!t.green||!t.review||t.executor!=="codex"||!t.dispatch?.trim())))throw Error("Per-task Codex executor/dispatch, RED/GREEN and independent review evidence required");
-    if(phase==="build") {validateTaskCommits(root,r.tasks);if(s.workflowVersion===2)validateBuildReviews(r);}
-    if(s.workflowVersion===2&&phase==="review")validateIndependent(r,"code-review",implementationDispatches(code,s));
-    if(s.workflowVersion===2&&phase==="browser-qa")validateBrowserQA(code,s,r);
+    if(phase==="build")validateBuildTasks(r,team);
+    if(phase==="build") {validateTaskCommits(root,r.tasks);if(s.workflowVersion===2)validateBuildReviews(r,team.reviewer.engine);}
+    if(s.workflowVersion===2&&phase==="review")validateIndependent(r,"code-review",implementationDispatches(code,s),team.reviewer.engine);
+    if(s.workflowVersion===2&&phase==="browser-qa")validateBrowserQA(code,s,r,team.browserQa.engine);
     if(phase==="browser-qa"&&!(r.notApplicable?.trim())&&(!r.scenarios?.length||r.scenarios.some(t=>!t.id||t.result!=="PASS"||!t.evidence)))throw Error("Browser scenarios or explicit non-UI rationale required");
     if(phase==="verification"||phase==="build") {if(!r.commands?.length||r.commands.some(c=>!c.command||c.exitCode!==0))throw Error("Passing command evidence required");}
     if(["browser-qa","verification","finish"].includes(phase)&&s.snapshot!==fingerprint(code))throw Error("Code changed since review; retry from build");
@@ -98,6 +100,7 @@ try {
     if(phase==="finish"&&git(code,"status","--porcelain"))throw Error("Commit approved changes and evidence before finish");
    }
    if(phase==="plan" && existsSync(configPath))s.configHash=configHash();
+   if(phase==="plan")s.agents=loadAgents(code);
    s=complete(s,phase,path+"#sha256="+report.hash,"PASS");save(root,s);
   } else if(command==="decide") {
    const {decision,reference,escalate,relay}=parseDecide(args);

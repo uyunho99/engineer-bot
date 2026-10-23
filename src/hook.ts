@@ -23,7 +23,7 @@ export function guard(input:{tool_name?:string;tool_input?:Record<string,unknown
   try{const w=load(root).worktree;worktree=w?realpathSync(w):null;}catch{}
   const owner=[root,...(worktree?[worktree]:[])].find(t=>within(t,actual));
   if(!owner||within(resolve(owner,".harness"),actual)||within(resolve(owner,".claude"),actual)||actual===resolve(owner,"harness.config.json"))return "Harness configuration/state is coordinator-managed; use the harness CLI.";
-  if(!within(resolve(owner,"docs/development"),actual))return "Application edits belong to Codex only, after approved plan and worktree. Claude coordinates and writes planning/review reports; delegate all code and test changes through codex:codex-rescue.";
+  if(!within(resolve(owner,"docs/development"),actual))return "Application edits belong to the configured implementer only, after an approved plan and worktree. The controller writes planning and review reports; hand code and test changes to the implementer with: development-harness dispatch implementer <task-id>";
  }
  if(["Agent","Task"].includes(tool)) {
   let phase="";try{phase=load(root).phase;}catch{}

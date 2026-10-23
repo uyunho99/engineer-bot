@@ -4,6 +4,8 @@ import { test,expect,setDefaultTimeout } from "bun:test";
 // default is too tight once the machine is busy, and a timeout here says nothing about
 // the harness. Unit tests elsewhere keep the default.
 setDefaultTimeout(30_000);
+// Never read the developer's own agent configuration.
+process.env.HARNESS_CONFIG_HOME=mkdtempSync(join(tmpdir(),"harness-person-empty-"));
 import { mkdtempSync,mkdirSync,writeFileSync,rmSync,realpathSync,existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -176,5 +178,25 @@ test("relayed approval is recorded through the CLI and can be switched off",()=>
   const off=make("off",false);
   const denied=off.cli("decide","approve","--relay","좋아 진행해","conversation 12");
   expect(denied.exitCode).toBe(1);expect(denied.stderr.toString()).toContain("allowRelay");
+ }finally{rmSync(base,{recursive:true,force:true});}
+});
+test("plan completion pins the engines for the rest of the run",()=>{
+ const base=mkdtempSync(join(tmpdir(),"harness-pin-"));const root=join(base,"repo"),home=join(base,"home");mkdirSync(root);mkdirSync(home);
+ const cli=(...a:string[])=>Bun.spawnSync([process.execPath,join(import.meta.dir,"cli.ts"),...a],{cwd:root,env:{...process.env,HARNESS_CONFIG_HOME:home}});
+ try{
+  git(root,"init");git(root,"config","user.email","t@example.invalid");git(root,"config","user.name","T");
+  writeFileSync(join(root,".gitignore"),".harness/\n");git(root,"add",".");git(root,"commit","-m","initial");
+  expect(cli("setup").exitCode).toBe(0);
+  expect(cli("configure",'[["bun","test"]]').exitCode).toBe(0);
+  writeFileSync(join(home,"agents.json"),JSON.stringify({agents:{implementer:{engine:"gemini",dispatch:{kind:"shell",command:["gemini","-y","-p","{{prompt}}"]}}}}));
+  expect(cli("init","pin","--track","light").exitCode).toBe(0);
+  const dir=join(root,"docs/development/pin");
+  writeFileSync(join(dir,"b.md"),"b");writeFileSync(join(dir,"i.md"),"i");writeFileSync(join(dir,"q.md"),"QA-REG-001\nGiven: a\nWhen: b\nThen: c\n");
+  writeFileSync(join(dir,"plan.json"),JSON.stringify({kind:"plan",surface:"non-ui",implementation:"docs/development/pin/i.md",qaPlan:"docs/development/pin/q.md",nonUiReason:"none",designNeeded:false}));
+  expect(cli("complete","brainstorm","docs/development/pin/b.md").exitCode).toBe(0);
+  const r=cli("complete","plan","docs/development/pin/plan.json");expect(r.stderr.toString()).toBe("");
+  expect(load(root).agents!.agents.implementer.engine).toBe("gemini");
+  writeFileSync(join(home,"agents.json"),JSON.stringify({}));
+  expect(load(root).agents!.agents.implementer.engine).toBe("gemini");
  }finally{rmSync(base,{recursive:true,force:true});}
 });

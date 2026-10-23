@@ -23,7 +23,7 @@ test("hook rejects source writes before approval and symlink parent escapes",()=
  try{
   expect(guard({tool_name:"Write",tool_input:{file_path:join(root,"code.ts")}},root)).toContain("approved plan");
   const state=initial("sample");state.phase="build";save(root,state);
-  expect(guard({tool_name:"Edit",tool_input:{file_path:join(root,"code.ts")}},root)).toContain("Codex only");
+  expect(guard({tool_name:"Edit",tool_input:{file_path:join(root,"code.ts")}},root)).toContain("implementer only");
   mkdirSync(join(root,"docs/development"),{recursive:true});
   expect(guard({tool_name:"Write",tool_input:{file_path:join(root,"docs/development/plan.md")}},root)).toBeUndefined();
   symlinkSync(outside,join(root,"docs/development/escape"));
@@ -39,7 +39,7 @@ test("hook allows development artifacts in the approved worktree",()=>{
   const s=initial("sample");s.phase="build";s.worktree=realpathSync(wt);s.worktreeBranch="feature/x";save(root,s);
   mkdirSync(join(wt,"docs/development"),{recursive:true});
   expect(guard({tool_name:"Write",tool_input:{file_path:join(wt,"docs/development/build.json")}},root)).toBeUndefined();
-  expect(guard({tool_name:"Write",tool_input:{file_path:join(wt,"src/code.ts")}},root)).toContain("Codex only");
+  expect(guard({tool_name:"Write",tool_input:{file_path:join(wt,"src/code.ts")}},root)).toContain("implementer only");
   expect(guard({tool_name:"Write",tool_input:{file_path:join(wt,".harness/state.json")}},root)).toContain("coordinator-managed");
  }finally{rmSync(root,{recursive:true,force:true});rmSync(wt,{recursive:true,force:true});}
 });
