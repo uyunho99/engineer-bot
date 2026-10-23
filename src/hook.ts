@@ -8,8 +8,11 @@ export function guard(input:{tool_name?:string;tool_input?:Record<string,unknown
   const path=resolve(input.cwd??root,String(data.file_path??data.notebook_path??""));
   let ancestor=path;while(!existsSync(ancestor))ancestor=dirname(ancestor);
   const actual=resolve(realpathSync(ancestor),relative(ancestor,path));
-  if(!within(root,actual)||within(resolve(root,".harness"),actual)||within(resolve(root,".claude"),actual)||actual===resolve(root,"harness.config.json"))return "Harness configuration/state is coordinator-managed; use the harness CLI.";
-  if(!within(resolve(root,"docs/development"),actual))return "Application edits belong to Codex only, after approved plan and worktree. Claude coordinates and writes planning/review reports; delegate all code and test changes through codex:codex-rescue.";
+  let worktree:string|null=null;
+  try{const w=load(root).worktree;worktree=w?realpathSync(w):null;}catch{}
+  const owner=[root,...(worktree?[worktree]:[])].find(t=>within(t,actual));
+  if(!owner||within(resolve(owner,".harness"),actual)||within(resolve(owner,".claude"),actual)||actual===resolve(owner,"harness.config.json"))return "Harness configuration/state is coordinator-managed; use the harness CLI.";
+  if(!within(resolve(owner,"docs/development"),actual))return "Application edits belong to Codex only, after approved plan and worktree. Claude coordinates and writes planning/review reports; delegate all code and test changes through codex:codex-rescue.";
  }
  if(["Agent","Task"].includes(tool)) {
   let phase="";try{phase=load(root).phase;}catch{}

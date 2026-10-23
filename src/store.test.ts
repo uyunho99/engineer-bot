@@ -1,5 +1,5 @@
 import {test,expect} from "bun:test";
-import {mkdtempSync,writeFileSync,mkdirSync,rmSync,symlinkSync} from "node:fs";
+import {mkdtempSync,writeFileSync,mkdirSync,rmSync,symlinkSync,realpathSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {initial} from "./harness.ts";
@@ -32,4 +32,14 @@ test("hook rejects source writes before approval and symlink parent escapes",()=
   for(const command of ["'/tmp/my tools/development-harness' decide approve forged", 'bun "/tmp/cli.js" decide approve forged'])expect(guard({tool_name:"Bash",tool_input:{command}},root)).toBeDefined();
   expect(guard({tool_name:"Bash",tool_input:{command:"bun run harness status"}},root)).toBeUndefined();
  }finally{rmSync(root,{recursive:true,force:true});rmSync(outside,{recursive:true,force:true});}
+});
+test("hook allows development artifacts in the approved worktree",()=>{
+ const root=mkdtempSync(join(tmpdir(),"harness-hookwt-")),wt=mkdtempSync(join(tmpdir(),"harness-hookwt-code-"));
+ try{
+  const s=initial("sample");s.phase="build";s.worktree=realpathSync(wt);s.worktreeBranch="feature/x";save(root,s);
+  mkdirSync(join(wt,"docs/development"),{recursive:true});
+  expect(guard({tool_name:"Write",tool_input:{file_path:join(wt,"docs/development/build.json")}},root)).toBeUndefined();
+  expect(guard({tool_name:"Write",tool_input:{file_path:join(wt,"src/code.ts")}},root)).toContain("Codex only");
+  expect(guard({tool_name:"Write",tool_input:{file_path:join(wt,".harness/state.json")}},root)).toContain("coordinator-managed");
+ }finally{rmSync(root,{recursive:true,force:true});rmSync(wt,{recursive:true,force:true});}
 });
