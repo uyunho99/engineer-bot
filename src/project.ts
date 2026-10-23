@@ -2,12 +2,14 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { git } from "./store.ts";
 import type { Limits } from "./harness.ts";
+/** "claude-only" is the spelling from before the controller could be another host; it stays valid. */
+export const HARNESS_MODES=["harness","claude-only"];
 export function setup(root:string):void {
  const path=resolve(root,"harness.config.json");
  if(existsSync(path)) {
   const config=JSON.parse(readFileSync(path,"utf8"));
-  if(config.mode!=="claude-only")throw Error("Existing harness configuration belongs to another mode; not overwritten");
- } else writeFileSync(path,JSON.stringify({version:1,mode:"claude-only",verificationCommands:[]},null,2)+"\n");
+  if(!HARNESS_MODES.includes(config.mode))throw Error("Existing harness configuration belongs to another mode; not overwritten");
+ } else writeFileSync(path,JSON.stringify({version:1,mode:"harness",verificationCommands:[]},null,2)+"\n");
  const ignore=resolve(root,".gitignore");const old=existsSync(ignore)?readFileSync(ignore,"utf8"):"";
  if(!old.split(/\r?\n/).includes(".harness/"))writeFileSync(ignore,old+(old&&!old.endsWith("\n")?"\n":"")+".harness/\n");
  console.log("Project connected. Set verificationCommands in harness.config.json to real command argument arrays before plan approval. Commit project setup and planning artifacts before worktree creation.");

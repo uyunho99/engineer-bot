@@ -36,7 +36,7 @@ test("CLI blocks wrong phase, detects changed approved docs, and records the wor
   }
   writeFileSync(join(root,"harness.config.json"),JSON.stringify({mode:"claude-only",verificationCommands:[["echo","changed"]]}));
   expect(cli("worktree",wt,"feature/sample").stderr.toString()).toContain("configuration changed");
-  writeFileSync(join(root,"harness.config.json"),JSON.stringify({version:1,mode:"claude-only",verificationCommands:[["bun","test"]]},null,2)+"\n");
+  writeFileSync(join(root,"harness.config.json"),JSON.stringify({version:1,mode:"harness",verificationCommands:[["bun","test"]]},null,2)+"\n");
   expect(cli("worktree",wt,"feature/sample").exitCode).toBe(1);
   git(root,"add","docs","harness.config.json");git(root,"commit","-m","plan");
   expect(cli("worktree",wt,"feature/sample").exitCode).toBe(0);

@@ -2,12 +2,22 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, copyFileSync, chmod
 import { resolve } from "node:path";
 import { homedir } from "node:os";
 const root=resolve(import.meta.dir,"..");
+const version:string=JSON.parse(readFileSync(resolve(root,"package.json"),"utf8")).version;
+const force=process.argv.includes("--force");
+const parts=(v:string)=>v.trim().split(".").map(n=>parseInt(n,10)||0);
+const newer=(a:string,b:string)=>{const x=parts(a),y=parts(b);for(let i=0;i<3;i++)if((x[i]??0)!==(y[i]??0))return (x[i]??0)>(y[i]??0);return false;};
 const home=process.env.HARNESS_INSTALL_HOME??homedir();
 const claude=process.env.CLAUDE_CONFIG_DIR??resolve(home,".claude"), target=resolve(claude,"skills/development-harness-native"), bin=resolve(home,".local/bin");
 const settingsPath=resolve(claude,"settings.json");
 const settings=existsSync(settingsPath)?JSON.parse(readFileSync(settingsPath,"utf8")):{};
 const quote=(s:string)=>"'"+s.replaceAll("'","'\\''")+"'";
 if(existsSync(resolve(target,"SKILL.md"))&&!existsSync(resolve(target,".engineer-bot-managed")))throw Error("Existing unmanaged skill: refusing to overwrite "+target);
+// Installing from an older checkout used to replace a newer harness without a word.
+const versionPath=resolve(target,"VERSION");
+if(existsSync(versionPath)) {
+ const installed=readFileSync(versionPath,"utf8").trim();
+ if(newer(installed,version)&&!force)throw Error("Refusing to downgrade the installed harness from "+installed+" to "+version+"; rerun with --force if that is intended");
+}
 const qaTarget=resolve(claude,"skills/qa-planning"), browserTarget=resolve(home,".codex/skills/harness-browser-qa");
 for(const dest of [qaTarget,browserTarget])if(existsSync(dest)&&!existsSync(resolve(dest,".engineer-bot-managed")))throw Error("Existing unmanaged skill: refusing to overwrite "+dest);
 const launcher=resolve(bin,"development-harness");
@@ -23,7 +33,7 @@ for(const name of ["cli","global-hook"]) {
 writeFileSync(launcher,`#!/bin/sh\n# engineer-bot-managed\nexec ${quote(process.execPath)} ${quote(resolve(target,"cli.js"))} "$@"\n`);chmodSync(launcher,0o755);
 let skill=readFileSync(resolve(root,".claude/skills/development-harness-native/SKILL.md"),"utf8");
 skill=skill.replaceAll("`docs/WORKFLOW.md`", "`"+resolve(target,"WORKFLOW.md")+"`").replaceAll("`qa-planning`", "`"+resolve(qaTarget,"SKILL.md")+"`").replaceAll("`harness-browser-qa`", "`"+resolve(browserTarget,"SKILL.md")+"`").replaceAll("~/.local/bin/development-harness",quote(launcher)).replaceAll("bun run harness",quote(launcher)).replaceAll("bun run evidence",quote(launcher)+" evidence").replaceAll("`docs/REPOSITORY-CONTROL.md`", "`"+resolve(target,"REPOSITORY-CONTROL.md")+"`").replaceAll("`docs/OPERATIONS.md`", "`"+resolve(target,"OPERATIONS.md")+"`");
-writeFileSync(resolve(target,"SKILL.md"),skill);writeFileSync(resolve(target,"OPERATIONS.md"),readFileSync(resolve(root,"docs/OPERATIONS.md"),"utf8").replaceAll("../README.md","README.md"));writeFileSync(resolve(target,"README.md"),readFileSync(resolve(root,"README.md"),"utf8").replaceAll("docs/WORKFLOW.md","WORKFLOW.md").replaceAll("docs/REPOSITORY-CONTROL.md","REPOSITORY-CONTROL.md").replaceAll("docs/OPERATIONS.md","OPERATIONS.md").replaceAll(".claude/skills/development-harness-native/SKILL.md","SKILL.md"));writeFileSync(resolve(target,".engineer-bot-managed"),"1\n");
+writeFileSync(resolve(target,"SKILL.md"),skill);writeFileSync(resolve(target,"OPERATIONS.md"),readFileSync(resolve(root,"docs/OPERATIONS.md"),"utf8").replaceAll("../README.md","README.md"));writeFileSync(resolve(target,"README.md"),readFileSync(resolve(root,"README.md"),"utf8").replaceAll("docs/WORKFLOW.md","WORKFLOW.md").replaceAll("docs/REPOSITORY-CONTROL.md","REPOSITORY-CONTROL.md").replaceAll("docs/OPERATIONS.md","OPERATIONS.md").replaceAll(".claude/skills/development-harness-native/SKILL.md","SKILL.md"));writeFileSync(resolve(target,".engineer-bot-managed"),"1\n");writeFileSync(versionPath,version+"\n");
 copyFileSync(resolve(root,"docs/REPOSITORY-CONTROL.md"),resolve(target,"REPOSITORY-CONTROL.md"));
 copyFileSync(resolve(root,"docs/WORKFLOW.md"),resolve(target,"WORKFLOW.md"));
 const hookCommand=`${quote(process.execPath)} ${quote(resolve(target,"global-hook.js"))}`;
@@ -35,4 +45,4 @@ settings.hooks??={};settings.hooks.PreToolUse??=[];
 if(!settings.hooks.PreToolUse.some((entry:any)=>entry.hooks?.some((h:any)=>h.command===hookCommand)))settings.hooks.PreToolUse.push({matcher:"Write|Edit|MultiEdit|NotebookEdit|Bash|Agent|Task",hooks:[{type:"command",command:hookCommand}]});
 if(existsSync(settingsPath))copyFileSync(settingsPath,settingsPath+".harness-backup-"+Date.now());
 writeFileSync(settingsPath,JSON.stringify(settings,null,2)+"\n");
-console.log("Installed: "+launcher+"\nRestart Claude Code in your project, then invoke /development-harness-native.\nExisting settings preserved; hook activates only for mode=claude-only projects. Dependencies/plugins remain separate.");
+console.log("Installed harness "+version+": "+launcher+"\nRestart Claude Code in your project, then invoke /development-harness-native.\nExisting settings preserved; the hook activates only for projects whose harness.config.json mode is harness (or the legacy claude-only). Dependencies/plugins remain separate.");
