@@ -27,6 +27,7 @@
 | P6 | GitHub 기본 브랜치는 `claude-only` 인데 실제 설치본은 `harness/controller-managed-git` 이다. README 절차를 그대로 따르면 구버전이 설치된다 |
 | P7 | `scripts/install-global.ts` 가 `.engineer-bot-managed` 마커만 보고 버전을 비교하지 않는다. 재설치가 조용한 다운그레이드가 될 수 있다 |
 | P8 | `src/hook.ts:20` 의 승인 차단 정규식이 Bash 명령 문자열 전체를 훑으므로, **그 명령을 문서화하는 것조차 거부한다.** 2026-10-23 이 문서를 작성하다가 실측됨 |
+| P9 | **하네스가 자기 자신의 수정을 감독할 수 없다 (부트스트랩 덫).** 2026-10-23 실측: 이 레포에서 컨트롤러는 `src/**` 를 직접 못 쓰고(`hook.ts:12`), 워커 위임도 못 한다 — `hook.ts:16` 이 `Agent` 를 배송 단계에서만 허용하는데, 거기 도달하려면 `worktree` 명령이 세션을 새 폴더로 옮겨야 하고 그것이 바로 P5 다. 세 가지 제약이 서로를 막는다 |
 
 ---
 
@@ -42,7 +43,7 @@
 
 ## 3. 비목표
 
-- **컨트롤러 호스트 중립화.** Gemini CLI 나 Codex 가 컨트롤러를 맡는 것은 훅·스킬·Agent 도구 의존을 전부 추상화해야 하므로 이번 범위 밖이다. 설정 스키마에 `controller.host` 자리만 남긴다.
+- **컨트롤러 호스트 중립화를 1~3단계에서 하는 것.** 2026-10-23 결정으로 **범위에 들어왔으나 4단계로 분리한다** (D8). 1단계는 호스트와 무관하고, 2·3단계는 컨트롤러를 설정 가능한 역할로 전제해 설계한다. 실제 타 호스트 번들과 설치 경로는 4단계다.
 - **태스크 단위 증거 보존.** 지금 `retry` 는 build 이후 모든 증거를 지운다. 태스크별 보존은 build 보고서를 phase 단위에서 task 단위로 쪼개야 하고 `complete build`·`validateBuildReviews`·원장 구조가 전부 따라 움직인다. 별도 작업이다. (§10)
 - **아웃오브밴드 승인 채널.** Slack·푸시로 승인을 받는 경로는 봇과 엔드포인트가 필요하다. 설정 스위치(`approval.allowRelay`)만 남기고 채널 구현은 하지 않는다.
 - **자동 머지·배포.** 기존 정책 그대로다. PR·push·merge·배포는 사용자가 그 행동을 명시적으로 요청해야 한다.
@@ -55,11 +56,13 @@
 |---|---|---|---|
 | D1 | 경량 트랙의 사람 게이트 | **계획 승인 + UAT 2개** | 시작 전 범위 확인과 결과 확인 둘 다 남긴다. full 의 절반 |
 | D2 | 트랙 선택 주체 | **사람이 `init` 에서 명시. 에이전트는 승격 제안만** | 사람은 의도를 알고 에이전트는 실제 크기를 안다. 결정권은 사람 |
-| D3 | 에이전트 설정 단위 | **implementer / reviewer / browserQa 3개. 컨트롤러는 호스트 고정** | 엔진을 분리하면 같은 모델의 맹점을 교차로 잡는다 |
+| D3 | 에이전트 설정 단위 | **implementer / reviewer / browserQa 3개.** 컨트롤러는 D8 로 확장됐다 | 엔진을 분리하면 같은 모델의 맹점을 교차로 잡는다 |
 | D4 | 리모트 승인 | **전달 모드 (`--relay`)** | 훅이 원래 보안 경계가 아니다. 지킬 값은 귀속이지 차단이 아니다 |
 | D5 | 격리 방식 | **양 트랙 모두 worktree. 단 상태와 세션은 메인에 유지** | 컨트롤러는 코드를 안 쓰므로 이사 갈 이유가 없었다 |
 | D6 | 의존성 설치 | **백그라운드 자동** | 체감 대기시간을 0에 가깝게. 첫 디스패치 전에 완료 확인 |
 | D7 | 재시도 한도 | **태스크 단위 집계 · 기본 5 · `maxFixRounds` 설정에서 읽음** | AMENDMENTS A2 가 이미 동일 판단을 내렸다. 무한루프 방어선은 전체 상한으로 분리 |
+| D8 | 컨트롤러 호스트 | **Codex·Gemini 도 컨트롤러가 될 수 있게 한다. 4단계로 분리** (2026-10-23 추가) | 워커만 교체 가능하면 팀원이 Claude Code 를 쓰도록 강제된다. 호스트 요구 4가지 중 3가지(지시 로딩·디스패치·설치)는 기계적이고, 남는 하나가 D9 다 |
+| D9 | 가드의 소재 | **강제를 훅에서 CLI 게이트로 내린다.** 훅은 편의로 남는다 | 타 호스트에 `PreToolUse` 동등물이 없다. 산문 규칙만 두면 호스트마다 강도가 달라진다. `snapshot()` 이 이미 actual↔report↔scope 3자를 대조하므로 "워커 보고서로 설명되지 않는 변경" 검출의 뼈대가 있다 |
 
 ---
 
@@ -167,7 +170,7 @@ git 커밋                              ●  컨트롤러가 여기에
 엔진 선택은 사람별 성격이고 검증 명령·정책은 프로젝트별이다.
 
 ```
-~/.claude/harness/agents.json     사람 층 — 내가 쓰는 엔진 (기본값)
+~/.config/development-harness/agents.json     사람 층 — 내가 쓰는 엔진 (기본값)
 <project>/harness.config.json     프로젝트 층 — 검증 명령·정책. agents 를 덮어쓸 수 있다
 ```
 
@@ -175,7 +178,7 @@ git 커밋                              ●  컨트롤러가 여기에
 부분 병합은 하지 않는다 — 한 역할의 설정은 통째로 한쪽에서 온다.
 
 ```json
-// ~/.claude/harness/agents.json
+// ~/.config/development-harness/agents.json
 {
   "version": 1,
   "agents": {
@@ -337,6 +340,105 @@ development-harness retry <findings> --task <task-id>
 development-harness setup [--agents implementer=codex,reviewer=claude,browserQa=codex]
 ```
 
+### 5.7 호스트 중립 컨트롤러 (4단계)
+
+컨트롤러는 "하네스가 돌고 있는 호스트 세션" 이다. 호스트가 컨트롤러에 요구하는 것은 넷이고,
+`src/*.ts` 는 이미 전부 호스트 중립이다 — 외부 의존성 없는 bun 프로그램이다.
+
+| # | 요구 | Claude Code | Codex | Gemini / Antigravity |
+|---|---|---|---|---|
+| 1 | 지시 로딩 | `~/.claude/skills/` | `~/.codex/skills/` (레포가 이미 설치하는 경로) | 자체 포맷 |
+| 2 | **가드** | `PreToolUse` 훅 | 동등물 없음 | 동등물 없음 |
+| 3 | 디스패치 | `Agent` 도구 | `codex exec` | `gemini -p` |
+| 4 | 설치 타깃 | `~/.claude/` 고정 | 호스트별 | 호스트별 |
+
+1·3·4 는 기계적이다. 3 은 §5.3 의 `dispatch.kind:"shell"` 이 이미 그 모양이고, 1 은
+`.agents/skills/harness-browser-qa/SKILL.md` 를 `~/.codex/skills/` 로 설치하는 선례가 있다.
+
+#### 가드를 CLI 게이트로 내린다 (D9)
+
+현재 "컨트롤러는 코드를 쓰지 않는다" 는 Claude Code 훅 하나가 전부 지고 있다. 타 호스트에는
+그 메커니즘이 없으므로 강제를 호스트 중립 지점 — CLI 게이트 — 으로 옮긴다.
+
+```
+지금:  훅이 Write/Edit 를 차단한다            (예방 · Claude Code 전용)
+뒤:    게이트가 설명되지 않은 변경을 거부한다  (검출 · 모든 호스트)
+```
+
+`repository-control.ts:33` 의 `snapshot()` 이 이미 `changedFiles(code)` ↔ `report.changed_files` ↔
+`scope.allowed_files` 3자를 대조한다. 컨트롤러가 직접 쓴 코드는 어느 워커 보고서에도 잡히지
+않으므로 이 대조에서 드러난다. 추가로 필요한 것은 **배송 단계 전체의 커버리지** 다:
+
+- `complete build` 가 `validateTaskCommits` 로 원장과 HEAD 를 대조하는 것에 더해,
+  **원장이 설명하지 않는 커밋이 base..HEAD 구간에 없는지** 확인한다.
+- `complete review`·`browser-qa`·`verification` 은 이미 `fingerprint` 로 리뷰 이후 변경을 잡는다.
+  리뷰어·QA 가 코드를 고치면 여기서 걸린다.
+- 어느 워커 보고서로도 설명되지 않는 변경이 남아 있으면 단계를 통과시키지 않는다.
+
+훅은 삭제하지 않는다. Claude Code 에서는 **잘못된 쓰기를 게이트까지 가기 전에 알려주는 편의**로
+남고, 더 이상 유일한 방어선이 아니다.
+
+#### 훅이 없는 호스트에도 즉시 피드백을 준다
+
+게이트 검출만 두면 타 호스트는 **단계 전환까지 모른 채 작업을 쌓는다.** 훅의 가치는 차단만이
+아니라 "지금 잘못했다"를 즉시 말해주는 것이고, **후자는 훅 API 없이도 만들 수 있다.**
+
+| 층 | 시점 | 호스트 의존 | 동작 |
+|---|---|---|---|
+| L1 훅 | 쓰기 직전 | Claude Code 전용 | 쓰기를 **차단**한다 |
+| L2 감시자 | 쓰기 직후 (초 단위) | 없음 | 위반을 `.harness/guard.log` 에 적고 stderr 로 **즉시 출력**한다 |
+| L3 CLI 배너 | 다음 CLI 명령 | 없음 | 미확인 위반을 출력 맨 앞에 띄우고, `complete`·`decide` 는 **거부**한다 |
+| L4 git pre-commit | 커밋 시 | 없음 | 범위 밖 변경이면 커밋을 거부한다 |
+| L5 게이트 | 단계 전환 | 없음 | `snapshot()` 3자 대조 (위) |
+
+L2~L5 가 호스트 중립이고, L1 은 Claude Code 가 **추가로** 얻는 것이 된다.
+
+**L2 감시자.** `worktree` 명령이 `development-harness watch` 를 백그라운드로 띄운다 (§5.2 의
+준비 프로세스와 같은 방식). `fs.watch` 는 **트리거로만** 쓰고 판정은 `changedFiles(code)` 로
+한다 — 그래야 `.gitignore` 와 빌드 산출물 노이즈를 그대로 물려받는다. 판정 규칙:
+
+- `.harness/scope.json` 이 있으면 그 `allowed_files` 밖의 변경이 위반이다
+- 없으면(= 디스패치 전) `docs/development/**` 밖의 모든 변경이 위반이다 — 컨트롤러가 직접 쓴 것이다
+- 위반은 `{at, paths, phase, task}` 로 `.harness/guard.log` 에 append 된다
+
+`.harness/watch.json` 에 PID 를 적어 중복 기동을 막고, 상태 파일이 사라지거나 phase 가
+종료 상태가 되면 스스로 끝난다.
+
+**L3 이 핵심이다.** 백그라운드 프로세스의 stderr 는 호스트에 따라 사람에게 안 보일 수 있다.
+그런데 컨트롤러는 **CLI 없이는 한 단계도 전진하지 못한다.** 그래서 모든 CLI 명령이 시작할 때
+`guard.log` 의 미확인 항목을 출력하고, `complete` 와 `decide` 는 거부한다.
+
+```
+⚠ 워커 보고서로 설명되지 않는 변경 2건 (2026-10-23T04:12:09Z)
+    src/parser.ts, src/parser.test.ts
+    현재 범위: T3 → src/render.ts
+  워커에게 위임했거나 되돌렸다면: development-harness guard --ack '<사유>'
+```
+
+`guard --ack` 는 사유를 요구하고 히스토리에 `actor` 와 함께 남는다 — §5.4 의 전달 승인과 같은
+원리다. 지우는 것이 아니라 **설명을 붙여 남긴다.**
+
+**L4 git pre-commit.** `worktree` 명령이 worktree 에 pre-commit 훅을 설치한다. git 자체 기능이라
+호스트와 무관하고, 컨트롤러가 CLI 를 우회해 직접 커밋하는 경로를 막는다. `core.hooksPath` 를
+쓰는 레포에서는 설치를 건너뛰고 그 사실을 `doctor` 가 보고한다 — 조용히 없는 척하지 않는다.
+
+#### 호스트 선언
+
+```json
+// ~/.config/development-harness/agents.json  — 호스트와 무관한 한 곳
+{ "controller": { "host": "claude-code" | "codex" | "gemini" } }
+```
+
+`doctor` 가 선언된 호스트의 지시 번들과 디스패치 경로만 검사한다. `install-global.ts` 는
+`--host` 를 받아 그 호스트의 설치 타깃에 번들을 깐다. 하나의 머신에 여러 호스트를 동시에
+설치할 수 있어야 한다 — 같은 CLI 를 공유하고 지시 번들만 다르다.
+
+#### 이 단계의 한계
+
+호스트 중립 컨트롤러는 **강제 수준을 평준화하지 않는다. 낮은 쪽으로 맞춘다.** 훅이 있는
+호스트에서 누리던 "쓰기 시점 차단" 은 사라지지 않지만, 하네스가 **의존하는** 강제는 모든
+호스트가 가진 것(게이트 검출)으로 내려간다. 이것은 의도된 교환이며 §10 에 위험으로 적는다.
+
 ---
 
 ## 6. 수용 기준
@@ -362,6 +464,19 @@ development-harness setup [--agents implementer=codex,reviewer=claude,browserQa=
 19. `track` 이 없는 기존 상태 파일이 `full` 로 동작한다.
 20. 승인된 worktree 의 `docs/development/**` 쓰기를 훅이 허용하고, 같은 worktree 의 소스 쓰기와 `.harness/**` 쓰기는 계속 거부한다.
 
+**4단계 (§5.7)**
+
+21. 어느 워커 보고서로도 설명되지 않는 변경이 base..HEAD 에 있으면 `complete build` 가 거부한다 — 훅이 꺼져 있어도 거부한다.
+22. 원장이 설명하지 않는 커밋이 base..HEAD 구간에 있으면 `complete build` 가 거부한다.
+23. `controller.host` 가 `codex` 일 때 `doctor` 가 Claude Code 스킬·플러그인을 요구하지 않고, 선언된 호스트의 지시 번들과 디스패치 경로만 검사한다.
+24. `install-global.ts --host codex` 가 Codex 지시 번들을 그 호스트의 설치 타깃에 깔고 `~/.claude/` 를 건드리지 않는다.
+25. 한 머신에 두 호스트를 설치해도 CLI 는 하나를 공유하고 지시 번들만 분리된다.
+26. 디스패치 전에 소스 파일이 바뀌면 감시자가 `.harness/guard.log` 에 위반을 적는다 — 훅이 꺼져 있어도 적는다.
+27. 현재 `scope.json` 의 `allowed_files` 안쪽 변경은 위반으로 적히지 않는다. `.gitignore` 대상과 `docs/development/**` 도 적히지 않는다.
+28. 미확인 위반이 있으면 `complete` 와 `decide` 가 거부하고, 다른 CLI 명령은 그 목록을 출력 맨 앞에 띄운다.
+29. `guard --ack '<사유>'` 가 사유 없이는 거부되고, 통과하면 히스토리에 `actor` 와 사유가 남는다.
+30. worktree 에 설치된 pre-commit 훅이 범위 밖 변경의 커밋을 거부한다. `core.hooksPath` 를 쓰는 레포에서는 설치를 건너뛰고 `doctor` 가 그 사실을 보고한다.
+
 ---
 
 ## 7. 구현 순서
@@ -371,6 +486,10 @@ development-harness setup [--agents implementer=codex,reviewer=claude,browserQa=
 | 1. 척추 | 5.1 트랙 · 5.2 격리 · 5.5 재시도 | `phases` 와 `store` 를 건드린다. 나머지가 그 위에 얹히므로 먼저 하지 않으면 재작업이 된다 |
 | 2. 노브 | 5.3 에이전트 설정과 `dispatch` · 5.4 리모트 | 계약 검증과 훅. 1단계와 파일은 겹치나 로직은 독립 |
 | 3. 배포 | 5.6 · 문서 전면 갱신 | 1·2 가 끝나야 문서를 한 번만 고친다 |
+| 4. 호스트 중립 | 5.7 — 가드를 CLI 로 이관, 호스트별 번들과 설치 타깃 | 2단계가 역할 설정을 세운 뒤라야 컨트롤러를 그 위에 얹는다. 가드 이관은 2단계의 계약 검증이 자리잡은 뒤가 안전하다 |
+
+2·3단계는 **컨트롤러가 설정 가능한 역할이 된다는 것을 전제로** 설계한다 (D8). 나중에 덧붙이면
+§5.3 의 config 스키마와 §5.6 의 설치 경로를 두 번 고치게 된다.
 
 ---
 
@@ -415,3 +534,25 @@ development-harness setup [--agents implementer=codex,reviewer=claude,browserQa=
 | 셸 디스패치 엔진 | `kind:"shell"` 엔진은 Claude Code 의 도구 권한 밖에서 돈다. 워커 범위 규칙은 지시 번들과 `scope` 로만 전달되며 하네스가 강제하지 않는다. 기존 Codex 하위 프로세스도 같은 성질이다 (`docs/OPERATIONS.md`) |
 | 브랜치 승격 | P6 는 GitHub 설정 변경이 필요하며 코드 작업이 아니다. 사람이 수행한다 |
 | 훅 정규식 축소의 위험 | P8 수정은 판정 범위를 좁히는 것이므로, 좁히다가 실제 실행 경로를 놓치면 차단이 뚫린다. 수용 기준 12 와 14 를 **함께** 지키는 테스트가 필요하다 |
+| **차단은 Claude Code 에만 남는다** | D9 는 하네스가 **의존하는** 강제를 모든 호스트가 가진 것으로 내린다. L2~L4 가 지연을 초 단위로 줄이지만 **쓰기 자체를 막지는 못한다** — 타 호스트에서 잘못된 변경은 일단 디스크에 쓰인다. 되돌릴 수 있는 시점에 걸린다는 것이 이 교환의 전제다. 수용 기준 21·22·26·28·30 이 다섯 층의 커버리지를 지킨다 |
+| 감시자의 신뢰성 | L2 는 백그라운드 프로세스라 죽을 수 있고, `fs.watch` 는 플랫폼마다 누락이 있다. 그래서 **L2 를 유일한 근거로 삼지 않는다** — L3 의 배너는 `guard.log` 를 읽지만 `complete`·`decide` 의 거부는 L5 의 3자 대조가 독립적으로 뒷받침한다. 감시자가 죽으면 `doctor` 와 CLI 배너가 그 사실을 보고한다 |
+| `--ack` 의 남용 | 컨트롤러가 사유를 지어내 위반을 덮을 수 있다. §5.4 의 전달 승인과 같은 한계이고 같은 처치를 쓴다 — 지우지 않고 사유와 함께 남기며, 최종 보고가 ack 건수를 전면에 표기한다 |
+| 부트스트랩 덫 (P9) | 1단계가 P5 를 풀면 해소된다 — `worktree` 명령이 세션을 옮기지 않게 되므로 컨트롤러가 배송 단계에 도달할 수 있고, 거기서 `Agent` 위임이 열린다. **예외 경로를 만들지 않는다.** 하네스 레포에서도 컨트롤러는 소스를 직접 쓰지 않고 워커에 위임한다 — 자기 자신을 고칠 때만 규칙을 푸는 하네스는 그 규칙을 주장할 수 없다. 1단계 자체는 이 덫 안에서 만들어야 하므로, 그 한 번은 사람이 경로를 정한다 |
+
+---
+
+## 11. 구현하며 바뀐 것 (2026-10-23)
+
+- **사람 층 설정 경로**: `~/.claude/harness/agents.json` 대신 `~/.config/development-harness/agents.json`. 컨트롤러가
+  Claude Code가 아닐 수 있으므로 어느 호스트의 디렉터리에도 두지 않는다.
+- **엔진 고정**: 계획 완료 시 해석된 엔진을 실행 상태에 고정한다. 다른 머신에서 이어받아도 엔진이 바뀌지 않는다.
+- **설치 구조**: CLI·hook·역할 지시·문서는 `~/.local/share/development-harness/`에 하나, 호스트별로는 컨트롤러 스킬만.
+  Codex는 `~/.codex/skills/development-harness/`, Gemini CLI는 `~/.gemini/skills/development-harness/`.
+- **호스트별 기본 워커**: Claude Code가 아닌 컨트롤러는 Agent 도구가 없으므로 기본 워커가 셸 프로세스다
+  (codex 컨트롤러는 `codex exec`, gemini 컨트롤러는 `gemini`). 그런 호스트에서 `claude-agent` 디스패치는 거부한다.
+- **Antigravity**: 스킬 위치와 비대화 실행 방법이 확인되지 않아 이번에는 거부한다.
+- **범위 소진**: 태스크가 커밋되면 그 범위를 지운다. 감시자 판정이 의미를 가지려면 필요했다.
+- **원장 범위 검사**: HEAD가 마지막 원장 커밋과 같은 것만으로는 원장 커밋 사이에 끼운 커밋을 잡지 못해, base..HEAD 전체를 확인한다.
+- **pre-commit 포인터**: hooks 폴더를 모든 worktree가 공유하므로 훅은 실행을 하드코딩하지 않고 worktree의 git 관리 폴더에 둔 포인터를 따른다.
+- **경량 트랙 계획 검사**: 계획 완료 시 설계와 surface가 같아야 한다는 검사가 light에서는 성립할 수 없어 full에만 적용한다.
+- **3.0.0**: `retry`가 `--task` 없이는 거부되는 호환되지 않는 변경이 있어 메이저 버전을 올렸다.

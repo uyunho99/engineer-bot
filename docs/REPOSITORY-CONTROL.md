@@ -2,16 +2,18 @@
 
 Workers produce verified changes. Controller owns repository state transitions.
 
-Execution Layer: Claude / Codex / Orca workers. Repository Control Layer: Controller
-(Main Claude / coordinator). This policy overrides upstream SDD, writing-plans,
-plugin and worker-template instructions that assign commits to implementers.
-The native path still delegates implementation to Codex; Orca can use Claude or Codex.
-`executor` identifies the implementing engine, never the transport or committer.
+Execution Layer: the configured implementer, reviewer and browser QA workers, on any
+engine (Orca can use Claude or Codex). Repository Control Layer: Controller, the host
+session running the harness: Claude Code, Codex or Gemini CLI. This policy overrides
+upstream SDD, writing-plans, plugin and worker-template instructions that assign commits
+to implementers. The native path hands work out with `development-harness dispatch`.
+`executor` identifies the implementing engine pinned to the run when its plan was
+completed, never the transport or committer.
 
 ## Dispatch and worker contract
 
-Include this instruction in every implementation and review-fix dispatch, including
-codex-plugin-cc wrappers, Claude workers and Orca task specs:
+Include this instruction in every implementation and review-fix dispatch, whatever the
+engine; `dispatch implementer` writes it into the prompt file. Orca task specs carry it too:
 
 > Do not create Git commits. Complete the implementation and verification, then return READY_FOR_COMMIT with the exact changed-file list and a proposed commit message. Repository state transitions are owned by the controller.
 
@@ -146,6 +148,25 @@ repository is committed or reviewed. Report taskId, dispatchId and reportPath on
 from the assigned pane. Controller checks the report through repository-gate before
 review dispatch. Review/QA workers return their own PASS/FAIL reports.
 
+## State root and code root
+
+A run's state stays in the checkout where it started; its code changes in the approved
+worktree. `.harness/` (state, lock, ledger, gate token, scope, worker reports, guard log)
+belongs to the state root. Git status, diff, staging and commits run in the worktree.
+Planning artifacts are committed before the worktree exists, so the worktree holds them
+with the same hashes and every approval check reads them there.
+
+Keeping the controller out of the worktree removes the guarantee that it could not touch
+main, so `repository-commit` asserts it instead: the target must be the approved worktree,
+a worktree root, on the approved branch, and main's HEAD must not move while it commits.
+A run started before this split keeps its state inside the linked worktree and is allowed
+to deliver there as before.
+
+A task's scope is spent when its commit lands; the scope file is removed and a fix round
+is dispatched with a new one. Build validation walks every commit from the worktree's base
+to HEAD and refuses one that is not in the ledger and changes product files, so a commit
+made around the gate cannot hide between two controller commits.
+
 ## Linked worktrees
 
 A linked worktree's `.git` may be a file pointing to a gitdir rather than a directory.
@@ -154,6 +175,7 @@ worker may be unable to write protected metadata such as index.lock. Repository
 mutation therefore does not depend on worker capability, sandbox flags or executor:
 Controller owns Git state transitions as the normal architecture, not a Codex workaround.
 
-Both branches carry this identical policy and `src/repository-control.ts`. They remain
-independently deployable; keep these shared files byte-identical when updating either
-branch. Native global installation bundles this policy with the Skill and operations.
+Both branches carry this policy and `src/repository-control.ts`, and they are meant to stay
+byte-identical. Harness 3.0.0 changed both here (state and code roots, configurable engines,
+spent scopes, the ledger range check); the Orca branch has to take the same change before it
+is deployable again. Native global installation bundles this policy with the Skill and operations.

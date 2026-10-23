@@ -4,7 +4,8 @@
   "state": ".harness/state.json",
   "artifacts": "docs/development/<feature>",
   "finish": "keep-branch",
-  "maxFixRounds": 3,
+  "maxFixRounds": 5,
+  "maxTotalFixRounds": 15,
   "verificationCommands": [
     [
       "bun",

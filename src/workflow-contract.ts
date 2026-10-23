@@ -1,4 +1,5 @@
-import type { State } from "./harness.ts";
+import type { State, Track } from "./harness.ts";
+import type { Role, Agent } from "./agents.ts";
 import { artifact } from "./store.ts";
 
 const text=(x:unknown):x is string=>typeof x==="string"&&!!x.trim();
@@ -11,10 +12,17 @@ export function scenarioIds(markdown:string):string[] {
  }
  return ids.sort();
 }
-export function bindApproval(root:string,phase:string,path:string):Record<string,string> {
+export function bindApproval(root:string,phase:string,path:string,track:Track="full"):Record<string,string> {
  const b=JSON.parse(artifact(root,path).text);
  if(b.kind!==phase||!["web","non-ui"].includes(b.surface))throw Error("Expected design/plan approval bundle with web or non-ui surface");
  const files:string[]=phase==="design"?[b.document]:[b.implementation,b.qaPlan];
+ // A light run has no design gate, so any design it needs travels inside the plan bundle
+ // and is approved with it.
+ if(phase==="plan"&&track==="light") {
+  if(typeof b.designNeeded!=="boolean")throw Error("Light-track plan bundle must state designNeeded true or false");
+  if(b.designNeeded&&!text(b.design))throw Error("Light-track plan has designNeeded true but no design document");
+  if(text(b.design))files.push(b.design);
+ }
  if(phase==="design"&&b.surface==="web") {
   if(!text(b.mockup?.provider)||!text(b.mockup?.invocation)||!text(b.mockup?.entry)||!Array.isArray(b.mockup?.files)||!b.mockup.files.includes(b.mockup.entry))throw Error("UI design requires a Claude mockup entry, files, provider and actual invocation");
   files.push(...b.mockup.files);
@@ -41,9 +49,14 @@ export function approvedPlan(root:string,s:State):any {
  if(plan.kind!=="plan")throw Error("Approved plan bundle required");
  return plan;
 }
-export function validateIndependent(r:any,role:"code-review"|"browser-qa",implementationDispatches:string[]):void {
- if(r.executor!=="codex"||r.role!==role||!text(r.dispatch)||r.freshSession!==true||implementationDispatches.includes(r.dispatch))
-  throw Error("Independent codex "+role+" worker requires a fresh distinct dispatch and correct role");
+export function validateIndependent(r:any,role:"code-review"|"browser-qa",implementationDispatches:string[],engine="codex"):void {
+ if(r.executor!==engine||r.role!==role||!text(r.dispatch)||r.freshSession!==true||implementationDispatches.includes(r.dispatch))
+  throw Error("Independent "+engine+" "+role+" worker requires a fresh distinct dispatch and correct role");
+}
+export function validateBuildTasks(r:any,team:Record<Role,Agent>):void {
+ const engine=team.implementer.engine;
+ if(!r.tasks?.length||r.tasks.some((t:any)=>!t.id||!t.red||!t.green||!t.review||t.executor!==engine||!text(t.dispatch)))
+  throw Error("Per-task "+engine+" executor/dispatch, RED/GREEN and independent review evidence required");
 }
 export function implementationDispatches(root:string,s:State):string[] {
  const p=s.evidence.build?.split("#sha256=")[0];
@@ -51,9 +64,9 @@ export function implementationDispatches(root:string,s:State):string[] {
  const report=JSON.parse(artifact(root,p).text);
  return (report.tasks??[]).map((t:any)=>t.dispatch);
 }
-export function validateBrowserQA(root:string,s:State,r:any):void {
+export function validateBrowserQA(root:string,s:State,r:any,engine="codex"):void {
  const plan=approvedPlan(root,s);
- validateIndependent(r,"browser-qa",implementationDispatches(root,s));
+ validateIndependent(r,"browser-qa",implementationDispatches(root,s),engine);
  if(plan.surface==="non-ui") {
   if(!text(r.notApplicable)||r.notApplicable!==plan.nonUiReason||r.scenarios?.length)throw Error("Non-UI exemption must match approved plan and contain no claimed browser runs");
   return;
@@ -68,9 +81,9 @@ export function validateBrowserQA(root:string,s:State,r:any):void {
   artifact(root,x.evidence);
  }
 }
-export function validateBuildReviews(r:any):void {
+export function validateBuildReviews(r:any,engine="codex"):void {
  for(const t of r.tasks??[]) {
   if(!text(t.dispatch))throw Error("Implementation dispatch required");
-  validateIndependent(t.reviewer??{},"code-review",r.tasks.map((x:any)=>x.dispatch));
+  validateIndependent(t.reviewer??{},"code-review",r.tasks.map((x:any)=>x.dispatch),engine);
  }
 }

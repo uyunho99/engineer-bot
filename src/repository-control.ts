@@ -1,11 +1,13 @@
 import { checkApprovals } from "./workflow-contract.ts";
-import { readFileSync, writeFileSync, existsSync, lstatSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, lstatSync, realpathSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
-import { git, digest, load, artifact } from "./store.ts";
+import { git, digest, load, artifact, codeRoot } from "./store.ts";
+import type { State } from "./harness.ts";
+import { runAgents } from "./agents.ts";
 
 export const workerInstruction = "Do not create Git commits. Complete the implementation and verification, then return READY_FOR_COMMIT with the exact changed-file list and a proposed commit message. Repository state transitions are owned by the controller.";
 export type WorkerReport = {
- task:string; executor:"codex"|"claude"; status:"READY_FOR_COMMIT";
+ task:string; executor:string; status:"READY_FOR_COMMIT";
  implementation:{status:"complete"};
  verification:Record<string,{status:string;command:string;evidence?:string;tests_passed?:number}>;
  changed_files:string[]; proposed_commit_message:string; notes:string[];
@@ -16,8 +18,8 @@ function files(v:unknown):string[] {
  return [...v].sort();
 }
 function same(a:string[],b:string[]):boolean{return JSON.stringify([...a].sort())===JSON.stringify([...b].sort());}
-export function validateWorker(r:any):asserts r is WorkerReport {
- if(!r||!nonempty(r.task)||!['codex','claude'].includes(r.executor)||r.status!=="READY_FOR_COMMIT"||r.implementation?.status!=="complete"||!nonempty(r.proposed_commit_message)||!Array.isArray(r.notes)||r.notes.some((n:unknown)=>typeof n!=="string"))throw Error("Expected complete READY_FOR_COMMIT worker report");
+export function validateWorker(r:any,engines:string[]=["codex","claude"]):asserts r is WorkerReport {
+ if(!r||!nonempty(r.task)||!engines.includes(r.executor)||r.status!=="READY_FOR_COMMIT"||r.implementation?.status!=="complete"||!nonempty(r.proposed_commit_message)||!Array.isArray(r.notes)||r.notes.some((n:unknown)=>typeof n!=="string"))throw Error("Expected complete READY_FOR_COMMIT worker report");
  files(r.changed_files);
  const v=r.verification;
  if(!v||v.red?.status!=="passed"||!nonempty(v.red.evidence)||v.green?.status!=="passed"||!Number.isInteger(v.green.tests_passed)||v.green.tests_passed<1||v.typecheck?.status!=="passed")throw Error("Passing RED evidence, GREEN test count and typecheck required");
@@ -30,9 +32,9 @@ function raw(root:string,...args:string[]):string {
 export function changedFiles(root:string):string[] {
  return [...new Set([...raw(root,"diff","--name-only","--no-renames","-z","HEAD").split("\0"),...raw(root,"ls-files","--others","--exclude-standard","-z").split("\0")].filter(Boolean))].sort();
 }
-function snapshot(root:string,reportPath:string,scopePath:string) {
- const report=JSON.parse(readFileSync(resolve(root,reportPath),"utf8"));validateWorker(report);
- const scope=JSON.parse(readFileSync(resolve(root,scopePath),"utf8"));
+function snapshot(stateRoot:string,root:string,reportPath:string,scopePath:string) {
+ const report=JSON.parse(readFileSync(resolve(stateRoot,reportPath),"utf8"));validateWorker(report,[runAgents(root,load(stateRoot)).agents.implementer.engine]);
+ const scope=JSON.parse(readFileSync(resolve(stateRoot,scopePath),"utf8"));
  if(scope.task!==report.task)throw Error("Scope task mismatch");
  const allowed=files(scope.allowed_files), actual=changedFiles(root);
  if(!same(actual,report.changed_files)||actual.some(p=>!allowed.includes(p)))throw Error("Unexpected/missing files: reconcile actual diff, report and controller-owned scope");
@@ -46,25 +48,41 @@ function snapshot(root:string,reportPath:string,scopePath:string) {
  const state={head:git(root,"rev-parse","HEAD"),report,scope,status:raw(root,"status","--short"),diff:raw(root,"diff","--binary","HEAD"),contents:actual.map(p=>[p,existsSync(resolve(root,p))?digest(readFileSync(resolve(root,p))):"deleted"])};
  return {report,actual,state,token:digest(JSON.stringify(state))};
 }
-function requireBuild(root:string):void {
- const s=load(root);checkApprovals(root,s);if(s.phase!=="build"||s.worktree!==root)throw Error("Approved build worktree required");
+function isLinkedWorktree(dir:string):boolean {
+ return realpathSync(resolve(dir,git(dir,"rev-parse","--git-dir")))!==realpathSync(resolve(dir,git(dir,"rev-parse","--git-common-dir")));
+}
+function requireWorktree(stateRoot:string,s:State):string {
+ if(!s.worktree)throw Error("Approved build worktree required");
+ const code=codeRoot(stateRoot,s);
+ // Runs started before the split keep their state inside the linked worktree; only a
+ // run whose state sits in the main repository may not deliver into that same tree.
+ if(code===realpathSync(stateRoot)&&!isLinkedWorktree(code))throw Error("Delivery must not target the main checkout");
+ if(realpathSync(git(code,"rev-parse","--show-toplevel"))!==code)throw Error("Approved worktree path is not a worktree root");
+ if(git(code,"rev-parse","--abbrev-ref","HEAD")!==s.worktreeBranch)throw Error("Worktree is not on the approved branch");
+ return code;
+}
+function requireBuild(stateRoot:string):string {
+ const s=load(stateRoot);const code=requireWorktree(stateRoot,s);
+ checkApprovals(code,s);if(s.phase!=="build")throw Error("Approved build worktree required");
  for(const entry of Object.values(s.evidence)) {
   const [path,hash]=entry.split("#sha256=");
-  if(hash&&artifact(root,path!).hash!==hash)throw Error("Approved evidence changed; revise its gate");
+  if(hash&&artifact(code,path!).hash!==hash)throw Error("Approved evidence changed; revise its gate");
  }
  const hash=(s as {configHash?:string}).configHash;
- if(hash&&digest(readFileSync(resolve(root,"harness.config.json")))!==hash)throw Error("Approved verification configuration changed");
+ if(hash&&digest(readFileSync(resolve(code,"harness.config.json")))!==hash)throw Error("Approved verification configuration changed");
+ return code;
 }
-export function repositoryGate(root:string,reportPath:string,scopePath:string) {
- root=realpathSync(root);requireBuild(root);
- const result=snapshot(root,reportPath,scopePath);
- writeFileSync(resolve(root,".harness/repository-gate.json"),JSON.stringify({reportPath,scopePath,token:result.token}));
+export function repositoryGate(stateRoot:string,reportPath:string,scopePath:string) {
+ stateRoot=realpathSync(stateRoot);const root=requireBuild(stateRoot);
+ const result=snapshot(stateRoot,root,reportPath,scopePath);
+ writeFileSync(resolve(stateRoot,".harness/repository-gate.json"),JSON.stringify({reportPath,scopePath,token:result.token}));
  return {token:result.token,...result.state,changed_files:result.actual};
 }
-export function repositoryCommit(root:string,token:string) {
- root=realpathSync(root);requireBuild(root);
- const g=JSON.parse(readFileSync(resolve(root,".harness/repository-gate.json"),"utf8"));
- const x=snapshot(root,g.reportPath,g.scopePath);
+export function repositoryCommit(stateRoot:string,token:string) {
+ stateRoot=realpathSync(stateRoot);const root=requireBuild(stateRoot);
+ const split=root!==stateRoot, mainHead=split?git(stateRoot,"rev-parse","HEAD"):"";
+ const g=JSON.parse(readFileSync(resolve(stateRoot,".harness/repository-gate.json"),"utf8"));
+ const x=snapshot(stateRoot,root,g.reportPath,g.scopePath);
  if(token!==g.token||token!==x.token)throw Error("Repository gate stale; inspect a new gate before commit");
  // Literal pathspecs handle spaces, leading dashes and Git pathspec magic. Deletions
  // and both rename endpoints are staged explicitly; no blanket git add -A.
@@ -81,18 +99,32 @@ export function repositoryCommit(root:string,token:string) {
  for(const [p,hash] of x.state.contents) {
   if(hash!=="deleted"&&digest(Bun.spawnSync(["git","-C",root,"show",sha+":"+p],{stdout:"pipe",stderr:"pipe"}).stdout)!==hash)throw Error("Commit hook changed contents; reconcile committed result before review");
  }
- const entry={run_id:load(root).id,task:x.report.task,executor:x.report.executor,committer:"controller",repository_control:{mode:"controller_managed"},base_commit:x.state.head,commit:{sha,message:x.report.proposed_commit_message},changed_files:x.actual,worker_report:x.report};
- const path=resolve(root,".harness/repository-ledger.json");
+ if(split&&git(stateRoot,"rev-parse","HEAD")!==mainHead)throw Error("Main checkout HEAD moved during a worktree commit; inspect both trees before continuing");
+ const entry={run_id:load(stateRoot).id,task:x.report.task,executor:x.report.executor,committer:"controller",repository_control:{mode:"controller_managed"},base_commit:x.state.head,commit:{sha,message:x.report.proposed_commit_message},changed_files:x.actual,worker_report:x.report};
+ const path=resolve(stateRoot,".harness/repository-ledger.json");
  const ledger=existsSync(path)?JSON.parse(readFileSync(path,"utf8")):[];
  ledger.push(entry);writeFileSync(path,JSON.stringify(ledger,null,2)+"\n");
+ // A worker's licence to write ends when its work is committed; a fix round gets a new scope.
+ rmSync(resolve(stateRoot,g.scopePath),{force:true});
  return entry;
 }
-export function validateTaskCommits(root:string,tasks:any):void {
+export function validateTaskCommits(stateRoot:string,tasks:any):void {
+ const s=load(stateRoot);const root=codeRoot(stateRoot,s);
  if(changedFiles(root).some(p=>!p.startsWith("docs/development/")))throw Error("Uncommitted product changes cannot pass immutable review");
  if(!Array.isArray(tasks)||!tasks.length)throw Error("Controller commit ledger and immutable review required");
- const path=resolve(root,".harness/repository-ledger.json");
- const ledger=(existsSync(path)?JSON.parse(readFileSync(path,"utf8")):[]).filter((e:any)=>e.run_id===load(root).id);
+ const path=resolve(stateRoot,".harness/repository-ledger.json");
+ const ledger=(existsSync(path)?JSON.parse(readFileSync(path,"utf8")):[]).filter((e:any)=>e.run_id===s.id);
  if(!ledger.length||git(root,"rev-parse","HEAD")!==ledger.at(-1).commit.sha)throw Error("HEAD must equal the latest controller commit");
+ // HEAD matching the ledger is not enough: a commit made around the gate can sit between
+ // two controller commits and every parent check still holds. Walk the whole range.
+ if(s.worktreeBase) {
+  const known=new Set(ledger.map((e:any)=>e.commit.sha));
+  for(const sha of git(root,"rev-list","--reverse",s.worktreeBase+"..HEAD").split("\n").filter(Boolean)) {
+   if(known.has(sha))continue;
+   const touched=git(root,"diff","--name-only",sha+"^1",sha).split("\n").filter(Boolean);
+   if(touched.some(p=>!p.startsWith("docs/development/")))throw Error("Commit "+sha.slice(0,12)+" is not in the controller ledger and changes product files; it did not go through the repository gate");
+  }
+ }
  for(const t of tasks){
   const entry=ledger.filter((e:any)=>e.task===t.id).at(-1);
   if(!entry||t.executor!==entry.executor||t.committer!=="controller"||t.repository_control?.mode!=="controller_managed"||t.commit?.sha!==entry.commit.sha||t.base_commit!==entry.base_commit||t.review_commit!==entry.commit.sha||t.review_verdict!=="PASS"||!nonempty(t.review))throw Error("Task requires latest controller commit and independent PASS for that immutable commit");

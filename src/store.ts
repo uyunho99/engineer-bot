@@ -27,3 +27,6 @@ export async function locked(root:string,fn:()=>Promise<void>|void):Promise<void
  try{mkdirSync(lock);}catch{throw Error("Another coordinator holds .harness/lock; inspect liveness before manual recovery");}
  try{await fn();}finally{rmSync(lock,{recursive:true});}
 }
+export function codeRoot(stateRoot:string,s:State):string {
+ return realpathSync(s.worktree??stateRoot);
+}
