@@ -3,7 +3,8 @@ import { loadAgents, runAgents } from "./agents.ts";
 import { repositoryGate, repositoryCommit, validateTaskCommits } from "./repository-control.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { initial, complete, decide, retry, type Track } from "./harness.ts";
+import { initial, complete, decide, retry, acknowledge, type Track } from "./harness.ts";
+import { unacknowledged, banner } from "./guard.ts";
 import { repo, load, save, locked, git, artifact, fingerprint, statePath, digest, codeRoot } from "./store.ts";
 import { setup, verificationCommands, fixLimits, allowRelay } from "./project.ts";
 import { evidence } from "./evidence.ts";
@@ -18,7 +19,7 @@ function parseDecide(a:string[]) {
  return {decision:plain[0]??"",reference:plain[1]??"",escalate:a.includes("--escalate"),relay};
 }
 
-const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> [--track full|light] | status | complete <phase> <report> | decide <approve|revise|cancel> [--escalate] [--relay <user-quote>] <reference> | worktree <absolute-path> <new-branch> | retry <findings> --task <task-id> | prepare | prepare-status | dispatch <implementer|reviewer|browserQa> <task-id> [--files a,b]";
+const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> [--track full|light] | status | complete <phase> <report> | decide <approve|revise|cancel> [--escalate] [--relay <user-quote>] <reference> | worktree <absolute-path> <new-branch> | retry <findings> --task <task-id> | prepare | prepare-status | dispatch <implementer|reviewer|browserQa> <task-id> [--files a,b] | guard --ack <reason>";
 try {
  if(args.includes("--execute"))throw Error("Ungated execute removed: use harness lifecycle");
  if(command==="doctor") await doctor();
@@ -33,6 +34,7 @@ try {
    const st=load(root);console.log(JSON.stringify(st,null,2));
    const relayed=st.history.filter(h=>h.actor==="relay").length;
    if(relayed)console.error(relayed+" gate decision(s) were relayed from conversation rather than entered by the operator");
+   const open=unacknowledged(root,st);if(open.length)console.error(banner(open));
   }
  }
  else await locked(root,async()=>{
@@ -53,6 +55,17 @@ try {
   }
   let s=load(root);
   const code=codeRoot(root,s);
+  // The controller cannot advance without this CLI, so this is where an unexplained
+  // change is guaranteed to be seen, whatever host is driving and whether or not it has hooks.
+  const open=unacknowledged(root,s);
+  if(command==="guard") {
+   if(args[0]!=="--ack")throw Error("Usage: guard --ack '<reason>'");
+   save(root,acknowledge(s,args[1]??"",open.map(v=>v.id)));return;
+  }
+  if(open.length) {
+   console.error(banner(open));
+   if(command==="complete"||command==="decide")throw Error("Unacknowledged guard violations; explain them with guard --ack '<reason>' before "+command);
+  }
   if(command==="repository-gate") {console.log(JSON.stringify(repositoryGate(root,args[0]??"",args[1]??""),null,2));return;}
   if(command==="repository-commit") {console.log(JSON.stringify(repositoryCommit(root,args[0]??""),null,2));return;}
   if(command==="prepare") {

@@ -113,6 +113,16 @@ export function validateTaskCommits(stateRoot:string,tasks:any):void {
  const path=resolve(stateRoot,".harness/repository-ledger.json");
  const ledger=(existsSync(path)?JSON.parse(readFileSync(path,"utf8")):[]).filter((e:any)=>e.run_id===s.id);
  if(!ledger.length||git(root,"rev-parse","HEAD")!==ledger.at(-1).commit.sha)throw Error("HEAD must equal the latest controller commit");
+ // HEAD matching the ledger is not enough: a commit made around the gate can sit between
+ // two controller commits and every parent check still holds. Walk the whole range.
+ if(s.worktreeBase) {
+  const known=new Set(ledger.map((e:any)=>e.commit.sha));
+  for(const sha of git(root,"rev-list","--reverse",s.worktreeBase+"..HEAD").split("\n").filter(Boolean)) {
+   if(known.has(sha))continue;
+   const touched=git(root,"diff","--name-only",sha+"^1",sha).split("\n").filter(Boolean);
+   if(touched.some(p=>!p.startsWith("docs/development/")))throw Error("Commit "+sha.slice(0,12)+" is not in the controller ledger and changes product files; it did not go through the repository gate");
+  }
+ }
  for(const t of tasks){
   const entry=ledger.filter((e:any)=>e.task===t.id).at(-1);
   if(!entry||t.executor!==entry.executor||t.committer!=="controller"||t.repository_control?.mode!=="controller_managed"||t.commit?.sha!==entry.commit.sha||t.base_commit!==entry.base_commit||t.review_commit!==entry.commit.sha||t.review_verdict!=="PASS"||!nonempty(t.review))throw Error("Task requires latest controller commit and independent PASS for that immutable commit");
