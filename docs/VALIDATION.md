@@ -85,3 +85,29 @@ Claude는 기획·관리·리뷰만 맡고 모든 코드·테스트·수정은 C
 - 네이티브는 codex:codex-rescue --wait --fresh, Orca는 별도 codex 리뷰 Task로 배정.
 - 기존 목업·QA 계획·Controller 커밋·독립 브라우저 QA 계약 유지.
 - 변경 후 네이티브 19개 / Orca 21개 테스트, 타입 검사·빌드 통과. 실제 모델을 호출한 전체 리뷰 실행은 포함하지 않음.
+
+## 2026-10-23 — 하네스 3.0.0: 트랙·설정 가능한 엔진·호스트 중립 컨트롤러
+
+설계는 `docs/development/harness-v2/design-doc.md`, 1단계 계획은 같은 폴더의 `plan-phase1.md`.
+
+- `bun run check`: 테스트 65개 통과(타입 검사 포함). `bun run build` 통과.
+- light 트랙을 CLI로 기획 → 계획 → 계획 승인까지 진행하고 `--escalate`로 full 설계 단계로 승격하는 흐름을 검사.
+- 상태는 메인, 코드는 worktree: 기존 전체 흐름 테스트를 메인 체크아웃에서 worktree를 대상으로 끝까지 실행.
+  controller commit이 worktree 브랜치에 쌓이고 메인 HEAD가 움직이지 않는 것을 검사. 상태가 worktree 안에 있는 구버전 실행도 커밋되는 것을 검사.
+- 수정 라운드: 태스크별 집계, `maxFixRounds`·`maxTotalFixRounds` 반영.
+- 엔진: 사람 층/프로젝트 층 병합, 계획 완료 시 고정, gemini 구현자 보고서 수락·codex 거부, `requireCrossEngineReview`,
+  호스트별 기본값(codex 컨트롤러는 `codex exec`), Claude Code가 아닌 호스트에서 `claude-agent` 거부.
+- `dispatch`: 단계·범위·준비 상태 거부, 셸 템플릿 치환, 계획 절 발췌, 리뷰어의 고정 커밋 범위.
+- 전달 승인: `actor`와 인용 기록, `approval.allowRelay: false` 거부, heredoc 본문은 차단하지 않고 실제 명령은 계속 차단.
+- 가드: 원장에 없는 제품 커밋 거부, 감시자의 범위 밖 변경 기록(실제 백그라운드 프로세스 포함), CLI 경고와 `complete`·`decide` 거부, `guard --ack`,
+  pre-commit의 범위 밖 커밋 거부와 `core.hooksPath`·기존 훅 앞에서의 설치 생략.
+- 설치: `--host codex`가 `~/.claude/`를 건드리지 않음, 호스트 둘을 설치해도 CLI는 하나, 구버전 배치의 hook 이전, 다운그레이드 거부.
+- 백그라운드 의존성 준비는 `npm install`로 실제 실행해 `running → ok`를 확인.
+
+검증하지 않은 것:
+
+- 실제 모델(Claude·Codex·Gemini)로 기능 하나를 처음부터 끝까지 개발하는 실행.
+- Gemini CLI 기본 워커 플래그(`gemini -y -p`): 이 머신에 Gemini CLI가 없다. codex 플래그는 codex-cli 0.153.4로 확인했다.
+- Antigravity 컨트롤러: 스킬 위치와 비대화 실행 방법이 확인되지 않아 지원하지 않는다.
+- 부하가 큰 머신(load average 16~24)에서 서브프로세스가 많은 테스트 셋이 bun 기본 5초를 넘어,
+  해당 파일의 기본 타임아웃을 30초로 올렸다. 직전 커밋에서도 같은 실패를 재현해 회귀가 아님을 확인했다.

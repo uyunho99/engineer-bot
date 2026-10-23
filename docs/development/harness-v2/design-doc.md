@@ -170,7 +170,7 @@ git 커밋                              ●  컨트롤러가 여기에
 엔진 선택은 사람별 성격이고 검증 명령·정책은 프로젝트별이다.
 
 ```
-~/.claude/harness/agents.json     사람 층 — 내가 쓰는 엔진 (기본값)
+~/.config/development-harness/agents.json     사람 층 — 내가 쓰는 엔진 (기본값)
 <project>/harness.config.json     프로젝트 층 — 검증 명령·정책. agents 를 덮어쓸 수 있다
 ```
 
@@ -178,7 +178,7 @@ git 커밋                              ●  컨트롤러가 여기에
 부분 병합은 하지 않는다 — 한 역할의 설정은 통째로 한쪽에서 온다.
 
 ```json
-// ~/.claude/harness/agents.json
+// ~/.config/development-harness/agents.json
 {
   "version": 1,
   "agents": {
@@ -425,7 +425,7 @@ L2~L5 가 호스트 중립이고, L1 은 Claude Code 가 **추가로** 얻는 �
 #### 호스트 선언
 
 ```json
-// ~/.claude/harness/agents.json  — 또는 호스트별 동등 경로
+// ~/.config/development-harness/agents.json  — 호스트와 무관한 한 곳
 { "controller": { "host": "claude-code" | "codex" | "gemini" } }
 ```
 
@@ -538,3 +538,21 @@ L2~L5 가 호스트 중립이고, L1 은 Claude Code 가 **추가로** 얻는 �
 | 감시자의 신뢰성 | L2 는 백그라운드 프로세스라 죽을 수 있고, `fs.watch` 는 플랫폼마다 누락이 있다. 그래서 **L2 를 유일한 근거로 삼지 않는다** — L3 의 배너는 `guard.log` 를 읽지만 `complete`·`decide` 의 거부는 L5 의 3자 대조가 독립적으로 뒷받침한다. 감시자가 죽으면 `doctor` 와 CLI 배너가 그 사실을 보고한다 |
 | `--ack` 의 남용 | 컨트롤러가 사유를 지어내 위반을 덮을 수 있다. §5.4 의 전달 승인과 같은 한계이고 같은 처치를 쓴다 — 지우지 않고 사유와 함께 남기며, 최종 보고가 ack 건수를 전면에 표기한다 |
 | 부트스트랩 덫 (P9) | 1단계가 P5 를 풀면 해소된다 — `worktree` 명령이 세션을 옮기지 않게 되므로 컨트롤러가 배송 단계에 도달할 수 있고, 거기서 `Agent` 위임이 열린다. **예외 경로를 만들지 않는다.** 하네스 레포에서도 컨트롤러는 소스를 직접 쓰지 않고 워커에 위임한다 — 자기 자신을 고칠 때만 규칙을 푸는 하네스는 그 규칙을 주장할 수 없다. 1단계 자체는 이 덫 안에서 만들어야 하므로, 그 한 번은 사람이 경로를 정한다 |
+
+---
+
+## 11. 구현하며 바뀐 것 (2026-10-23)
+
+- **사람 층 설정 경로**: `~/.claude/harness/agents.json` 대신 `~/.config/development-harness/agents.json`. 컨트롤러가
+  Claude Code가 아닐 수 있으므로 어느 호스트의 디렉터리에도 두지 않는다.
+- **엔진 고정**: 계획 완료 시 해석된 엔진을 실행 상태에 고정한다. 다른 머신에서 이어받아도 엔진이 바뀌지 않는다.
+- **설치 구조**: CLI·hook·역할 지시·문서는 `~/.local/share/development-harness/`에 하나, 호스트별로는 컨트롤러 스킬만.
+  Codex는 `~/.codex/skills/development-harness/`, Gemini CLI는 `~/.gemini/skills/development-harness/`.
+- **호스트별 기본 워커**: Claude Code가 아닌 컨트롤러는 Agent 도구가 없으므로 기본 워커가 셸 프로세스다
+  (codex 컨트롤러는 `codex exec`, gemini 컨트롤러는 `gemini`). 그런 호스트에서 `claude-agent` 디스패치는 거부한다.
+- **Antigravity**: 스킬 위치와 비대화 실행 방법이 확인되지 않아 이번에는 거부한다.
+- **범위 소진**: 태스크가 커밋되면 그 범위를 지운다. 감시자 판정이 의미를 가지려면 필요했다.
+- **원장 범위 검사**: HEAD가 마지막 원장 커밋과 같은 것만으로는 원장 커밋 사이에 끼운 커밋을 잡지 못해, base..HEAD 전체를 확인한다.
+- **pre-commit 포인터**: hooks 폴더를 모든 worktree가 공유하므로 훅은 실행을 하드코딩하지 않고 worktree의 git 관리 폴더에 둔 포인터를 따른다.
+- **경량 트랙 계획 검사**: 계획 완료 시 설계와 surface가 같아야 한다는 검사가 light에서는 성립할 수 없어 full에만 적용한다.
+- **3.0.0**: `retry`가 `--task` 없이는 거부되는 호환되지 않는 변경이 있어 메이저 버전을 올렸다.
