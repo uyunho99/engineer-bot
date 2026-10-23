@@ -41,3 +41,22 @@ test("fix circuit breaker stops a fourth automatic retry",()=>{
  for(let i=0;i<3;i++)s=retry(s,"finding");
  expect(()=>retry(s,"again")).toThrow("Three fix rounds");
 });
+
+test("light track skips product and design gates",()=>{
+ let s=initial("test","light");
+ expect(s.track).toBe("light");
+ s=complete(s,"brainstorm","digest","PASS");
+ expect(s.phase).toBe("plan");
+ expect(()=>complete(s,"design","digest","PASS")).toThrow();
+ s=complete(s,"plan","digest","PASS");
+ expect(s.phase).toBe("plan-gate");
+ expect(decide(s,"revise","human").phase).toBe("plan");
+ expect(decide(s,"approve","human").phase).toBe("worktree");
+});
+test("full track is the default and keeps its gates",()=>{
+ const s=initial("test");
+ expect(s.track).toBe("full");
+ expect(complete(s,"brainstorm","digest","PASS").phase).toBe("product-gate");
+ const legacy={...initial("test")} as any;delete legacy.track;
+ expect(complete(legacy,"brainstorm","digest","PASS").phase).toBe("product-gate");
+});
