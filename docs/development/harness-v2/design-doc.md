@@ -360,6 +360,7 @@ development-harness setup [--agents implementer=codex,reviewer=claude,browserQa=
 17. 전체 재시도가 `maxTotalFixRounds` 를 넘으면 태스크 잔여 예산과 무관하게 막힌다.
 18. `install-global.ts` 가 더 낮은 `version` 설치를 `--force` 없이 거부한다.
 19. `track` 이 없는 기존 상태 파일이 `full` 로 동작한다.
+20. 승인된 worktree 의 `docs/development/**` 쓰기를 훅이 허용하고, 같은 worktree 의 소스 쓰기와 `.harness/**` 쓰기는 계속 거부한다.
 
 ---
 
@@ -382,7 +383,7 @@ development-harness setup [--agents implementer=codex,reviewer=claude,browserQa=
 | 트랙 | light 가 설계 구간을 건너뛴다 · 트랙별 거부 목적지 | 1, 2 |
 | 승격 | 전이와 면제 기록 | 3 |
 | 경량 설계 | 번들 흡수와 누락 거부 | 4 |
-| **상태/코드 분리** | **메인 브랜치를 건드리지 않는다** · 잘못된 대상 거부 | 5, 6, 7 |
+| **상태/코드 분리** | **메인 브랜치를 건드리지 않는다** · 잘못된 대상 거부 · 훅의 worktree 허용 | 5, 6, 7, 20 |
 | 엔진 교체 | 계약 검증과 doctor 가 설정을 따른다 · dispatch 출력 | 8, 9, 10 |
 | 리모트 | actor 기록 · 훅 유지 · 스위치 · 오탐 제거 | 11, 12, 13, 14 |
 | 재시도 | 태스크 단위 집계 · 설정 반영 · 전체 상한 | 15, 16, 17 |
