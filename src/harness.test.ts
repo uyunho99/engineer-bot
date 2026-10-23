@@ -26,7 +26,7 @@ test("failed QA returns to build and invalidates later evidence", () => {
  let s=initial("test"); s.phase="browser-qa";
  expect(() => complete(s,"browser-qa","digest","FAIL")).toThrow();
  s.evidence.review="old"; s.evidence.verification="stale";
- s=retry(s,"regression");
+ s=retry(s,"regression","T1");
  expect(s.phase).toBe("build"); expect(s.evidence.review).toBeUndefined();
  expect(s.evidence.verification).toBeUndefined();
 });
@@ -36,10 +36,25 @@ test("empty approval and evidence cannot advance", () => {
  expect(() => decide(s,"approve","")).toThrow();
 });
 
-test("fix circuit breaker stops a fourth automatic retry",()=>{
+test("fix rounds are counted per task against the configured limit",()=>{
  let s=initial("test");s.phase="build";
- for(let i=0;i<3;i++)s=retry(s,"finding");
- expect(()=>retry(s,"again")).toThrow("Three fix rounds");
+ for(let i=0;i<5;i++)s=retry(s,"finding","T1");
+ expect(()=>retry(s,"again","T1")).toThrow("Task T1");
+ s=retry(s,"other task","T2");
+ expect(s.history.filter(h=>h.action==="retry"&&h.task==="T2").length).toBe(1);
+});
+test("retry requires a task and honours an overall ceiling",()=>{
+ let s=initial("test");s.phase="build";
+ expect(()=>retry(s,"finding","")).toThrow("--task");
+ const limits={maxFixRounds:99,maxTotalFixRounds:2};
+ s=retry(s,"a","T1",limits);s=retry(s,"b","T2",limits);
+ expect(()=>retry(s,"c","T3",limits)).toThrow("2 total fix rounds");
+});
+test("a lower configured limit stops the retry earlier",()=>{
+ let s=initial("test");s.phase="build";
+ const limits={maxFixRounds:2,maxTotalFixRounds:15};
+ s=retry(s,"finding","T1",limits);s=retry(s,"finding","T1",limits);
+ expect(()=>retry(s,"again","T1",limits)).toThrow("Task T1");
 });
 
 test("light track skips product and design gates",()=>{

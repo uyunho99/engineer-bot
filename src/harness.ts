@@ -41,10 +41,15 @@ export function decide(s:State,decision:string,reference:string,opts:{escalate?:
  }
  return n;
 }
-export function retry(s:State,findings:string):State {
+export type Limits = { maxFixRounds:number; maxTotalFixRounds:number };
+export const DEFAULT_LIMITS:Limits = {maxFixRounds:5,maxTotalFixRounds:15};
+export function retry(s:State,findings:string,task:string,limits:Limits=DEFAULT_LIMITS):State {
  const ps=phasesFor(s);
  if(!["build","review","browser-qa","verification","uat-gate"].includes(s.phase)) throw Error("Retry only within delivery");
- if(s.history.filter(h=>h.action==="retry").length>=3)throw Error("Three fix rounds exhausted; obtain revised human plan");
- const n=record(s,"retry",findings); n.phase="build"; delete n.snapshot;
+ if(!task.trim()) throw Error("Retry requires --task <task-id> so rounds can be counted per task");
+ const all=s.history.filter(h=>h.action==="retry");
+ if(all.filter(h=>h.task===task).length>=limits.maxFixRounds) throw Error(`Task ${task}: ${limits.maxFixRounds} fix rounds exhausted; obtain revised human plan`);
+ if(all.length>=limits.maxTotalFixRounds) throw Error(`${limits.maxTotalFixRounds} total fix rounds exhausted; obtain revised human plan`);
+ const n=record(s,"retry",findings,{task}); n.phase="build"; delete n.snapshot;
  for(const p of ps.slice(ps.indexOf("build"))) { delete n.evidence[p]; if(n.approvedArtifacts)delete n.approvedArtifacts[p]; } return n;
 }

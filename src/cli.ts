@@ -4,12 +4,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { initial, complete, decide, retry } from "./harness.ts";
 import { repo, load, save, locked, git, artifact, fingerprint, statePath, digest } from "./store.ts";
-import { setup, verificationCommands } from "./project.ts";
+import { setup, verificationCommands, fixLimits } from "./project.ts";
 import { evidence } from "./evidence.ts";
 import { doctor } from "./doctor.ts";
 const [command,...args]=Bun.argv.slice(2);
 
-const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> | status | complete <phase> <report> | decide <approve|revise|cancel> <human-reference> | worktree <absolute-path> <new-branch> | retry <findings>";
+const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> | status | complete <phase> <report> | decide <approve|revise|cancel> <human-reference> | worktree <absolute-path> <new-branch> | retry <findings> --task <task-id>";
 try {
  if(args.includes("--execute"))throw Error("Ungated execute removed: use harness lifecycle");
  if(command==="doctor") await doctor();
@@ -78,7 +78,12 @@ try {
    for(const entry of Object.values(s.evidence)){const [p,h]=entry.split("#sha256=");if(h&&artifact(root,p!).hash!==h&&args[0]==="approve")throw Error("Gate evidence changed; revise first");}
    if(s.phase==="uat-gate"&&args[0]==="approve"&&s.snapshot!==fingerprint(root))throw Error("UAT evidence stale; retry");
    s=decide(s,args[0]??"",args[1]??"");save(root,s);
-  } else if(command==="retry")save(root,retry(s,args.join(" ")));
+  } else if(command==="retry") {
+   const i=args.indexOf("--task");
+   const task=i>=0?(args[i+1]??""):"";
+   const findings=(i>=0?[...args.slice(0,i),...args.slice(i+2)]:args).join(" ");
+   save(root,retry(s,findings,task,fixLimits(root)));
+  }
   else if(command==="worktree") {
    if(s.phase!=="worktree")throw Error("Plan approval required");
    checkApprovals(root,s);
