@@ -17,6 +17,20 @@ export const DEFAULT_AGENTS:Record<Role,Agent>={
  browserQa:{engine:"codex",dispatch:{kind:"claude-agent",agent:"codex:codex-rescue",args:["--wait","--fresh"]}},
 };
 
+/** Hosts that can run the controller. Antigravity is not here yet: its skills location and headless mode are unconfirmed. */
+export const HOSTS=["claude-code","codex","gemini"] as const;
+export type Host=typeof HOSTS[number];
+const shell=(engine:string,command:string[],readOnly=false):Agent=>({engine,dispatch:{kind:"shell",command,...(readOnly?{readOnly:true}:{})}});
+const codexExec=(sandbox:string)=>["codex","exec","-s",sandbox,"-C","{{cwd}}","{{prompt}}"];
+// Gemini CLI's non-interactive flags; not verified on the machine this was built on.
+const geminiRun=["gemini","-y","-p","{{prompt}}"];
+/** Only Claude Code has the Agent tool, so other controllers start their workers as processes. */
+export const HOST_DEFAULTS:Record<Host,Record<Role,Agent>>={
+ "claude-code":DEFAULT_AGENTS,
+ codex:{implementer:shell("codex",codexExec("workspace-write")),reviewer:shell("codex",codexExec("read-only"),true),browserQa:shell("codex",codexExec("workspace-write"))},
+ gemini:{implementer:shell("gemini",geminiRun),reviewer:shell("gemini",geminiRun,true),browserQa:shell("gemini",geminiRun)},
+};
+
 /**
  * The person layer lives outside every host's own config directory, because the
  * controller itself may be Claude Code, Codex or Gemini.
@@ -49,17 +63,20 @@ function checkAgent(role:string,a:any,source:string):Agent {
 export function loadAgents(projectRoot:string):Agents {
  const personPath=personConfigPath(), projectPath=resolve(projectRoot,"harness.config.json");
  const person=read(personPath), project=read(projectPath);
+ const host=project.controller?.host??person.controller?.host??"claude-code";
+ if(!(HOSTS as readonly string[]).includes(host))throw Error("controller.host must be one of "+HOSTS.join(", ")+" (got "+JSON.stringify(host)+")");
+ const defaults=HOST_DEFAULTS[host as Host];
  const agents={} as Record<Role,Agent>;
  for(const role of ROLES) {
   if(project.agents?.[role]!==undefined)agents[role]=checkAgent(role,project.agents[role],projectPath);
   else if(person.agents?.[role]!==undefined)agents[role]=checkAgent(role,person.agents[role],personPath);
-  else agents[role]=DEFAULT_AGENTS[role];
+  else agents[role]=defaults[role];
  }
  const cross=project.requireCrossEngineReview??person.requireCrossEngineReview??false;
  if(typeof cross!=="boolean")throw Error("requireCrossEngineReview must be true or false");
  if(cross&&agents.reviewer.engine===agents.implementer.engine)throw Error("requireCrossEngineReview is on but reviewer and implementer both use "+agents.implementer.engine);
- const host=project.controller?.host??person.controller?.host??"claude-code";
- if(typeof host!=="string"||!name.test(host))throw Error("controller.host must be a lowercase host name");
+ const claudeOnly=ROLES.filter(r=>agents[r].dispatch.kind==="claude-agent");
+ if(host!=="claude-code"&&claudeOnly.length)throw Error("claude-agent dispatch ("+claudeOnly.join(", ")+") needs Claude Code as the controller, but controller.host is "+host+"; use a shell dispatch");
  return {controller:{host},agents,requireCrossEngineReview:cross};
 }
 /** A run uses the engines pinned when its plan was completed, so resuming on another machine changes nothing. */

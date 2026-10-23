@@ -4,6 +4,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {loadAgents,DEFAULT_AGENTS} from "./agents.ts";
 import {validateBuildTasks,validateIndependent} from "./workflow-contract.ts";
+import {requirements} from "./doctor.ts";
 
 const withConfig=(person:object|null,project:object|null,fn:(root:string)=>void)=>{
  const home=mkdtempSync(join(tmpdir(),"harness-agents-home-")),root=mkdtempSync(join(tmpdir(),"harness-agents-proj-"));
@@ -52,3 +53,22 @@ test("build and review evidence must name the configured engines",()=>withConfig
  validateIndependent({executor:"claude",role:"code-review",dispatch:"rev-1",freshSession:true},"code-review",["run-1"],team.reviewer.engine);
  expect(()=>validateIndependent({executor:"gemini",role:"code-review",dispatch:"rev-1",freshSession:true},"code-review",["run-1"],team.reviewer.engine)).toThrow("claude");
 }));
+
+test("a codex controller gets codex exec workers and needs nothing from Claude Code",()=>withConfig({controller:{host:"codex"}},null,root=>{
+ const a=loadAgents(root);
+ expect(a.controller.host).toBe("codex");
+ for(const role of ["implementer","reviewer","browserQa"] as const)expect(a.agents[role].dispatch.kind).toBe("shell");
+ expect(a.agents.reviewer.dispatch).toMatchObject({command:["codex","exec","-s","read-only","-C","{{cwd}}","{{prompt}}"]});
+ const need=requirements(a);
+ expect(need.claudeSkills).toBe(false);expect(need.codexPlugin).toBe(false);
+ expect(need.executables).toEqual(["bun","codex","git"]);
+}));
+test("a gemini controller defaults to gemini workers",()=>withConfig({controller:{host:"gemini"}},null,root=>{
+ const a=loadAgents(root);
+ expect(a.agents.implementer.engine).toBe("gemini");
+ expect(requirements(a).executables).toEqual(["bun","gemini","git"]);
+}));
+test("Claude Code agents cannot be dispatched by another controller, and unknown hosts are refused",()=>{
+ withConfig({controller:{host:"gemini"},agents:{reviewer:{engine:"claude",dispatch:{kind:"claude-agent",agent:"general-purpose"}}}},null,root=>expect(()=>loadAgents(root)).toThrow("Claude Code"));
+ withConfig({controller:{host:"antigravity"}},null,root=>expect(()=>loadAgents(root)).toThrow("controller.host"));
+});
