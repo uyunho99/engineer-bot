@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { loadAgents, type Agents } from "./agents.ts";
 import { git } from "./store.ts";
+import { guardReport } from "./precommit.ts";
 /** What this configuration actually depends on. Engines nobody chose are not required. */
 export function requirements(a:Agents):{executables:string[];codexPlugin:boolean;codexBrowserSkill:boolean;claudeSkills:boolean} {
  const roles=Object.values(a.agents);
@@ -38,6 +39,7 @@ export async function doctor():Promise<void> {
   report.browserSkill=browserSkill;
  }
  for(const executable of need.executables)if(!Bun.which(executable))throw Error("Missing executable: "+executable);
+ if(existsSync(resolve(root,".harness/state.json")))try{report.guard=guardReport(root);}catch(e){report.guard="unreadable run state: "+(e as Error).message;}
  report.browserQA="The browser QA worker must prove navigation, actions and screenshots; installation alone is not a PASS";
  console.log(JSON.stringify(report,null,2));
 }

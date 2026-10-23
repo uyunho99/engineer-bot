@@ -11,6 +11,8 @@ import { evidence } from "./evidence.ts";
 import { doctor } from "./doctor.ts";
 import { startPrepare, prepareStatus } from "./prepare.ts";
 import { dispatchSpec } from "./dispatch.ts";
+import { watch, startWatcher } from "./watch.ts";
+import { installPrecommit, precommitCheck } from "./precommit.ts";
 const [command,...args]=Bun.argv.slice(2);
 function parseDecide(a:string[]) {
  const ri=a.indexOf("--relay");
@@ -23,6 +25,8 @@ const help="harness: repository-gate <worker-report.json> <scope.json> | reposit
 try {
  if(args.includes("--execute"))throw Error("Ungated execute removed: use harness lifecycle");
  if(command==="doctor") await doctor();
+ else if(command==="watch") await watch(args[0]??"");
+ else if(command==="precommit-check") process.exitCode=precommitCheck(args[0]??"");
  else {
  const root=repo();
  if(command==="setup")setup(root);
@@ -144,9 +148,10 @@ try {
    git(root,"worktree","add","-b",branch,path,"HEAD");
    s=complete(s,"worktree","git worktree "+path,"PASS");
    s.worktree=git(path,"rev-parse","--show-toplevel");s.worktreeBranch=branch;s.worktreeBase=git(path,"rev-parse","HEAD");
-   save(root,s);
+   s.precommit=installPrecommit(root,s);save(root,s);
    startPrepare(root,s.worktree);
-   console.log("Worktree ready at "+s.worktree+"\nAdd it to this session instead of restarting: /add-dir "+s.worktree);
+   const watcher=startWatcher(root,s);
+   console.log("Worktree ready at "+s.worktree+"\nAdd it to this session instead of restarting: /add-dir "+s.worktree+"\nGuard: pre-commit "+s.precommit+"; watcher "+watcher);
   } else throw Error(help);
  });
  }

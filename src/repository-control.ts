@@ -1,5 +1,5 @@
 import { checkApprovals } from "./workflow-contract.ts";
-import { readFileSync, writeFileSync, existsSync, lstatSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, lstatSync, realpathSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { git, digest, load, artifact, codeRoot } from "./store.ts";
 import type { State } from "./harness.ts";
@@ -104,6 +104,8 @@ export function repositoryCommit(stateRoot:string,token:string) {
  const path=resolve(stateRoot,".harness/repository-ledger.json");
  const ledger=existsSync(path)?JSON.parse(readFileSync(path,"utf8")):[];
  ledger.push(entry);writeFileSync(path,JSON.stringify(ledger,null,2)+"\n");
+ // A worker's licence to write ends when its work is committed; a fix round gets a new scope.
+ rmSync(resolve(stateRoot,g.scopePath),{force:true});
  return entry;
 }
 export function validateTaskCommits(stateRoot:string,tasks:any):void {

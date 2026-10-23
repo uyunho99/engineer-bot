@@ -11,6 +11,7 @@ import {requirements} from "./doctor.ts";
 import {loadAgents} from "./agents.ts";
 
 process.env.HARNESS_CONFIG_HOME=mkdtempSync(join(tmpdir(),"harness-person-empty-"));
+process.env.HARNESS_WATCH="off";
 
 const world=(fn:(w:{root:string;wt:string;state:(p:Partial<State>)=>State})=>void)=>{
  const base=mkdtempSync(join(tmpdir(),"harness-dispatch-"));const root=join(base,"repo"),wt=join(base,"wt");mkdirSync(root);

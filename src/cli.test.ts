@@ -6,6 +6,7 @@ import { test,expect,setDefaultTimeout } from "bun:test";
 setDefaultTimeout(30_000);
 // Never read the developer's own agent configuration.
 process.env.HARNESS_CONFIG_HOME=mkdtempSync(join(tmpdir(),"harness-person-empty-"));
+process.env.HARNESS_WATCH="off";
 import { mkdtempSync,mkdirSync,writeFileSync,rmSync,realpathSync,existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
