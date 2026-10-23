@@ -9,6 +9,7 @@ import { setup, verificationCommands, fixLimits, allowRelay } from "./project.ts
 import { evidence } from "./evidence.ts";
 import { doctor } from "./doctor.ts";
 import { startPrepare, prepareStatus } from "./prepare.ts";
+import { dispatchSpec } from "./dispatch.ts";
 const [command,...args]=Bun.argv.slice(2);
 function parseDecide(a:string[]) {
  const ri=a.indexOf("--relay");
@@ -17,7 +18,7 @@ function parseDecide(a:string[]) {
  return {decision:plain[0]??"",reference:plain[1]??"",escalate:a.includes("--escalate"),relay};
 }
 
-const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> [--track full|light] | status | complete <phase> <report> | decide <approve|revise|cancel> [--escalate] [--relay <user-quote>] <reference> | worktree <absolute-path> <new-branch> | retry <findings> --task <task-id> | prepare | prepare-status";
+const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> [--track full|light] | status | complete <phase> <report> | decide <approve|revise|cancel> [--escalate] [--relay <user-quote>] <reference> | worktree <absolute-path> <new-branch> | retry <findings> --task <task-id> | prepare | prepare-status | dispatch <implementer|reviewer|browserQa> <task-id> [--files a,b]";
 try {
  if(args.includes("--execute"))throw Error("Ungated execute removed: use harness lifecycle");
  if(command==="doctor") await doctor();
@@ -57,6 +58,12 @@ try {
   if(command==="prepare") {
    if(!s.worktree)throw Error("Approved worktree required");
    startPrepare(root,s.worktree);console.log(JSON.stringify(prepareStatus(root)));return;
+  }
+  if(command==="dispatch") {
+   const fi=args.indexOf("--files");
+   const files=fi<0?undefined:(args[fi+1]??"").split(",").map(x=>x.trim()).filter(Boolean);
+   const rest=fi<0?args:[...args.slice(0,fi),...args.slice(fi+2)];
+   console.log(JSON.stringify(dispatchSpec(root,rest[0]??"",rest[1]??"",files),null,2));return;
   }
   if(command==="prepare-status") {console.log(JSON.stringify(prepareStatus(root),null,2));return;}
   const configPath=resolve(root,"harness.config.json");
@@ -122,7 +129,7 @@ try {
    if(git(root,"status","--porcelain"))throw Error("Commit planning artifacts before creating worktree");
    git(root,"worktree","add","-b",branch,path,"HEAD");
    s=complete(s,"worktree","git worktree "+path,"PASS");
-   s.worktree=git(path,"rev-parse","--show-toplevel");s.worktreeBranch=branch;
+   s.worktree=git(path,"rev-parse","--show-toplevel");s.worktreeBranch=branch;s.worktreeBase=git(path,"rev-parse","HEAD");
    save(root,s);
    startPrepare(root,s.worktree);
    console.log("Worktree ready at "+s.worktree+"\nAdd it to this session instead of restarting: /add-dir "+s.worktree);

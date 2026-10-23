@@ -5,7 +5,7 @@ export const TRACKS = {
 } as const;
 export type Track = keyof typeof TRACKS;
 export const phases:readonly string[] = TRACKS.full;
-export type State = { version: 1; workflowVersion?:2; track?:Track; approvedArtifacts?:Record<string,Record<string,string>>; id: string; phase: string; evidence: Record<string,string>; history: {phase:string; action:string; reference:string; at:string; task?:string; escalatedTo?:Track; waived?:string[]; actor?:"operator"|"relay"; relayQuote?:string}[]; root?:string; base?:string; worktree?:string; worktreeBranch?:string; snapshot?:string; configHash?:string; agents?:Agents; backend?:unknown };
+export type State = { version: 1; workflowVersion?:2; track?:Track; approvedArtifacts?:Record<string,Record<string,string>>; id: string; phase: string; evidence: Record<string,string>; history: {phase:string; action:string; reference:string; at:string; task?:string; escalatedTo?:Track; waived?:string[]; actor?:"operator"|"relay"; relayQuote?:string}[]; root?:string; base?:string; worktree?:string; worktreeBranch?:string; worktreeBase?:string; snapshot?:string; configHash?:string; agents?:Agents; backend?:unknown };
 export function phasesFor(s:State):readonly string[] {return TRACKS[s.track??"full"];}
 export function initial(id:string,track:Track="full"):State {
  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) throw Error("Use a lowercase feature slug (1–64 characters)");
