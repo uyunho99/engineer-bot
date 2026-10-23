@@ -24,6 +24,10 @@ const shell=(engine:string,command:string[],readOnly=false):Agent=>({engine,disp
 const codexExec=(sandbox:string)=>["codex","exec","-s",sandbox,"-C","{{cwd}}","{{prompt}}"];
 // Gemini CLI's non-interactive flags; not verified on the machine this was built on.
 const geminiRun=["gemini","-y","-p","{{prompt}}"];
+/** Where each host reads the controller skill. The installer writes here and doctor checks here. */
+export function hostSkillDir(host:string,home:string=homedir(),claudeDir:string=process.env.CLAUDE_CONFIG_DIR??resolve(home,".claude")):string {
+ return host==="claude-code"?resolve(claudeDir,"skills/development-harness-native"):resolve(home,"."+host,"skills/development-harness");
+}
 /** Only Claude Code has the Agent tool, so other controllers start their workers as processes. */
 export const HOST_DEFAULTS:Record<Host,Record<Role,Agent>>={
  "claude-code":DEFAULT_AGENTS,

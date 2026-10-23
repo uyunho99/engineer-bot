@@ -62,6 +62,7 @@ test("a codex controller gets codex exec workers and needs nothing from Claude C
  const need=requirements(a);
  expect(need.claudeSkills).toBe(false);expect(need.codexPlugin).toBe(false);
  expect(need.executables).toEqual(["bun","codex","git"]);
+ expect(need.hostSkill).toMatch(/\.codex\/skills\/development-harness\/SKILL\.md$/);
 }));
 test("a gemini controller defaults to gemini workers",()=>withConfig({controller:{host:"gemini"}},null,root=>{
  const a=loadAgents(root);

@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { loadAgents, type Agents } from "./agents.ts";
+import { loadAgents, hostSkillDir, type Agents } from "./agents.ts";
 import { git } from "./store.ts";
 import { guardReport } from "./precommit.ts";
 /** What this configuration actually depends on. Engines nobody chose are not required. */
-export function requirements(a:Agents):{executables:string[];codexPlugin:boolean;codexBrowserSkill:boolean;claudeSkills:boolean} {
+export function requirements(a:Agents):{executables:string[];codexPlugin:boolean;codexBrowserSkill:boolean;claudeSkills:boolean;hostSkill:string} {
  const roles=Object.values(a.agents);
  const exe=new Set(["git","bun"]);
  const codexPlugin=roles.some(r=>r.dispatch.kind==="claude-agent"&&r.dispatch.agent.startsWith("codex:"));
@@ -13,13 +13,14 @@ export function requirements(a:Agents):{executables:string[];codexPlugin:boolean
  const claudeSkills=a.controller.host==="claude-code";
  if(claudeSkills||roles.some(r=>r.dispatch.kind==="claude-agent"))exe.add("claude");
  for(const r of roles)if(r.dispatch.kind==="shell")exe.add(r.dispatch.command[0]!);
- return {executables:[...exe].sort(),codexPlugin,codexBrowserSkill:a.agents.browserQa.engine==="codex",claudeSkills};
+ return {executables:[...exe].sort(),codexPlugin,codexBrowserSkill:a.agents.browserQa.engine==="codex",claudeSkills,hostSkill:resolve(hostSkillDir(a.controller.host),"SKILL.md")};
 }
 export async function doctor():Promise<void> {
  let root=process.cwd();try{root=git(process.cwd(),"rev-parse","--show-toplevel");}catch{}
  const team=loadAgents(root), need=requirements(team);
  const home=homedir(), configDir=process.env.CLAUDE_CONFIG_DIR??resolve(home,".claude");
- const report:Record<string,unknown>={controller:team.controller.host,engines:Object.fromEntries(Object.entries(team.agents).map(([k,v])=>[k,v.engine])),executables:need.executables};
+ if(!existsSync(need.hostSkill))throw Error("Missing the controller skill for "+team.controller.host+" at "+need.hostSkill+"; run the installer with --host "+team.controller.host);
+ const report:Record<string,unknown>={hostSkill:need.hostSkill,controller:team.controller.host,engines:Object.fromEntries(Object.entries(team.agents).map(([k,v])=>[k,v.engine])),executables:need.executables};
  if(need.claudeSkills||need.codexPlugin) {
   const plugins=JSON.parse(readFileSync(resolve(configDir,"plugins/installed_plugins.json"),"utf8")).plugins;
   if(need.claudeSkills) {

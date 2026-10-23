@@ -41,7 +41,7 @@ test("implementer dispatch fixes the scope, writes the prompt and follows the co
  expect(spec.cwd).toBe(realpathSync(wt));
  expect(JSON.parse(readFileSync(join(root,".harness/scope.json"),"utf8"))).toEqual({task:"T1",allowed_files:["src/a.ts","src/a.test.ts"]});
  const prompt=readFileSync(spec.promptFile,"utf8");
- expect(prompt).toContain("READY_FOR_COMMIT");expect(prompt).toContain("src/a.ts, src/a.test.ts");expect(prompt).toContain(realpathSync(wt));
+ expect(prompt).toContain("READY_FOR_COMMIT");expect(prompt).toContain("executor value in that report is: codex");expect(prompt).toContain("Test first.");expect(prompt).toContain("src/a.ts, src/a.test.ts");expect(prompt).toContain(realpathSync(wt));
  expect(dispatchSpec(root,"implementer","T1").scope).toEqual({task:"T1",allowed_files:["src/a.ts","src/a.test.ts"]});
  writeFileSync(join(wt,"harness.config.json"),JSON.stringify({version:1,mode:"claude-only",verificationCommands:[["bun","test"]],agents:{implementer:{engine:"gemini",dispatch:{kind:"shell",command:["gemini","-y","--prompt-file","{{promptFile}}"]}}}}));
  const g=dispatchSpec(root,"implementer","T1");
