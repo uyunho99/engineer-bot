@@ -120,3 +120,32 @@ test("delivery refuses a missing worktree or the wrong branch",()=>{
   expect(()=>repositoryGate(root,".harness/worker.json",".harness/scope.json")).toThrow("main checkout");
  }finally{rmSync(base,{recursive:true,force:true});}
 });
+test("a light run goes through the CLI without a design gate and can escalate",()=>{
+ const base=mkdtempSync(join(tmpdir(),"harness-light-"));const root=join(base,"repo");mkdirSync(root);
+ const cli=(...a:string[])=>Bun.spawnSync([process.execPath,join(import.meta.dir,"cli.ts"),...a],{cwd:root});
+ try{
+  git(root,"init");git(root,"config","user.email","t@example.invalid");git(root,"config","user.name","T");
+  writeFileSync(join(root,".gitignore"),".harness/\n");git(root,"add",".");git(root,"commit","-m","initial");
+  expect(cli("setup").exitCode).toBe(0);
+  expect(cli("configure",'[["bun","test"]]').exitCode).toBe(0);
+  expect(cli("init","hotfix","--track","light").exitCode).toBe(0);
+  expect(load(root).track).toBe("light");
+  const dir=join(root,"docs/development/hotfix");
+  writeFileSync(join(dir,"brainstorm.md"),"fix label typo");
+  writeFileSync(join(dir,"impl.md"),"change one string");
+  writeFileSync(join(dir,"qa.md"),"QA-REG-001\nGiven: label\nWhen: render\nThen: spelled right\n");
+  expect(cli("complete","brainstorm","docs/development/hotfix/brainstorm.md").exitCode).toBe(0);
+  expect(load(root).phase).toBe("plan");
+  const bundle=(extra:object)=>writeFileSync(join(dir,"plan.json"),JSON.stringify({kind:"plan",surface:"non-ui",implementation:"docs/development/hotfix/impl.md",qaPlan:"docs/development/hotfix/qa.md",nonUiReason:"label string only",...extra}));
+  bundle({});
+  expect(cli("complete","plan","docs/development/hotfix/plan.json").stderr.toString()).toContain("designNeeded");
+  bundle({designNeeded:true});
+  expect(cli("complete","plan","docs/development/hotfix/plan.json").stderr.toString()).toContain("designNeeded");
+  bundle({designNeeded:false});
+  const r=cli("complete","plan","docs/development/hotfix/plan.json");
+  expect(r.stderr.toString()).toBe("");expect(r.exitCode).toBe(0);
+  expect(load(root).phase).toBe("plan-gate");
+  expect(cli("decide","revise","--escalate","needs mockups").exitCode).toBe(0);
+  expect(load(root).track).toBe("full");expect(load(root).phase).toBe("design");
+ }finally{rmSync(base,{recursive:true,force:true});}
+});

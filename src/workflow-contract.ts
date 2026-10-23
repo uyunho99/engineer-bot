@@ -1,4 +1,4 @@
-import type { State } from "./harness.ts";
+import type { State, Track } from "./harness.ts";
 import { artifact } from "./store.ts";
 
 const text=(x:unknown):x is string=>typeof x==="string"&&!!x.trim();
@@ -11,10 +11,17 @@ export function scenarioIds(markdown:string):string[] {
  }
  return ids.sort();
 }
-export function bindApproval(root:string,phase:string,path:string):Record<string,string> {
+export function bindApproval(root:string,phase:string,path:string,track:Track="full"):Record<string,string> {
  const b=JSON.parse(artifact(root,path).text);
  if(b.kind!==phase||!["web","non-ui"].includes(b.surface))throw Error("Expected design/plan approval bundle with web or non-ui surface");
  const files:string[]=phase==="design"?[b.document]:[b.implementation,b.qaPlan];
+ // A light run has no design gate, so any design it needs travels inside the plan bundle
+ // and is approved with it.
+ if(phase==="plan"&&track==="light") {
+  if(typeof b.designNeeded!=="boolean")throw Error("Light-track plan bundle must state designNeeded true or false");
+  if(b.designNeeded&&!text(b.design))throw Error("Light-track plan has designNeeded true but no design document");
+  if(text(b.design))files.push(b.design);
+ }
  if(phase==="design"&&b.surface==="web") {
   if(!text(b.mockup?.provider)||!text(b.mockup?.invocation)||!text(b.mockup?.entry)||!Array.isArray(b.mockup?.files)||!b.mockup.files.includes(b.mockup.entry))throw Error("UI design requires a Claude mockup entry, files, provider and actual invocation");
   files.push(...b.mockup.files);

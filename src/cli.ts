@@ -2,7 +2,7 @@ import { bindApproval, checkApprovals, validateBrowserQA, validateBuildReviews, 
 import { repositoryGate, repositoryCommit, validateTaskCommits } from "./repository-control.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { initial, complete, decide, retry } from "./harness.ts";
+import { initial, complete, decide, retry, type Track } from "./harness.ts";
 import { repo, load, save, locked, git, artifact, fingerprint, statePath, digest, codeRoot } from "./store.ts";
 import { setup, verificationCommands, fixLimits } from "./project.ts";
 import { evidence } from "./evidence.ts";
@@ -10,7 +10,7 @@ import { doctor } from "./doctor.ts";
 import { startPrepare, prepareStatus } from "./prepare.ts";
 const [command,...args]=Bun.argv.slice(2);
 
-const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> | status | complete <phase> <report> | decide <approve|revise|cancel> <human-reference> | worktree <absolute-path> <new-branch> | retry <findings> --task <task-id> | prepare | prepare-status";
+const help="harness: repository-gate <worker-report.json> <scope.json> | repository-commit <gate-token> | doctor | setup | configure <JSON-argv-arrays> | evidence | fingerprint | init <slug> [--track full|light] | status | complete <phase> <report> | decide <approve|revise|cancel> [--escalate] <human-reference> | worktree <absolute-path> <new-branch> | retry <findings> --task <task-id> | prepare | prepare-status";
 try {
  if(args.includes("--execute"))throw Error("Ungated execute removed: use harness lifecycle");
  if(command==="doctor") await doctor();
@@ -31,7 +31,9 @@ try {
   }
   if(command==="init") {
    if(existsSync(statePath(root)))throw Error("Existing run: resume it; archive explicitly before a new run");
-   const s=initial(args[0]??"");s.root=root;s.base=git(root,"rev-parse","HEAD");save(root,s);
+   const ti=args.indexOf("--track");
+   const rest=ti<0?args:[...args.slice(0,ti),...args.slice(ti+2)];
+   const s=initial(rest[0]??"",(ti<0?"full":args[ti+1]??"") as Track);s.root=root;s.base=git(root,"rev-parse","HEAD");save(root,s);
    mkdirSync(resolve(root,"docs/development",s.id),{recursive:true});console.log(JSON.stringify(s));return;
   }
   let s=load(root);
@@ -54,8 +56,8 @@ try {
    if(s.workflowVersion===2) {
     checkApprovals(code,s);
     if(["design","plan"].includes(phase)) {
-     const hashes=bindApproval(code,phase,path);
-     if(phase==="plan") {
+     const hashes=bindApproval(code,phase,path,s.track??"full");
+     if(phase==="plan"&&(s.track??"full")==="full") {
       const designPath=s.evidence.design?.split("#sha256=")[0];
       if(!designPath||JSON.parse(artifact(code,designPath).text).surface!==JSON.parse(report.text).surface)throw Error("Design and QA plan surfaces must agree");
      }
@@ -85,10 +87,12 @@ try {
    if(phase==="plan" && existsSync(configPath))s.configHash=configHash();
    s=complete(s,phase,path+"#sha256="+report.hash,"PASS");save(root,s);
   } else if(command==="decide") {
-   if(args[0]==="approve")checkApprovals(code,s);
-   for(const entry of Object.values(s.evidence)){const [p,h]=entry.split("#sha256=");if(h&&artifact(code,p!).hash!==h&&args[0]==="approve")throw Error("Gate evidence changed; revise first");}
-   if(s.phase==="uat-gate"&&args[0]==="approve"&&s.snapshot!==fingerprint(code))throw Error("UAT evidence stale; retry");
-   s=decide(s,args[0]??"",args[1]??"");save(root,s);
+   const escalate=args.includes("--escalate");
+   const [decision="",reference=""]=args.filter(a=>a!=="--escalate");
+   if(decision==="approve")checkApprovals(code,s);
+   for(const entry of Object.values(s.evidence)){const [p,h]=entry.split("#sha256=");if(h&&artifact(code,p!).hash!==h&&decision==="approve")throw Error("Gate evidence changed; revise first");}
+   if(s.phase==="uat-gate"&&decision==="approve"&&s.snapshot!==fingerprint(code))throw Error("UAT evidence stale; retry");
+   s=decide(s,decision,reference,{escalate});save(root,s);
   } else if(command==="retry") {
    const i=args.indexOf("--task");
    const task=i>=0?(args[i+1]??""):"";
