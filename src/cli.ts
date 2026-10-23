@@ -91,7 +91,8 @@ try {
     const team=runAgents(code,s).agents;
     if(phase==="build") {
      const prep=prepareStatus(root);
-     if(!["ok","skipped"].includes(String(prep.state)))throw Error("Worktree preparation is "+String(prep.state)+"; inspect .harness/worktree-prepare.log and rerun prepare before completing build");
+     // missing: this run never started a preparation (it predates it, or the worktree was made by hand).
+     if(!["ok","skipped","missing"].includes(String(prep.state)))throw Error("Worktree preparation is "+String(prep.state)+"; inspect .harness/worktree-prepare.log and rerun prepare before completing build");
     }
     const r=JSON.parse(report.text) as {verdict:string;commands?:{command:string;exitCode:number}[];head:string;fingerprint:string;findings?:unknown[];notApplicable?:string;tasks?:{id:string;red:string;green:string;review:string;executor:string;dispatch:string}[];scenarios?:{id:string;result:string;evidence:string}[]};
     if(r.verdict!=="PASS"||(phase!=="finish"&&r.head!==git(code,"rev-parse","HEAD"))||r.fingerprint!==fingerprint(code))throw Error("Failed or stale report");

@@ -85,3 +85,18 @@ test("gate preserves approved configuration and rejects commit-hook mutations",(
  expect(()=>repositoryCommit(main,gate(main).token)).toThrow("hook changed contents");
  expect(()=>validateTaskCommits(main,[{id:"T1"}])).toThrow("latest controller");
 }));
+
+test("a run started before the split, with its state inside the worktree, still commits",()=>{
+ const dir=realpathSync(mkdtempSync(join(tmpdir(),"repository-control-legacy-"))),main=join(dir,"main"),wt=join(dir,"worktree");mkdirSync(main);
+ try{
+  git(main,"init");git(main,"config","user.email","test@example.invalid");git(main,"config","user.name","Legacy fixture");
+  writeFileSync(join(main,".gitignore"),".harness/\n");writeFileSync(join(main,"app.txt"),"before\n");
+  git(main,"add","--",".gitignore","app.txt");git(main,"commit","-m","base");git(main,"worktree","add","-b","fixture",wt);
+  const s=initial("fixture");s.phase="build";s.root=wt;s.worktree=wt;s.worktreeBranch="fixture";save(wt,s);
+  writeFileSync(join(wt,"app.txt"),"after\n");
+  writeFileSync(join(wt,".harness/worker.json"),JSON.stringify({task:"T1",executor:"codex",status:"READY_FOR_COMMIT",implementation:{status:"complete"},verification:{red:{status:"passed",command:"fixture failing assertion",evidence:"expected after, got before"},green:{status:"passed",command:"fixture passing assertion",tests_passed:1},typecheck:{status:"passed",command:"fixture static validation"}},changed_files:["app.txt"],proposed_commit_message:"feat: legacy",notes:[]}));
+  writeFileSync(join(wt,".harness/scope.json"),JSON.stringify({task:"T1",allowed_files:["app.txt"]}));
+  const entry=repositoryCommit(wt,gate(wt).token);
+  expect(git(wt,"rev-parse","HEAD")).toBe(entry.commit.sha);
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});

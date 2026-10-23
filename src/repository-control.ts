@@ -48,10 +48,15 @@ function snapshot(stateRoot:string,root:string,reportPath:string,scopePath:strin
  const state={head:git(root,"rev-parse","HEAD"),report,scope,status:raw(root,"status","--short"),diff:raw(root,"diff","--binary","HEAD"),contents:actual.map(p=>[p,existsSync(resolve(root,p))?digest(readFileSync(resolve(root,p))):"deleted"])};
  return {report,actual,state,token:digest(JSON.stringify(state))};
 }
+function isLinkedWorktree(dir:string):boolean {
+ return realpathSync(resolve(dir,git(dir,"rev-parse","--git-dir")))!==realpathSync(resolve(dir,git(dir,"rev-parse","--git-common-dir")));
+}
 function requireWorktree(stateRoot:string,s:State):string {
  if(!s.worktree)throw Error("Approved build worktree required");
  const code=codeRoot(stateRoot,s);
- if(code===realpathSync(stateRoot))throw Error("Delivery must not target the main checkout");
+ // Runs started before the split keep their state inside the linked worktree; only a
+ // run whose state sits in the main repository may not deliver into that same tree.
+ if(code===realpathSync(stateRoot)&&!isLinkedWorktree(code))throw Error("Delivery must not target the main checkout");
  if(realpathSync(git(code,"rev-parse","--show-toplevel"))!==code)throw Error("Approved worktree path is not a worktree root");
  if(git(code,"rev-parse","--abbrev-ref","HEAD")!==s.worktreeBranch)throw Error("Worktree is not on the approved branch");
  return code;
@@ -75,7 +80,7 @@ export function repositoryGate(stateRoot:string,reportPath:string,scopePath:stri
 }
 export function repositoryCommit(stateRoot:string,token:string) {
  stateRoot=realpathSync(stateRoot);const root=requireBuild(stateRoot);
- const mainHead=git(stateRoot,"rev-parse","HEAD");
+ const split=root!==stateRoot, mainHead=split?git(stateRoot,"rev-parse","HEAD"):"";
  const g=JSON.parse(readFileSync(resolve(stateRoot,".harness/repository-gate.json"),"utf8"));
  const x=snapshot(stateRoot,root,g.reportPath,g.scopePath);
  if(token!==g.token||token!==x.token)throw Error("Repository gate stale; inspect a new gate before commit");
@@ -94,7 +99,7 @@ export function repositoryCommit(stateRoot:string,token:string) {
  for(const [p,hash] of x.state.contents) {
   if(hash!=="deleted"&&digest(Bun.spawnSync(["git","-C",root,"show",sha+":"+p],{stdout:"pipe",stderr:"pipe"}).stdout)!==hash)throw Error("Commit hook changed contents; reconcile committed result before review");
  }
- if(git(stateRoot,"rev-parse","HEAD")!==mainHead)throw Error("Main checkout HEAD moved during a worktree commit; inspect both trees before continuing");
+ if(split&&git(stateRoot,"rev-parse","HEAD")!==mainHead)throw Error("Main checkout HEAD moved during a worktree commit; inspect both trees before continuing");
  const entry={run_id:load(stateRoot).id,task:x.report.task,executor:x.report.executor,committer:"controller",repository_control:{mode:"controller_managed"},base_commit:x.state.head,commit:{sha,message:x.report.proposed_commit_message},changed_files:x.actual,worker_report:x.report};
  const path=resolve(stateRoot,".harness/repository-ledger.json");
  const ledger=existsSync(path)?JSON.parse(readFileSync(path,"utf8")):[];
