@@ -1,10 +1,11 @@
 import { repositoryGate, repositoryCommit } from "./repository-control.ts";
 import { test,expect } from "bun:test";
-import { mkdtempSync,mkdirSync,writeFileSync,rmSync,realpathSync } from "node:fs";
+import { mkdtempSync,mkdirSync,writeFileSync,rmSync,realpathSync,existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { git,load,fingerprint } from "./store.ts";
-test("CLI blocks wrong phase, detects changed approved docs, and transfers an isolated run",()=>{
+import { git,load,save,fingerprint,codeRoot } from "./store.ts";
+import { initial } from "./harness.ts";
+test("CLI blocks wrong phase, detects changed approved docs, and records the worktree",()=>{
  const base=mkdtempSync(join(tmpdir(),"harness-cli-"));const root=join(base,"repo"),wt=join(base,"worktree");mkdirSync(root);
  const cli=(...args:string[])=>Bun.spawnSync([process.execPath,join(import.meta.dir,"cli.ts"),...args],{cwd:root});
  try {
@@ -33,13 +34,15 @@ test("CLI blocks wrong phase, detects changed approved docs, and transfers an is
   expect(cli("worktree",wt,"feature/sample").exitCode).toBe(1);
   git(root,"add","docs","harness.config.json");git(root,"commit","-m","plan");
   expect(cli("worktree",wt,"feature/sample").exitCode).toBe(0);
-  expect(load(root).phase).toBe("transferred");expect(load(wt).phase).toBe("build");expect(load(wt).worktree).toBe(realpathSync(wt));
+  expect(load(root).phase).toBe("build");expect(load(root).worktree).toBe(realpathSync(wt));
+  expect(load(root).worktreeBranch).toBe("feature/sample");
+  expect(existsSync(join(wt,".harness/state.json"))).toBe(false);
   expect(cli("plan","--execute").exitCode).toBe(1);
-  const run=(...args:string[])=>Bun.spawnSync([process.execPath,join(import.meta.dir,"cli.ts"),...args],{cwd:wt});
+  const run=(...args:string[])=>Bun.spawnSync([process.execPath,join(import.meta.dir,"cli.ts"),...args],{cwd:root});
   writeFileSync(join(wt,"task.txt"),"verified task implementation\n");
-  writeFileSync(join(wt,".harness/worker.json"),JSON.stringify({task:"T1",executor:"codex",status:"READY_FOR_COMMIT",implementation:{status:"complete"},verification:{red:{status:"passed",command:"fixture RED",evidence:"expected assertion failure"},green:{status:"passed",command:"fixture GREEN",tests_passed:1},typecheck:{status:"passed",command:"fixture static check"}},changed_files:["task.txt"],proposed_commit_message:"feat: task",notes:[]}));
-  writeFileSync(join(wt,".harness/scope.json"),JSON.stringify({task:"T1",allowed_files:["task.txt"]}));
-  const commit=repositoryCommit(wt,repositoryGate(wt,".harness/worker.json",".harness/scope.json").token);
+  writeFileSync(join(root,".harness/worker.json"),JSON.stringify({task:"T1",executor:"codex",status:"READY_FOR_COMMIT",implementation:{status:"complete"},verification:{red:{status:"passed",command:"fixture RED",evidence:"expected assertion failure"},green:{status:"passed",command:"fixture GREEN",tests_passed:1},typecheck:{status:"passed",command:"fixture static check"}},changed_files:["task.txt"],proposed_commit_message:"feat: task",notes:[]}));
+  writeFileSync(join(root,".harness/scope.json"),JSON.stringify({task:"T1",allowed_files:["task.txt"]}));
+  const commit=repositoryCommit(root,repositoryGate(root,".harness/worker.json",".harness/scope.json").token);
   const reportPath="docs/development/sample/delivery.json";
   const report={verdict:"PASS",head:git(wt,"rev-parse","HEAD"),fingerprint:fingerprint(wt),commands:[{command:"fixture assertion",exitCode:0}],findings:[],tasks:[{...commit,review_commit:commit.commit.sha,review_verdict:"PASS",id:"T1",executor:"codex",dispatch:"fixture Codex execution log",red:"fixture red",green:"fixture green",review:"independent fixture review",reviewer:{executor:"codex",role:"code-review",dispatch:"task-review-session",freshSession:true}}],notApplicable:"CLI fixture, no browser surface"};
   writeFileSync(join(wt,reportPath),JSON.stringify(report));
@@ -56,6 +59,64 @@ test("CLI blocks wrong phase, detects changed approved docs, and transfers an is
   expect(run("decide","approve","fixture UAT").exitCode).toBe(0);
   git(wt,"add","docs");git(wt,"commit","-m","evidence");
   expect(run("complete","finish",reportPath).exitCode).toBe(0);
-  expect(load(wt).phase).toBe("done");
+  expect(load(root).phase).toBe("done");
+ }finally{rmSync(base,{recursive:true,force:true});}
+});
+
+const workerReport=(task:string,files:string[])=>JSON.stringify({task,executor:"codex",status:"READY_FOR_COMMIT",implementation:{status:"complete"},verification:{red:{status:"passed",command:"fixture RED",evidence:"expected assertion failure"},green:{status:"passed",command:"fixture GREEN",tests_passed:1},typecheck:{status:"passed",command:"fixture static check"}},changed_files:files,proposed_commit_message:"feat: fixture",notes:[]});
+const seed=(base:string)=>{
+ const root=join(base,"repo"),wt=join(base,"wt");mkdirSync(root);
+ git(root,"init");git(root,"config","user.email","t@example.invalid");git(root,"config","user.name","T");
+ writeFileSync(join(root,".gitignore"),".harness/\n");
+ mkdirSync(join(root,"docs/development/sample"),{recursive:true});
+ writeFileSync(join(root,"docs/development/sample/product.md"),"reviewable product");
+ writeFileSync(join(root,"harness.config.json"),JSON.stringify({version:1,mode:"claude-only",verificationCommands:[["bun","test"]]},null,2));
+ writeFileSync(join(root,"source.ts"),"export const a=1;\n");
+ git(root,"add",".");git(root,"commit","-m","initial");
+ return {root,wt};
+};
+test("delivery fingerprints come from the worktree, not the main checkout",()=>{
+ const base=mkdtempSync(join(tmpdir(),"harness-route-"));
+ try{
+  const {root,wt}=seed(base);
+  git(root,"worktree","add","-b","feature/x",wt,"HEAD");
+  const s=initial("sample");s.root=realpathSync(root);s.worktree=realpathSync(wt);s.worktreeBranch="feature/x";
+  expect(codeRoot(root,s)).toBe(realpathSync(wt));
+  const before=fingerprint(codeRoot(root,s));
+  writeFileSync(join(wt,"source.ts"),"export const a=2;\n");
+  expect(fingerprint(codeRoot(root,s))).not.toBe(before);
+  expect(fingerprint(root)).toBe(before);
+ }finally{rmSync(base,{recursive:true,force:true});}
+});
+test("controller commits land in the worktree and never move main",()=>{
+ const base=mkdtempSync(join(tmpdir(),"harness-commit-"));
+ try{
+  const {root,wt}=seed(base);
+  git(root,"worktree","add","-b","feature/x",wt,"HEAD");
+  const mainHead=git(root,"rev-parse","HEAD");
+  const s=initial("sample");s.root=realpathSync(root);s.worktree=realpathSync(wt);s.worktreeBranch="feature/x";s.phase="build";save(root,s);
+  writeFileSync(join(wt,"task.txt"),"work\n");
+  writeFileSync(join(root,".harness/worker.json"),workerReport("T1",["task.txt"]));
+  writeFileSync(join(root,".harness/scope.json"),JSON.stringify({task:"T1",allowed_files:["task.txt"]}));
+  const entry=repositoryCommit(root,repositoryGate(root,".harness/worker.json",".harness/scope.json").token);
+  expect(git(wt,"rev-parse","HEAD")).toBe(entry.commit.sha);
+  expect(git(root,"rev-parse","HEAD")).toBe(mainHead);
+  expect(git(wt,"rev-parse","--abbrev-ref","HEAD")).toBe("feature/x");
+  expect(existsSync(join(root,".harness/repository-ledger.json"))).toBe(true);
+ }finally{rmSync(base,{recursive:true,force:true});}
+});
+test("delivery refuses a missing worktree or the wrong branch",()=>{
+ const base=mkdtempSync(join(tmpdir(),"harness-guard-"));
+ try{
+  const {root,wt}=seed(base);
+  const bare=initial("sample");bare.root=realpathSync(root);bare.phase="build";save(root,bare);
+  writeFileSync(join(root,".harness/worker.json"),workerReport("T1",["task.txt"]));
+  writeFileSync(join(root,".harness/scope.json"),JSON.stringify({task:"T1",allowed_files:["task.txt"]}));
+  expect(()=>repositoryGate(root,".harness/worker.json",".harness/scope.json")).toThrow("worktree");
+  git(root,"worktree","add","-b","feature/x",wt,"HEAD");
+  const wrong=initial("sample");wrong.root=realpathSync(root);wrong.worktree=realpathSync(wt);wrong.worktreeBranch="feature/other";wrong.phase="build";save(root,wrong);
+  expect(()=>repositoryGate(root,".harness/worker.json",".harness/scope.json")).toThrow("approved branch");
+  const self=initial("sample");self.root=realpathSync(root);self.worktree=realpathSync(root);self.worktreeBranch="feature/x";self.phase="build";save(root,self);
+  expect(()=>repositoryGate(root,".harness/worker.json",".harness/scope.json")).toThrow("main checkout");
  }finally{rmSync(base,{recursive:true,force:true});}
 });

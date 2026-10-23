@@ -1,9 +1,10 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { verificationCommands } from "./project.ts";
-import { repo, load, git, fingerprint } from "./store.ts";
-export function evidence(root:string):void {
-const s=load(root);
+import { repo, load, git, fingerprint, codeRoot } from "./store.ts";
+export function evidence(stateRoot:string):void {
+const s=load(stateRoot);
+const root=codeRoot(stateRoot,s);
 const before=fingerprint(root), head=git(root,"rev-parse","HEAD");
 const commands={stdout:"pipe",stderr:"pipe"} as const;
 const results=[];
