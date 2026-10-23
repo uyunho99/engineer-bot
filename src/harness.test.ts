@@ -60,3 +60,26 @@ test("full track is the default and keeps its gates",()=>{
  const legacy={...initial("test")} as any;delete legacy.track;
  expect(complete(legacy,"brainstorm","digest","PASS").phase).toBe("product-gate");
 });
+test("escalation moves a light plan gate to the full design phase",()=>{
+ let s=initial("test","light");
+ s=complete(s,"brainstorm","digest","PASS");
+ s=complete(s,"plan","plan-digest","PASS");
+ expect(s.phase).toBe("plan-gate");
+ const e=decide(s,"revise","mockup needed",{escalate:true});
+ expect(e.track).toBe("full");
+ expect(e.phase).toBe("design");
+ expect(e.evidence.plan).toBeUndefined();
+ expect(e.evidence.brainstorm).toBe("digest");
+ const last=e.history.at(-1)!;
+ expect(last.escalatedTo).toBe("full");
+ expect(last.waived).toEqual(["product-gate"]);
+});
+test("escalation is rejected outside a light plan gate",()=>{
+ let s=initial("test","light");
+ s=complete(s,"brainstorm","digest","PASS");
+ s=complete(s,"plan","digest","PASS");
+ expect(()=>decide(s,"approve","human",{escalate:true})).toThrow("Escalation");
+ let f=initial("test");
+ f=complete(f,"brainstorm","digest","PASS");
+ expect(()=>decide(f,"revise","human",{escalate:true})).toThrow("Escalation");
+});

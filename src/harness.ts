@@ -22,13 +22,19 @@ export function complete(s:State,phase:string,digest:string,verdict:string):Stat
  const n=record(s,"complete",digest); n.evidence[phase]=digest;
  n.phase=ps[ps.indexOf(phase)+1]!; return n;
 }
-export function decide(s:State,decision:string,reference:string):State {
+export function decide(s:State,decision:string,reference:string,opts:{escalate?:boolean}={}):State {
  const ps=phasesFor(s);
  if(!s.phase.endsWith("-gate")) throw Error("No pending gate");
  if(!["approve","revise","cancel"].includes(decision)) throw Error("Expected approve, revise, cancel");
- const n=record(s,decision,reference);
+ if(opts.escalate&&!(decision==="revise"&&s.phase==="plan-gate"&&(s.track??"full")==="light")) throw Error("Escalation requires revising a light-track plan gate");
+ const n=record(s,decision,reference,opts.escalate?{escalatedTo:"full",waived:["product-gate"]}:{});
  if(decision==="cancel") n.phase="cancelled";
  else if(decision==="approve") n.phase=ps[ps.indexOf(s.phase)+1]!;
+ else if(opts.escalate) {
+  n.track="full"; n.phase="design";
+  for(const p of TRACKS.full.slice(TRACKS.full.indexOf("design"))) { delete n.evidence[p]; if(n.approvedArtifacts)delete n.approvedArtifacts[p]; }
+  delete n.snapshot;
+ }
  else { n.phase=s.phase==="uat-gate" ? "build" : ps[ps.indexOf(s.phase)-1]!;
   for(const p of ps.slice(ps.indexOf(n.phase))) { delete n.evidence[p]; if(n.approvedArtifacts)delete n.approvedArtifacts[p]; }
   delete n.snapshot;
